@@ -1,0 +1,77 @@
+baseURL = 'https://velocitykode.com/'
+languageCode = 'en-us'
+title = 'Velocity'
+
+theme = "hextra"
+
+[markup]
+  [markup.goldmark.renderer]
+    unsafe = true
+  [markup.highlight]
+    style = "nord"
+    lineNos = false
+    lineNumbersInTable = false
+    noClasses = false
+    codeFences = true
+    guessSyntax = true
+    hl_Lines = ""
+    hl_inline = false
+    anchorLineNos = false
+    tabWidth = 4
+
+[params]
+  # Custom CSS
+  customCSS = ["css/custom.css"]
+  # Primary color - Velocity logo blue
+  primaryColor = "#1e3a8a"
+
+  # Favicon
+  favicon = "images/velocity-icon-32.png"
+
+  # External link decoration (shows icon for external links)
+  externalLinkDecoration = true
+
+  [params.search]
+    enable = true
+    type = "flexsearch"
+    [params.search.flexsearch]
+      index = "content"
+      tokenize = "forward"
+
+  [params.navbar]
+    displayTitle = false
+    displayLogo = true
+    [params.navbar.logo]
+      path = "images/velocity-logo-light-bg.png"
+      dark = "images/velocity-logo-dark-bg.png"
+      link = "/"
+      width = 200
+      height = 67
+  
+[params.theme]
+  default = "system"
+  displayToggle = true
+
+[params.footer]
+  displayThemeToggle = false
+  displayPoweredBy = false
+
+[menu]
+  [[menu.main]]
+    name = "Search"
+    weight = 1
+    [menu.main.params]
+      type = "search"
+
+  [[menu.main]]
+    name = "Theme"
+    weight = 5
+    [menu.main.params]
+      type = "theme-toggle"
+
+  [[menu.main]]
+    name = "GitHub"
+    url = "https://github.com/velocitykode/velocity"
+    weight = 10
+    [menu.main.params]
+      icon = "github"

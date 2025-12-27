@@ -1,0 +1,373 @@
+/* Force navbar logo and text styling */
+nav a[href="/"] {
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.75rem !important;
+}
+
+nav img {
+  width: 70px !important;
+  height: 70px !important;
+  margin-right: 0 !important;
+}
+
+nav a[href="/"] span {
+  font-size: 2rem !important;
+  font-weight: 700 !important;
+  color: #1e3a8a !important;
+}
+
+/* Custom Syntax Highlighting Styles for Velocity Documentation */
+
+/* Code block improvements */
+.highlight {
+  border-radius: 0;
+  margin: 1.5rem 0;
+  overflow: hidden;
+  border-left: 4px solid #1e3a8a;
+  background: #f8f9fa;
+}
+
+.highlight pre {
+  margin: 0;
+  padding: 1rem 1rem 1rem 1.5rem;
+  overflow-x: auto;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  background: transparent;
+}
+
+/* Remove line numbers completely */
+.highlight .lnt {
+  display: none;
+}
+
+/* Inline code styling */
+code {
+  background-color: #f3f4f6;
+  color: #374151;
+  padding: 0.125rem 0.25rem;
+  border-radius: 4px;
+  font-size: 0.875em;
+}
+
+/* Dark mode support for inline code */
+html.dark code {
+  background-color: #374151;
+  color: #d1d5db;
+}
+
+/* Copy button styling */
+.highlight-copy-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: #6b7280;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.highlight:hover .highlight-copy-btn {
+  opacity: 1;
+}
+
+.highlight-copy-btn:hover {
+  background: #4b5563;
+}
+
+/* Velocity brand colors for Go syntax - using logo colors */
+.highlight .k,    /* Keywords */
+.highlight .kd,   /* Keyword declaration */
+.highlight .kn,   /* Keyword namespace */
+.highlight .kp,   /* Keyword pseudo */
+.highlight .kr,   /* Keyword reserved */
+.highlight .kt {  /* Keyword type */
+  color: #1e3a8a !important; /* Velocity logo blue */
+  font-weight: 600;
+}
+
+/* Function names */
+.highlight .nf {
+  color: #059669 !important; /* Emerald green */
+  font-weight: 500;
+}
+
+/* Strings */
+.highlight .s,
+.highlight .s1,
+.highlight .s2,
+.highlight .se,
+.highlight .sh,
+.highlight .si,
+.highlight .sx,
+.highlight .sr,
+.highlight .ss {
+  color: #dc2626 !important; /* Velocity logo red */
+}
+
+/* Comments */
+.highlight .c,
+.highlight .c1,
+.highlight .cm,
+.highlight .cp,
+.highlight .cs {
+  color: #6b7280 !important; /* Gray */
+  font-style: italic;
+}
+
+/* Numbers */
+.highlight .m,
+.highlight .mb,
+.highlight .mf,
+.highlight .mh,
+.highlight .mi,
+.highlight .mo {
+  color: #7c3aed !important; /* Purple */
+}
+
+/* Package/import names */
+.highlight .kn,
+.highlight .nn {
+  color: #0891b2 !important; /* Cyan */
+}
+
+/* Types */
+.highlight .nc,
+.highlight .no,
+.highlight .nd,
+.highlight .ni,
+.highlight .ne {
+  color: #ea580c !important; /* Orange */
+}
+
+/* Variables */
+.highlight .nv,
+.highlight .nb,
+.highlight .bp {
+  color: #1f2937 !important; /* Dark gray */
+}
+
+/* Dark mode syntax highlighting */
+html.dark .highlight .k,
+html.dark .highlight .kd,
+html.dark .highlight .kn,
+html.dark .highlight .kp,
+html.dark .highlight .kr,
+html.dark .highlight .kt {
+  color: #60a5fa !important; /* Light version of Velocity blue */
+}
+
+html.dark .highlight .nf {
+  color: #34d399 !important; /* Light green */
+}
+
+html.dark .highlight .s,
+html.dark .highlight .s1,
+html.dark .highlight .s2,
+html.dark .highlight .se,
+html.dark .highlight .sh,
+html.dark .highlight .si,
+html.dark .highlight .sx,
+html.dark .highlight .sr,
+html.dark .highlight .ss {
+  color: #fca5a5 !important; /* Light version of Velocity red */
+}
+
+html.dark .highlight .c,
+html.dark .highlight .c1,
+html.dark .highlight .cm,
+html.dark .highlight .cp,
+html.dark .highlight .cs {
+  color: #9ca3af !important; /* Light gray */
+}
+
+html.dark .highlight .m,
+html.dark .highlight .mb,
+html.dark .highlight .mf,
+html.dark .highlight .mh,
+html.dark .highlight .mi,
+html.dark .highlight .mo {
+  color: #c084fc !important; /* Light purple */
+}
+
+html.dark .highlight .nc,
+html.dark .highlight .no,
+html.dark .highlight .nd,
+html.dark .highlight .ni,
+html.dark .highlight .ne {
+  color: #fdba74 !important; /* Light orange */
+}
+
+html.dark .highlight .nv,
+html.dark .highlight .nb,
+html.dark .highlight .bp {
+  color: #e5e7eb !important; /* Light gray */
+}
+
+html.dark .highlight .lnt {
+  color: #6b7280;
+  border-right-color: #4b5563;
+}
+
+/* Language labels */
+.highlight-lang {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background: #374151;
+  color: #d1d5db;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+/* Code block container */
+.highlight {
+  position: relative;
+  background: #f8f9fa;
+  border: none;
+  border-left: 4px solid #1e3a8a !important;
+}
+
+html.dark .highlight {
+  background: #1f2937;
+  border: none;
+  border-left: 4px solid #1e3a8a !important;
+}
+
+/* Scrollbar styling for code blocks */
+.highlight pre::-webkit-scrollbar {
+  height: 8px;
+}
+
+.highlight pre::-webkit-scrollbar-track {
+  background: #f3f4f6;
+  border-radius: 4px;
+}
+
+.highlight pre::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 4px;
+}
+
+html.dark .highlight pre::-webkit-scrollbar-track {
+  background: #374151;
+}
+
+html.dark .highlight pre::-webkit-scrollbar-thumb {
+  background: #6b7280;
+}
+
+/* Table styling improvements */
+table {
+  margin: 1.5rem 0;
+  border-collapse: collapse;
+  width: 100%;
+}
+
+table th,
+table td {
+  border: 1px solid #e5e7eb;
+  padding: 0.75rem;
+  text-align: left;
+}
+
+table th {
+  background-color: #f9fafb;
+  font-weight: 600;
+}
+
+html.dark table th,
+html.dark table td {
+  border-color: #374151;
+}
+
+html.dark table th {
+  background-color: #374151;
+}
+
+/* Why Velocity text - dark mode support */
+.why-velocity-text {
+  color: #000000 !important;
+}
+
+html.dark .why-velocity-text {
+  color: #ffffff !important;
+}
+
+/* Feature card text colors */
+.hextra-feature-card h3,
+.hextra-feature-card .hextra-feature-card-title {
+  color: #000000 !important;
+}
+
+.hextra-feature-card p,
+.hextra-feature-card .hextra-feature-card-subtitle {
+  color: #000000 !important;
+}
+
+html.dark .hextra-feature-card h3,
+html.dark .hextra-feature-card .hextra-feature-card-title {
+  color: #ffffff !important;
+}
+
+html.dark .hextra-feature-card p,
+html.dark .hextra-feature-card .hextra-feature-card-subtitle {
+  color: #e5e7eb !important;
+}
+
+/* Sidebar Navigation - Force Blue Branding */
+aside nav a[aria-current="page"],
+aside nav button[aria-expanded="true"],
+nav.hextra-sidebar-menu a[data-active="true"],
+nav.hextra-sidebar-menu button[data-active="true"],
+.hextra-sidebar li a.active,
+.hextra-sidebar-container li > a[aria-current="page"] {
+  color: #1e3a8a !important;
+  background-color: rgba(30, 58, 138, 0.1) !important;
+  font-weight: 600 !important;
+}
+
+aside nav a:hover,
+aside nav button:hover,
+nav.hextra-sidebar-menu a:hover,
+nav.hextra-sidebar-menu button:hover,
+.hextra-sidebar li a:hover,
+.hextra-sidebar-container li > a:hover {
+  color: #1e3a8a !important;
+  background-color: rgba(30, 58, 138, 0.05) !important;
+}
+
+/* Sidebar active indicator bar */
+aside nav a[aria-current="page"]::before,
+nav.hextra-sidebar-menu a[data-active="true"]::before,
+.hextra-sidebar li a.active::before,
+.hextra-sidebar-container li > a[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background-color: #1e3a8a !important;
+}
+
+/* Collapsible sections */
+aside button[aria-expanded="true"] {
+  color: #1e3a8a !important;
+}
+
+/* Table of contents */
+.hextra-toc a.active,
+.hextra-toc a[aria-current="true"] {
+  color: #1e3a8a !important;
+  border-left: 2px solid #1e3a8a !important;
+}

@@ -1,0 +1,15 @@
+<svg width="200" height="50" viewBox="0 0 200 50" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="blueGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#0099ff;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#00ccff;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- VELOCITY text -->
+  <text x="10" y="35" font-family="Arial, sans-serif" font-size="24" font-weight="300" fill="url(#blueGradient)">VELOCITY</text>
+  
+  <!-- STACK text with background -->
+  <rect x="120" y="15" width="70" height="25" fill="#0099ff" rx="2"/>
+  <text x="125" y="35" font-family="Arial, sans-serif" font-size="24" font-weight="bold" fill="white">STACK</text>
+</svg>
