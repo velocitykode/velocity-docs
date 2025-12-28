@@ -818,3 +818,11 @@ article.prose {
     max-width: 100%;
   }
 }
+
+/* Mobile logo size - all pages */
+@media (max-width: 480px) {
+  nav img, header img, .nav-logo img {
+    max-width: 140px !important;
+    height: auto !important;
+  }
+}
