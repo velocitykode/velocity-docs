@@ -75,3 +75,4 @@ theme = "hextra"
     weight = 10
     [menu.main.params]
       icon = "github"
+
