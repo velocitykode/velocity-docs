@@ -1,5 +1,6 @@
 ---
 title: Frontend Setup
+description: Set up Velocity's frontend stack with Inertia.js, React, TypeScript, and Vite for hot-reload development.
 weight: 10
 ---
 

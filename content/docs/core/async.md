@@ -1,5 +1,6 @@
 ---
 title: "Async"
+description: Run concurrent operations with Velocity's Go-idiomatic async wrappers for goroutines and channels.
 weight: 40
 ---
 

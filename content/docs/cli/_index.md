@@ -1,5 +1,6 @@
 ---
 title: CLI
+description: Velocity CLI reference. Create projects, run dev servers, generate code, and manage your Go web application from the command line.
 weight: 20
 sidebar:
   open: true

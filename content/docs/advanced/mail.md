@@ -1,5 +1,6 @@
 ---
 title: "Mail"
+description: Send emails with Velocity's driver-based mail system supporting SMTP, Mailgun, SES, and more.
 weight: 40
 ---
 

@@ -1,5 +1,6 @@
 ---
 title: "Storage"
+description: Store and retrieve files with Velocity's unified storage interface for local filesystem and Amazon S3.
 weight: 25
 ---
 

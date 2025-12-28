@@ -1,5 +1,6 @@
 ---
 title: Installation
+description: Install the Velocity CLI on macOS, Linux, or Windows using Homebrew or Go install.
 weight: 1
 ---
 

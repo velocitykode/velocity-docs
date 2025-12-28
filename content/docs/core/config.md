@@ -1,5 +1,6 @@
 ---
 title: Configuration
+description: Manage application configuration with environment variables and structured config files in Velocity.
 weight: 5
 ---
 

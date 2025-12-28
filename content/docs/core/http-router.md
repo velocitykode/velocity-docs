@@ -1,5 +1,6 @@
 ---
 title: "HTTP Router"
+description: Type-safe HTTP routing with request tracing, panic recovery, and Context-based API in Velocity.
 weight: 51
 ---
 

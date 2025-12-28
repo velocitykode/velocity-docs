@@ -1,5 +1,6 @@
 ---
 title: React Components
+description: Build type-safe React components that receive props directly from Velocity Go controllers.
 weight: 30
 ---
 

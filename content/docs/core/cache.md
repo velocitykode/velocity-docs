@@ -1,5 +1,6 @@
 ---
 title: Cache
+description: Store and retrieve data with Velocity's multi-driver cache system supporting Redis and in-memory storage.
 weight: 40
 ---
 

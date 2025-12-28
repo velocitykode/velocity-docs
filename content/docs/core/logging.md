@@ -1,5 +1,6 @@
 ---
 title: "Logging"
+description: Log messages with Velocity's driver-based logging system supporting console, file, and daily rotation.
 weight: 30
 ---
 

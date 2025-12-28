@@ -1,5 +1,6 @@
 ---
 title: Documentation
+description: Complete documentation for Velocity Go web framework. Learn routing, database ORM, authentication, queues, real-time features, and more.
 weight: 1
 ---
 

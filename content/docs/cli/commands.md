@@ -1,5 +1,6 @@
 ---
 title: Commands
+description: Complete reference for Velocity CLI commands including new, serve, build, migrate, and code generation.
 weight: 2
 ---
 

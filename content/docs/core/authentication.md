@@ -1,5 +1,6 @@
 ---
 title: Authentication
+description: Implement user login, registration, password hashing, and session management with Velocity's auth system.
 weight: 10
 ---
 

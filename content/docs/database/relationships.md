@@ -1,5 +1,6 @@
 ---
 title: Relationships
+description: Define hasOne, hasMany, belongsTo, and manyToMany relationships with eager loading in Velocity ORM.
 weight: 30
 ---
 

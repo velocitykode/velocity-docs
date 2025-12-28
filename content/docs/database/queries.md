@@ -1,5 +1,6 @@
 ---
 title: Query Builder
+description: Build complex database queries with Velocity's fluent query builder for filtering, sorting, and pagination.
 weight: 20
 ---
 

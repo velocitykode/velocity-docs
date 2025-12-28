@@ -1,5 +1,6 @@
 ---
 title: Controllers
+description: Organize HTTP request handling with Velocity controllers using the MVC pattern and Context-based handlers.
 weight: 20
 ---
 

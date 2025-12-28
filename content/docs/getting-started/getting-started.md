@@ -1,5 +1,6 @@
 ---
 title: Getting Started
+description: Install Velocity CLI, create your first Go web application, and run the development server with hot reload.
 weight: 10
 ---
 

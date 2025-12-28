@@ -1,5 +1,6 @@
 ---
 title: Migrations
+description: Version control your database schema with Velocity migrations for creating tables and modifying columns.
 weight: 50
 ---
 

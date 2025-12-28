@@ -1,5 +1,6 @@
 ---
 title: Configuration
+description: Configure Velocity CLI defaults for database, cache, queue drivers, and project scaffolding preferences.
 weight: 3
 ---
 

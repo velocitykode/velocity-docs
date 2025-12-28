@@ -1,5 +1,6 @@
 ---
 title: CRUD Operations
+description: Create, read, update, and delete database records with Velocity ORM's fluent API.
 weight: 40
 ---
 

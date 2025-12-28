@@ -1,5 +1,6 @@
 ---
 title: Cryptography
+description: Encrypt and decrypt data with AES cipher modes, key rotation, and Laravel-compatible encryption in Velocity.
 weight: 50
 ---
 

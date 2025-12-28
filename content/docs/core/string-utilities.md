@@ -1,5 +1,6 @@
 ---
 title: String Utilities
+description: Manipulate strings with Velocity's fluent string utilities for slugs, cases, truncation, and more.
 weight: 60
 ---
 

@@ -1,5 +1,6 @@
 ---
 title: Core Framework
+description: Core Velocity features including routing, controllers, middleware, authentication, validation, caching, and logging.
 weight: 30
 sidebar:
   open: true

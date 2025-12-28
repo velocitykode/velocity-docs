@@ -1,5 +1,6 @@
 ---
 title: Middleware
+description: Add middleware for authentication, logging, CORS, rate limiting, and custom request processing in Velocity.
 weight: 40
 ---
 

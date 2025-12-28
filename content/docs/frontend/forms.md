@@ -1,5 +1,6 @@
 ---
 title: Forms
+description: Handle form submissions with Inertia's useForm hook for validation, error handling, and submission states.
 weight: 40
 ---
 

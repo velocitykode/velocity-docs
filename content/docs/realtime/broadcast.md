@@ -1,5 +1,6 @@
 ---
 title: Broadcasting
+description: Broadcast events to multiple clients with public, private, and presence channels in Velocity.
 weight: 20
 ---
 

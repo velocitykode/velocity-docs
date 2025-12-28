@@ -1,5 +1,6 @@
 ---
 title: Routing
+description: Define routes in Velocity with automatic discovery, RESTful resources, route groups, and gorilla/mux-based routing.
 weight: 50
 ---
 

@@ -1,5 +1,6 @@
 ---
 title: Getting Started
+description: Connect to PostgreSQL, MySQL, or SQLite databases and define models with Velocity's GORM-based ORM.
 weight: 10
 ---
 

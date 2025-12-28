@@ -1,5 +1,6 @@
 ---
 title: Events
+description: Build event-driven applications with Velocity's observer pattern for decoupled, extensible architecture.
 weight: 80
 ---
 

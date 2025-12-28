@@ -1,5 +1,6 @@
 ---
 title: CSRF Protection
+description: Protect your Velocity application against cross-site request forgery attacks with built-in CSRF middleware.
 weight: 60
 ---
 

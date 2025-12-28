@@ -1,5 +1,6 @@
 ---
 title: WebSockets
+description: Enable real-time bidirectional communication with Velocity's WebSocket server and client APIs.
 weight: 70
 ---
 

@@ -1,5 +1,6 @@
 ---
 title: Inertia.js
+description: Connect Go controllers to React components with Inertia.js for SPA navigation without building an API.
 weight: 20
 ---
 

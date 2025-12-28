@@ -1,5 +1,6 @@
 ---
 title: "Validation"
+description: Validate HTTP requests and form data with Velocity's declarative rule-based validation system.
 weight: 50
 ---
 

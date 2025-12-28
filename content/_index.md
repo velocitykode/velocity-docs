@@ -1,5 +1,6 @@
 ---
-title: Velocity
+title: Velocity - The Full Stack Go Framework
+description: Velocity is a full-stack Go web framework for rapid application development. Zero config, batteries included, with Laravel-like developer experience.
 layout: hextra-home
 ---
 
