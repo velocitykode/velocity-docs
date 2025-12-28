@@ -1,6 +1,6 @@
 ---
 title: Frontend & Views
-weight: 3
+weight: 40
 sidebar:
   open: true
 ---

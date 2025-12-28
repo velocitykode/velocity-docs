@@ -1,6 +1,6 @@
 ---
 title: Core Framework
-weight: 2
+weight: 30
 sidebar:
   open: true
 ---

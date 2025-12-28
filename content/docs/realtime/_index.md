@@ -1,6 +1,6 @@
 ---
 title: Real-time Features
-weight: 5
+weight: 60
 sidebar:
   open: true
 ---

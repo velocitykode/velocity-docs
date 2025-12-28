@@ -7,24 +7,77 @@ weight: 10
 
 ### Prerequisites
 
-- Go 1.25.1 or higher
+- Go 1.25 or higher
+- Node.js 18+ (for frontend assets)
 - Git
 
-### Install Velocity CLI
+### Install the Velocity CLI
 
+{{< tabs items="Homebrew,Go" >}}
+
+{{< tab name="Homebrew" >}}
 ```bash
-go install github.com/velocitykode/velocity/cmd/velocity@latest
+brew tap velocitykode/tap
+brew install velocity
 ```
+{{< /tab >}}
+
+{{< tab name="Go" >}}
+```bash
+go install github.com/velocitykode/velocity-cli@latest
+```
+{{< /tab >}}
+
+{{< /tabs >}}
 
 Verify the installation:
 
 ```bash
-velocity --version
+velocity version
 ```
 
 ## Creating Your First Project
 
-### Quick Start Example
+Create a new Velocity application:
+
+```bash
+velocity new myapp
+```
+
+This creates a new project and automatically starts the development servers. Your application will be available at:
+
+- **Go server**: http://localhost:3000
+- **Vite dev server**: http://localhost:5173
+
+### Project Structure
+
+```
+myapp/
+├── app/
+│   ├── controllers/     # HTTP controllers
+│   ├── middleware/      # Custom middleware
+│   └── models/          # Database models
+├── config/              # Configuration files
+├── database/
+│   ├── migrations/      # Database migrations
+│   └── seeders/         # Database seeders
+├── public/              # Static assets
+├── resources/
+│   ├── js/              # JavaScript/React files
+│   ├── css/             # Stylesheets
+│   └── views/           # View templates
+├── routes/              # Route definitions
+├── storage/             # File storage and logs
+├── .env                 # Environment variables
+├── go.mod               # Go module file
+├── package.json         # Node.js dependencies
+├── vite.config.js       # Vite configuration
+└── main.go              # Application entry point
+```
+
+## Quick Start Example
+
+Here's what the generated `main.go` looks like:
 
 ```go
 package main
@@ -50,7 +103,7 @@ func main() {
 }
 ```
 
-Define your routes in `routes/web.go`:
+Define routes in `routes/web.go`:
 
 ```go
 package routes
@@ -69,61 +122,33 @@ func init() {
 }
 ```
 
-### Create a New Application
-
-```bash
-velocity new myapp
-```
-
-This creates a new Velocity application with:
-- Automatic route discovery from `routes/` directory
-- Auto-initialized logging with multiple drivers
-- RESTful controller examples
-- Environment-based configuration
-- Basic project structure
-- Ready-to-use controllers and models
-
-### Project Structure
-
-```
-myapp/
-├── app/
-│   ├── controllers/     # HTTP controllers
-│   ├── middleware/       # Custom middleware
-│   └── models/          # Database models
-├── config/              # Configuration files
-├── database/
-│   ├── migrations/      # Database migrations
-│   └── seeders/        # Database seeders
-├── public/             # Static assets
-├── resources/
-│   └── views/          # View templates
-├── routes/             # Route definitions
-├── storage/            # File storage
-├── .env                # Environment variables
-├── go.mod              # Go module file
-└── main.go             # Application entry point
-```
-
-## Running Your Application
-
-### Development Server
+## Development Server
 
 Start the development server with hot reload:
 
 ```bash
-cd myapp
 velocity serve
 ```
 
-Your application will be available at `http://localhost:3000`.
+The development server includes:
+- **Hot Reload**: Automatically restarts when Go files change
+- **Error Pages**: Detailed error messages with stack traces
+- **Request Logging**: Logs all requests and responses
 
-The development server features:
-- **Hot Reload**: Automatically restarts on code changes
-- **Error Pages**: Detailed error pages with stack traces
-- **Request Logging**: Detailed request/response logging
+### Serve Options
 
-### Building for Production
+```bash
+# Custom port
+velocity serve --port 8080
+
+# Disable hot reload
+velocity serve --watch=false
+
+# Specify environment
+velocity serve --env production
+```
+
+## Building for Production
 
 Create an optimized production build:
 
@@ -131,15 +156,22 @@ Create an optimized production build:
 velocity build
 ```
 
-This creates a single binary with:
-- Embedded templates and assets
-- Optimized for performance
+This produces a single binary with:
+- Stripped debug symbols for smaller size
+- Static linking for portability
 - Ready for deployment
 
-Run the production binary:
+### Build Options
 
 ```bash
-./myapp
+# Custom output path
+velocity build --output ./bin/myapp
+
+# Cross-compile for Linux
+velocity build --os linux --arch amd64
+
+# Embed version information
+velocity build --version 1.0.0
 ```
 
 ## Configuration
@@ -158,33 +190,34 @@ LOG_DRIVER=console      # console, file
 LOG_PATH=./storage/logs
 LOG_LEVEL=debug
 
-DB_CONNECTION=postgres
+# Database
+DB_CONNECTION=sqlite    # postgres, mysql, sqlite
 DB_HOST=localhost
 DB_PORT=5432
 DB_DATABASE=myapp
 DB_USERNAME=user
 DB_PASSWORD=password
 
-CACHE_DRIVER=redis
-QUEUE_CONNECTION=redis
+# Cache
+CACHE_DRIVER=memory     # redis, memory
+
+# Security
+CRYPTO_KEY=             # Run: velocity key:generate
 ```
 
-### Configuration Files
+### Generate Application Key
 
-Configuration files are stored in the `config/` directory:
+Generate a secure encryption key:
 
-```go
-// config/app.go
-package config
-
-import "github.com/velocitykode/velocity/config"
-
-func App() config.Config {
-    return config.Config{
-        "name": config.Env("APP_NAME", "Velocity"),
-        "env":  config.Env("APP_ENV", "production"),
-        "url":  config.Env("APP_URL", "http://localhost"),
-    }
-}
+```bash
+velocity key:generate
 ```
 
+This updates the `CRYPTO_KEY` in your `.env` file automatically.
+
+## Next Steps
+
+- [CLI Reference](/docs/cli/) - Full CLI command documentation
+- [Routing](/docs/core/routing/) - Learn about routing and middleware
+- [Database](/docs/database/) - Set up database connections and models
+- [Frontend](/docs/frontend/) - Configure Vite and Inertia.js
