@@ -4,17 +4,6 @@ title = 'Velocity - Go Web Framework'
 
 theme = "hextra"
 
-# SEO
-[params.description]
-  default = "Velocity is a full-stack Go web framework for rapid application development. Build faster with zero config, batteries included, and Laravel-like developer experience."
-
-# Open Graph / Social Sharing
-[params.social]
-  twitter = "@velocitykode"
-
-[params.images]
-  default = "images/velocity-og.png"
-
 # Sitemap
 [sitemap]
   changefreq = "weekly"
@@ -39,6 +28,10 @@ enableRobotsTXT = true
     tabWidth = 4
 
 [params]
+  # SEO
+  description = "Velocity is a full-stack Go web framework for rapid application development. Build faster with zero config, batteries included, and Laravel-like developer experience."
+  images = ["images/velocity-og.png"]
+
   # Custom CSS
   customCSS = ["css/custom.css"]
   # Primary color - Velocity logo blue
