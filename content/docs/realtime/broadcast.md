@@ -74,7 +74,7 @@ WEBSOCKET_PORT=6001
 WEBSOCKET_PATH=/ws
 
 # Connection settings
-WEBSOCKET_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:8090
+WEBSOCKET_ALLOWED_ORIGINS=http://localhost:4000,http://localhost:8090
 WEBSOCKET_PING_INTERVAL=30s
 WEBSOCKET_READ_TIMEOUT=60s
 WEBSOCKET_WRITE_TIMEOUT=10s
@@ -281,7 +281,7 @@ func main() {
         Host:           "0.0.0.0",
         Port:           6001,
         Path:           "/ws",
-        AllowedOrigins: []string{"http://localhost:3000"},
+        AllowedOrigins: []string{"http://localhost:4000"},
         PingInterval:   30 * time.Second,
         ReadTimeout:    60 * time.Second,
         WriteTimeout:   10 * time.Second,

@@ -29,7 +29,7 @@ func main() {
         })
     })
 
-    http.ListenAndServe(":3000", r)
+    http.ListenAndServe(":4000", r)
 }
 ```
 
@@ -210,7 +210,7 @@ Clients should send these headers:
 ```bash
 curl -H "X-Trace-ID: trace-123" \
      -H "X-Request-ID: req-456" \
-     http://localhost:3000/api/log
+     http://localhost:4000/api/log
 ```
 
 ## Request-Scoped Storage
@@ -650,8 +650,8 @@ func main() {
         return ctx.Status(201).JSON(user)
     })
 
-    log.Info("Server starting on :3000")
-    http.ListenAndServe(":3000", router)
+    log.Info("Server starting on :4000")
+    http.ListenAndServe(":4000", router)
 }
 ```
 

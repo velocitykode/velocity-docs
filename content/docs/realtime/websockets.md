@@ -44,7 +44,7 @@ func main() {
     go server.Start()
 
     // Your HTTP server continues to run
-    http.ListenAndServe(":3000", router.Get())
+    http.ListenAndServe(":4000", router.Get())
 }
 ```
 

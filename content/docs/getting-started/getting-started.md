@@ -47,7 +47,7 @@ velocity new myapp
 
 This creates a new project and automatically starts the development servers. Your application will be available at:
 
-- **Go server**: http://localhost:3000
+- **Go server**: http://localhost:4000
 - **Vite dev server**: http://localhost:5173
 
 ### Project Structure
@@ -99,8 +99,8 @@ func main() {
     router.LoadRoutes()
 
     // Start server with router
-    log.Info("Server starting", "port", 3000)
-    http.ListenAndServe(":3000", router.Get())
+    log.Info("Server starting", "port", 4000)
+    http.ListenAndServe(":4000", router.Get())
 }
 ```
 
@@ -184,7 +184,7 @@ Velocity uses `.env` files for configuration:
 ```bash
 APP_NAME=MyApp
 APP_ENV=development
-APP_URL=http://localhost:3000
+APP_URL=http://localhost:4000
 
 # Logging
 LOG_DRIVER=console      # console, file

@@ -44,7 +44,7 @@ velocity new myapp --database mysql
 ```
 
 After creation, the CLI automatically starts development servers and displays:
-- Go server at http://localhost:3000
+- Go server at http://localhost:4000
 - Vite dev server at http://localhost:5173
 
 ---

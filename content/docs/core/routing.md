@@ -48,7 +48,7 @@ func main() {
     router.LoadRoutes()
 
     // Start server
-    http.ListenAndServe(":3000", router.Get())
+    http.ListenAndServe(":4000", router.Get())
 }
 ```
 

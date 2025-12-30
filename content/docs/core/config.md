@@ -60,7 +60,7 @@ func main() {
     appName := config.Env("APP_NAME", "Velocity")
 
     // Integer with fallback
-    port := config.EnvInt("APP_PORT", 3000)
+    port := config.EnvInt("APP_PORT", 4000)
 
     // Boolean with fallback
     debug := config.EnvBool("APP_DEBUG", false)
@@ -180,7 +180,7 @@ Alias for `Get` - retrieve string environment variable:
 ```go
 // Get string value
 appEnv := config.Env("APP_ENV", "development")
-appURL := config.Env("APP_URL", "http://localhost:3000")
+appURL := config.Env("APP_URL", "http://localhost:4000")
 ```
 
 ### EnvInt
@@ -189,7 +189,7 @@ Retrieve an integer environment variable:
 
 ```go
 // Get integer value
-port := config.EnvInt("APP_PORT", 3000)
+port := config.EnvInt("APP_PORT", 4000)
 maxConnections := config.EnvInt("MAX_CONNECTIONS", 100)
 
 // Returns default value if not set or invalid
@@ -260,7 +260,7 @@ type ChannelConfig struct {
 ```env
 APP_ENV=development
 APP_DEBUG=true
-APP_URL=http://localhost:3000
+APP_URL=http://localhost:4000
 
 LOG_LEVEL=debug
 LOG_DRIVER=console
@@ -338,8 +338,8 @@ func LoadConfig() *AppConfig {
         Name:        config.Get("APP_NAME", "Velocity"),
         Environment: config.Get("APP_ENV", "development"),
         Debug:       config.EnvBool("APP_DEBUG", false),
-        URL:         config.Get("APP_URL", "http://localhost:3000"),
-        Port:        config.EnvInt("APP_PORT", 3000),
+        URL:         config.Get("APP_URL", "http://localhost:4000"),
+        Port:        config.EnvInt("APP_PORT", 4000),
     }
 }
 ```
@@ -443,7 +443,7 @@ Provide a template for required variables:
 APP_NAME=Velocity
 APP_ENV=development
 APP_DEBUG=true
-APP_URL=http://localhost:3000
+APP_URL=http://localhost:4000
 
 # Database (required)
 DB_CONNECTION=mysql
@@ -553,7 +553,7 @@ services:
   app:
     build: .
     ports:
-      - "3000:3000"
+      - "4000:4000"
     environment:
       - APP_NAME=MyApp
       - APP_ENV=production
@@ -648,8 +648,8 @@ func LoadAppConfig() (*Config, error) {
             Name:        config.Get("APP_NAME", "Velocity"),
             Environment: config.Get("APP_ENV", "development"),
             Debug:       config.EnvBool("APP_DEBUG", false),
-            URL:         config.Get("APP_URL", "http://localhost:3000"),
-            Port:        config.EnvInt("APP_PORT", 3000),
+            URL:         config.Get("APP_URL", "http://localhost:4000"),
+            Port:        config.EnvInt("APP_PORT", 4000),
         },
         Database: DatabaseConfig{
             Host:     config.Get("DB_HOST", "localhost"),
