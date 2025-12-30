@@ -88,7 +88,7 @@ export default defineConfig({
         },
     },
     server: {
-        port: 3001,
+        port: 5173,
         strictPort: true,
         host: 'localhost',
     },
@@ -103,7 +103,7 @@ Configuration breakdown:
 - **`@` alias** - Import from `@/components/Button` instead of `../../components/Button`
 - **`public/build`** - Compiled assets go here, served by Go
 - **`manifest: true`** - Generates manifest.json for production asset versioning
-- **Port 3001** - Vite dev server runs separately from Go server
+- **Port 5173** - Vite dev server runs separately from Go server
 
 ## TypeScript Configuration
 
@@ -217,8 +217,8 @@ Go serves pre-built assets from `public/build/`.
     {{ .inertiaHead }}
 
     <!-- Development: Vite dev server -->
-    <script type="module" src="http://localhost:3001/@vite/client"></script>
-    <script type="module" src="http://localhost:3001/resources/js/app.tsx"></script>
+    <script type="module" src="http://localhost:5173/@vite/client"></script>
+    <script type="module" src="http://localhost:5173/resources/js/app.tsx"></script>
 
     <!-- Production: Compiled assets
     <link rel="stylesheet" href="/build/app.css">
