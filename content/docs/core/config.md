@@ -84,7 +84,7 @@ APP_NAME=Velocity
 APP_ENV=production
 APP_DEBUG=false
 APP_URL=https://example.com
-APP_PORT=3000
+APP_PORT=4000
 
 # Crypto (for session encryption)
 CRYPTO_KEY=base64:your-32-byte-base64-encoded-key

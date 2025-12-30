@@ -381,7 +381,7 @@ Configure routing behavior in your `.env` file:
 
 ```env
 # Server port
-PORT=3000
+PORT=4000
 
 # Enable route debugging
 ROUTE_DEBUG=false
