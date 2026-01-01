@@ -1,12 +1,15 @@
 ---
 title: Commands
-description: Complete reference for Velocity CLI commands including new, serve, build, migrate, and code generation.
+description: Complete reference for Velocity CLI commands. Learn how to create projects, run development servers, generate code, and manage database migrations.
 weight: 2
+keywords: [velocity commands, vel serve, velocity new, go migrations, code generation, hot reload]
 ---
 
 Complete reference for all Velocity CLI commands.
 
-## Project Commands
+## Global Commands (velocity)
+
+These commands are available globally after installing via Homebrew.
 
 ### velocity new
 
@@ -38,20 +41,20 @@ velocity new myapp --database postgres --cache redis
 
 # Create API-only project with auth
 velocity new myapi --api --auth
-
-# Create with MySQL
-velocity new myapp --database mysql
 ```
 
-After creation, the CLI automatically starts development servers and displays:
-- Go server at http://localhost:4000
-- Vite dev server at http://localhost:5173
+After creation, the CLI:
+1. Scaffolds the project
+2. Installs Go and JS dependencies
+3. Runs database migrations
+4. Builds the `./vel` binary
+5. Starts development servers (Go on :4000, Vite on :5173)
 
 ---
 
 ### velocity init
 
-Initialize Velocity in an existing Go project. Adds the Velocity directory structure while preserving existing files.
+Initialize Velocity in an existing Go project.
 
 ```bash
 velocity init [flags]
@@ -64,7 +67,6 @@ velocity init [flags]
 | `--cache` | (from config) | Cache driver |
 | `--auth` | `false` | Include authentication |
 | `--api` | `false` | API-only structure |
-| `--no-interaction` | `false` | Skip interactive prompts |
 
 **Examples:**
 
@@ -74,31 +76,52 @@ velocity init
 
 # Initialize with specific options
 velocity init --database postgres --cache redis
-
-# Non-interactive mode
-velocity init --no-interaction --database sqlite
 ```
 
 **Requirements:**
 - Must be run in a directory with an existing `go.mod` file
-- Directory must not already have Velocity structure
 
 ---
 
-## Development Commands
+### velocity config
 
-### velocity serve
+Manage CLI configuration. See [Configuration](../configuration/) for details.
+
+```bash
+velocity config set <key> <value>
+velocity config get <key>
+velocity config list
+velocity config reset
+```
+
+---
+
+### velocity self-update
+
+Update the velocity installer to the latest version.
+
+```bash
+velocity self-update
+```
+
+---
+
+## Project Commands (vel)
+
+These commands run from within a Velocity project using `./vel` or `vel` (with shell function).
+
+### vel serve
 
 Start the development server with hot reload.
 
 ```bash
-velocity serve [flags]
+vel serve [flags]
 ```
 
 **Flags:**
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
-| `--port` | `-p` | `8080` | Port to run the server on |
+| `--port` | `-p` | `4000` | Port to run the server on |
 | `--env` | `-e` | `development` | Environment mode |
 | `--watch` | `-w` | `true` | Enable hot reload |
 | `--tags` | | | Build tags to pass to go build |
@@ -106,33 +129,30 @@ velocity serve [flags]
 **Examples:**
 
 ```bash
-# Start with defaults (port 8080, hot reload enabled)
-velocity serve
+# Start with defaults (port 4000, hot reload enabled)
+vel serve
 
 # Custom port
-velocity serve --port 3000
+vel serve --port 3000
 
 # Production environment, no hot reload
-velocity serve --env production --watch=false
-
-# With build tags
-velocity serve --tags "sqlite"
+vel serve --env production --watch=false
 ```
 
-**How it works:**
-1. Builds your application to `.velocity/tmp/server`
-2. Watches all `.go` files for changes
-3. Automatically rebuilds and restarts on file changes
-4. Skips `vendor/` and `.velocity/` directories
+**What happens:**
+1. Starts Vite dev server (if `package.json` exists)
+2. Builds your Go application to `.vel/tmp/server`
+3. Watches all `.go` files for changes
+4. Automatically rebuilds and restarts on file changes
 
 ---
 
-### velocity build
+### vel build
 
 Build the application for production deployment.
 
 ```bash
-velocity build [flags]
+vel build [flags]
 ```
 
 **Flags:**
@@ -148,141 +168,96 @@ velocity build [flags]
 
 ```bash
 # Default build
-velocity build
+vel build
 
 # Custom output path
-velocity build --output ./bin/myapp
+vel build --output ./bin/myapp
 
 # Cross-compile for Linux
-velocity build --os linux --arch amd64
-
-# Build for multiple platforms
-velocity build --os linux --arch amd64 --output ./dist/myapp-linux
-velocity build --os darwin --arch arm64 --output ./dist/myapp-mac
-
-# With version info
-velocity build --version 1.2.0
+vel build --os linux --arch amd64
 ```
-
-**Optimizations:**
-- Strips debug symbols (`-s -w` ldflags)
-- Disables CGO for better portability
-- Creates a static binary
 
 ---
 
-## Database Commands
-
-### velocity migrate
+### vel migrate
 
 Run all pending database migrations.
 
 ```bash
-velocity migrate
+vel migrate
 ```
 
 **Requirements:**
-- Must be run from project root (where `go.mod` is located)
-- Requires `database/migrations/` directory
+- Must be run from project root
 - Database connection configured in `.env`
 
-**Example:**
-
-```bash
-velocity migrate
-```
-
-Output shows each migration being applied:
+**Example output:**
 
 ```
-Creating migration table .......................... DONE
-2024_01_15_000001_create_users_table .............. DONE
-2024_01_15_000002_create_posts_table .............. DONE
+MIGRATE
 
-[SUCCESS] Done
+✓ 20240115000001_create_users_table
+✓ 20240115000002_create_posts_table
+
+Done
 ```
 
 ---
 
-### velocity migrate:fresh
+### vel migrate:fresh
 
 Drop all database tables and re-run all migrations from scratch.
 
 ```bash
-velocity migrate:fresh
+vel migrate:fresh
 ```
 
 {{< callout type="warning" >}}
 This command is destructive and will delete all data. Use only in development.
 {{< /callout >}}
 
-**Example:**
-
-```bash
-velocity migrate:fresh
-```
-
 ---
 
-## Code Generation
-
-### velocity make controller
+### vel make:controller
 
 Generate a new HTTP controller.
 
 ```bash
-velocity make controller <name> [flags]
+vel make:controller <name> [flags]
 ```
 
-**Aliases:** `velocity generate controller`, `velocity g controller`
-
 **Arguments:**
-- `name` - Controller name (automatically appends "Controller" if not present)
+- `name` - Controller name (automatically converts to snake_case)
 
 **Flags:**
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--resource` | `false` | Generate CRUD methods (Index, Create, Store, Show, Edit, Update, Destroy) |
+| `--resource` | `false` | Generate CRUD methods |
 | `--api` | `false` | Generate API controller (JSON responses) |
-| `--methods` | | Custom methods (comma-separated) |
 
 **Examples:**
 
 ```bash
 # Basic controller
-velocity make controller User
+vel make:controller User
 
 # Resource controller with CRUD methods
-velocity make controller Post --resource
+vel make:controller Post --resource
 
 # API controller
-velocity make controller API/Product --api --resource
-
-# Custom methods
-velocity make controller Payment --methods "process,refund,status"
+vel make:controller Product --api --resource
 ```
 
-**Generated file:** `app/controllers/<name>.go`
-
-**Resource controller methods:**
-- `Index` - List all resources
-- `Create` - Show create form
-- `Store` - Save new resource
-- `Show` - Display single resource
-- `Edit` - Show edit form
-- `Update` - Update resource
-- `Destroy` - Delete resource
+**Generated file:** `app/http/controllers/<name>_controller.go`
 
 ---
 
-## Utility Commands
-
-### velocity key:generate
+### vel key:generate
 
 Generate a new 32-byte encryption key for your application.
 
 ```bash
-velocity key:generate [flags]
+vel key:generate [flags]
 ```
 
 **Flags:**
@@ -294,105 +269,10 @@ velocity key:generate [flags]
 
 ```bash
 # Generate and save to .env
-velocity key:generate
+vel key:generate
 
 # Just display the key
-velocity key:generate --show
+vel key:generate --show
 ```
 
-**Output:**
-```
-Application key set successfully.
-```
-
-The key is saved to the `CRYPTO_KEY` variable in your `.env` file in the format:
-```
-CRYPTO_KEY=base64:AbCdEf...
-```
-
----
-
-### velocity version
-
-Display CLI version information.
-
-```bash
-velocity version
-```
-
----
-
-## Configuration Commands
-
-### velocity config set
-
-Set a CLI configuration value.
-
-```bash
-velocity config set <key> <value>
-```
-
-**Available keys:**
-| Key | Values | Description |
-|-----|--------|-------------|
-| `default.database` | `postgres`, `mysql`, `sqlite` | Default database for new projects |
-| `default.cache` | `redis`, `memory` | Default cache driver |
-| `default.queue` | `redis`, `database`, `sync` | Default queue driver |
-| `default.auth` | `true`, `false` | Include auth by default |
-| `default.api` | `true`, `false` | Create API-only by default |
-
-**Examples:**
-
-```bash
-velocity config set default.database postgres
-velocity config set default.cache redis
-velocity config set default.auth true
-```
-
----
-
-### velocity config get
-
-Get a configuration value.
-
-```bash
-velocity config get <key>
-```
-
-**Example:**
-
-```bash
-velocity config get default.database
-# Output: postgres
-```
-
----
-
-### velocity config list
-
-List all configuration values.
-
-```bash
-velocity config list
-```
-
-**Example output:**
-
-```
-Configuration (~/.velocity/config.yaml):
-  default.database: postgres
-  default.cache: redis
-  default.auth: true
-```
-
----
-
-### velocity config reset
-
-Reset all configuration to defaults.
-
-```bash
-velocity config reset
-```
-
-This deletes the configuration file at `~/.velocity/config.yaml`.
+The key is saved to the `CRYPTO_KEY` variable in your `.env` file.

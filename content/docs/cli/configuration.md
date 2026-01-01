@@ -1,14 +1,15 @@
 ---
 title: Configuration
-description: Configure Velocity CLI defaults for database, cache, queue drivers, and project scaffolding preferences.
+description: Configure Velocity CLI defaults for database, cache, and queue drivers. Set project scaffolding preferences for faster development.
 weight: 3
+keywords: [velocity config, cli configuration, go framework settings, default database, project defaults]
 ---
 
-The Velocity CLI stores global configuration preferences that apply to all projects.
+The Velocity CLI stores global configuration preferences that apply when creating new projects.
 
 ## Configuration File
 
-Configuration is stored in `~/.velocity/config.yaml`. This file is created automatically when you first set a configuration value.
+Configuration is stored in `~/.vel/config.yaml`. This file is created automatically when you first set a configuration value.
 
 ## Available Settings
 
@@ -69,7 +70,7 @@ velocity config reset
 When creating a project, values are resolved in this order:
 
 1. **Command-line flags** (highest priority)
-2. **Configuration file** (`~/.velocity/config.yaml`)
+2. **Configuration file** (`~/.vel/config.yaml`)
 3. **Built-in defaults** (lowest priority)
 
 **Example:**
@@ -83,7 +84,7 @@ velocity new myapp --database mysql
 ## Example Configuration File
 
 ```yaml
-# ~/.velocity/config.yaml
+# ~/.vel/config.yaml
 defaults:
   database: postgres
   cache: redis
