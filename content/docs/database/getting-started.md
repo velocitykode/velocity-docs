@@ -1,6 +1,6 @@
 ---
 title: Getting Started
-description: Connect to PostgreSQL, MySQL, or SQLite databases and define models with Velocity's GORM-based ORM.
+description: Connect to PostgreSQL or SQLite databases and define models with Velocity's ORM.
 weight: 10
 ---
 
@@ -35,11 +35,11 @@ Configure your database connection in `.env`:
 
 ```env
 # Database configuration
-DB_CONNECTION=mysql
+DB_CONNECTION=postgres
 DB_HOST=127.0.0.1
-DB_PORT=3306
+DB_PORT=5432
 DB_DATABASE=velocity_app
-DB_USERNAME=root
+DB_USERNAME=postgres
 DB_PASSWORD=secret
 
 # Optional settings
@@ -54,9 +54,8 @@ DB_SLOW_QUERY_THRESHOLD=200ms
 
 | Driver | Value | Notes |
 |--------|-------|-------|
-| MySQL | `mysql` | MySQL 8.0+ with full feature support |
-| PostgreSQL | `postgres` | PostgreSQL 17+ with JSONB and array support |
-| SQLite | `sqlite` | SQLite 3.x for development and testing |
+| PostgreSQL | `postgres` | PostgreSQL 14+ with JSONB and array support |
+| SQLite | `sqlite` | SQLite 3.x for development and lightweight deployments |
 
 ## Model Definition
 

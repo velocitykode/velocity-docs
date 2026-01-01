@@ -25,22 +25,17 @@ velocity new <project-name> [flags]
 **Flags:**
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--database` | `sqlite` | Database driver: `postgres`, `mysql`, `sqlite` |
+| `--database` | `sqlite` | Database driver: `postgres`, `sqlite` |
 | `--cache` | `memory` | Cache driver: `redis`, `memory` |
-| `--auth` | `false` | Include authentication scaffolding |
-| `--api` | `false` | API-only structure (no views) |
 
 **Examples:**
 
 ```bash
-# Create a basic project
+# Create a basic project (SQLite by default)
 velocity new myapp
 
 # Create with PostgreSQL and Redis
 velocity new myapp --database postgres --cache redis
-
-# Create API-only project with auth
-velocity new myapi --api --auth
 ```
 
 After creation, the CLI:
@@ -49,37 +44,6 @@ After creation, the CLI:
 3. Runs database migrations
 4. Builds the `./vel` binary
 5. Starts development servers (Go on :4000, Vite on :5173)
-
----
-
-### velocity init
-
-Initialize Velocity in an existing Go project.
-
-```bash
-velocity init [flags]
-```
-
-**Flags:**
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--database` | (from config) | Database driver |
-| `--cache` | (from config) | Cache driver |
-| `--auth` | `false` | Include authentication |
-| `--api` | `false` | API-only structure |
-
-**Examples:**
-
-```bash
-# Initialize in current directory
-velocity init
-
-# Initialize with specific options
-velocity init --database postgres --cache redis
-```
-
-**Requirements:**
-- Must be run in a directory with an existing `go.mod` file
 
 ---
 
