@@ -1,0 +1,16 @@
+{{- $parent := .Parent -}}
+{{- $index := 0 -}}
+{{- if $parent -}}
+  {{- range $i, $child := $parent.Scratch.Get "tabIndex" -}}
+  {{- end -}}
+  {{- $index = $parent.Scratch.Get "currentTabIndex" | default 0 -}}
+  {{- $parent.Scratch.Set "currentTabIndex" (add $index 1) -}}
+{{- end -}}
+{{- $uniqueID := delimit (shuffle (seq 1 5)) "" -}}
+<div
+  class="tab-panel{{ if eq $index 0 }} active{{ end }}"
+  role="tabpanel"
+  {{ if ne $index 0 }}hidden{{ end }}
+>
+  {{ .Inner }}
+</div>

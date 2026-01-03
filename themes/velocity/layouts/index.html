@@ -1,0 +1,560 @@
+{{ define "title" }}{{ .Site.Title }} - Fast, Simple, Powerful{{ end }}
+
+{{ define "main" }}
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     HERO SECTION
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<section class="hero">
+  <div class="hero-content">
+    <!-- Philosophy badge -->
+    <div class="hero-badge hero-badge--accent">
+      <span>Explicit over implicit</span>
+    </div>
+
+    <!-- Main headline -->
+    <h1 class="hero-title">
+      Go Web Framework<br>
+      <span class="hero-title-accent">Unified API. Driver-based.</span>
+    </h1>
+
+    <!-- Tagline -->
+    <p class="hero-subtitle">21 packages. One API pattern. Zero configuration lock-in.</p>
+    <p class="hero-tagline">Full-stack or API-only. Your architecture, your choice.</p>
+
+    <!-- CTA buttons -->
+    <div class="hero-actions">
+      <a href="{{ "docs/getting-started/" | relURL }}" class="btn btn-primary">
+        Get Started
+        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M4 10h12M12 4l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </a>
+      <a href="https://github.com/velocitykode/velocity" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20" aria-hidden="true">
+          <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+        </svg>
+        View on GitHub
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     THREE PILLARS SECTION
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<section class="section">
+  <div class="section-inner">
+    <header class="section-header">
+      <p class="section-label">Three Pillars</p>
+      <h2 class="section-title">What Sets Velocity Apart</h2>
+    </header>
+
+    <div class="pillars-grid">
+      <!-- Unified API -->
+      <article class="pillar-card">
+        <div class="pillar-icon pillar-icon--diamond">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
+        </div>
+        <h3 class="pillar-title">Unified API</h3>
+        <p class="pillar-desc">One pattern across all packages. Learn Velocity's API once&mdash;apply it to caching, queuing, mail, storage, logging, and more.</p>
+      </article>
+
+      <!-- Driver-Based -->
+      <article class="pillar-card">
+        <div class="pillar-icon pillar-icon--circle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+          </svg>
+        </div>
+        <h3 class="pillar-title">Driver-Based</h3>
+        <p class="pillar-desc">Develop with SQLite, deploy with PostgreSQL. Test with in-memory cache, run with Redis. Infrastructure decisions belong in configuration, not code.</p>
+      </article>
+
+      <!-- Flexible -->
+      <article class="pillar-card">
+        <div class="pillar-icon pillar-icon--hexagon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M4 7v10l8 5 8-5V7l-8-5-8 5z"/>
+            <path d="M12 22V12M20 7l-8 5-8-5"/>
+          </svg>
+        </div>
+        <h3 class="pillar-title">Flexible</h3>
+        <p class="pillar-desc">Build what you need. Full-stack web app with Inertia + React, or API-only microservice. Same framework, same packages.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     CODE SHOWCASE SECTION
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<section class="section code-showcase">
+  <div class="section-inner">
+    <header class="section-header">
+      <p class="section-label">Unified Pattern</p>
+      <h2 class="section-title">Same API, Every Package</h2>
+      <p class="section-subtitle">Stop context-switching between library APIs. One consistent interface across 21 packages.</p>
+    </header>
+
+    <div class="code-block">
+      <div class="code-block-header">
+        <div class="code-block-dots">
+          <span class="code-block-dot"></span>
+          <span class="code-block-dot"></span>
+          <span class="code-block-dot"></span>
+        </div>
+        <span class="code-block-filename">handlers/user.go</span>
+        <button type="button" class="code-block-copy">Copy</button>
+      </div>
+      <pre><code><span class="comment">// Same conventions. Same patterns. Every package.</span>
+<span class="keyword">cache</span>.<span class="function">Get</span>(key)              <span class="keyword">storage</span>.<span class="function">Get</span>(path)
+<span class="keyword">cache</span>.<span class="function">Put</span>(key, val, ttl)    <span class="keyword">storage</span>.<span class="function">Put</span>(path, content)
+
+<span class="keyword">mail</span>.<span class="function">Send</span>(message)           <span class="keyword">queue</span>.<span class="function">Push</span>(job)
+
+<span class="keyword">log</span>.<span class="function">Info</span>("msg", "key", val) <span class="keyword">arc</span>.<span class="function">Find</span>(&users)
+
+<span class="comment">// Bootstrap: explicit initialization</span>
+<span class="keyword">arc</span>.<span class="function">InitFromEnv</span>()
+<span class="keyword">cache</span>.<span class="function">InitFromEnv</span>()
+
+<span class="comment">// No container. No resolution. Import and call.</span></code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     DRIVERS SECTION
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<section class="section" style="background: var(--bg-secondary);">
+  <div class="section-inner">
+    <header class="section-header">
+      <p class="section-label">Driver-Based Architecture</p>
+      <h2 class="section-title">Change Backends, Not Code</h2>
+      <p class="section-subtitle">Every package with multiple backends uses the driver pattern.</p>
+    </header>
+
+    <div class="drivers-showcase">
+      <div class="drivers-code">
+        <div class="code-block">
+          <div class="code-block-header">
+            <span class="code-block-filename">Your code stays the same</span>
+          </div>
+          <pre><code><span class="keyword">cache</span>.<span class="function">Put</span>("user:1", data, time.Hour)
+<span class="keyword">cache</span>.<span class="function">Get</span>("user:1")</code></pre>
+        </div>
+        <div class="code-block" style="margin-top: var(--space-md);">
+          <div class="code-block-header">
+            <span class="code-block-filename">.env changes per environment</span>
+          </div>
+          <pre><code><span class="comment"># Development</span>
+CACHE_DRIVER=memory
+
+<span class="comment"># Production</span>
+CACHE_DRIVER=redis</code></pre>
+        </div>
+      </div>
+
+      <div class="drivers-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Package</th>
+              <th>Available Drivers</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>cache</code></td>
+              <td>redis, file, memory</td>
+            </tr>
+            <tr>
+              <td><code>arc</code></td>
+              <td>postgres, sqlite</td>
+            </tr>
+            <tr>
+              <td><code>queue</code></td>
+              <td>database, redis, sqs</td>
+            </tr>
+            <tr>
+              <td><code>mail</code></td>
+              <td>smtp, mailgun, ses</td>
+            </tr>
+            <tr>
+              <td><code>storage</code></td>
+              <td>local, s3</td>
+            </tr>
+            <tr>
+              <td><code>log</code></td>
+              <td>file, console</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     PROJECT STRUCTURE SECTION
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<section class="section">
+  <div class="section-inner">
+    <header class="section-header">
+      <p class="section-label">Go-Idiomatic</p>
+      <h2 class="section-title">Familiar Structure</h2>
+      <p class="section-subtitle">Standard Go project layout. No magic, no surprises.</p>
+    </header>
+
+    <div class="file-tree-section">
+      <div class="file-tree" role="tree" aria-label="Project structure">
+        <div class="file-tree-item" style="--depth: 0" data-filename="main.go" data-content="package main
+
+import &quot;github.com/velocitykode/velocity&quot;
+
+func main() {
+    app := velocity.New()
+    app.Run()
+}">
+          <svg class="file-tree-icon file-tree-icon--folder" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/>
+          </svg>
+          <span>my-app/</span>
+        </div>
+
+        <div class="file-tree-item" style="--depth: 1" data-filename="cmd/server/main.go" data-content="package main
+
+import &quot;myapp/internal/server&quot;
+
+func main() {
+    srv := server.New()
+    srv.Start()
+}">
+          <svg class="file-tree-icon file-tree-icon--folder" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/>
+          </svg>
+          <span>cmd/</span>
+        </div>
+
+        <div class="file-tree-item active" style="--depth: 2" data-filename="cmd/server/main.go" data-content="package main
+
+import (
+    &quot;log&quot;
+    &quot;myapp/internal/handlers&quot;
+    &quot;myapp/routes&quot;
+    &quot;github.com/velocitykode/velocity&quot;
+)
+
+func main() {
+    app := velocity.New()
+
+    routes.Register(app)
+
+    log.Fatal(app.Listen(&quot;:4000&quot;))
+}">
+          <svg class="file-tree-icon file-tree-icon--go" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clip-rule="evenodd"/>
+          </svg>
+          <span>server/main.go</span>
+        </div>
+
+        <div class="file-tree-item" style="--depth: 1">
+          <svg class="file-tree-icon file-tree-icon--folder" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/>
+          </svg>
+          <span>internal/</span>
+        </div>
+
+        <div class="file-tree-item" style="--depth: 2">
+          <svg class="file-tree-icon file-tree-icon--folder" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/>
+          </svg>
+          <span>handlers/</span>
+        </div>
+
+        <div class="file-tree-item" style="--depth: 2">
+          <svg class="file-tree-icon file-tree-icon--folder" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/>
+          </svg>
+          <span>middleware/</span>
+        </div>
+
+        <div class="file-tree-item" style="--depth: 1">
+          <svg class="file-tree-icon file-tree-icon--folder" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/>
+          </svg>
+          <span>routes/</span>
+        </div>
+
+        <div class="file-tree-item" style="--depth: 2" data-filename="routes/web.go" data-content="package routes
+
+import &quot;github.com/velocitykode/velocity&quot;
+
+func Register(app *velocity.App) {
+    app.Get(&quot;/&quot;, handlers.Home)
+    app.Get(&quot;/about&quot;, handlers.About)
+
+    api := app.Group(&quot;/api&quot;)
+    api.Get(&quot;/users&quot;, handlers.ListUsers)
+    api.Post(&quot;/users&quot;, handlers.CreateUser)
+}">
+          <svg class="file-tree-icon file-tree-icon--go" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clip-rule="evenodd"/>
+          </svg>
+          <span>web.go</span>
+        </div>
+
+        <div class="file-tree-item" style="--depth: 1" data-filename="go.mod" data-content="module myapp
+
+go 1.21
+
+require github.com/velocitykode/velocity v2.0.0">
+          <svg class="file-tree-icon file-tree-icon--file" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clip-rule="evenodd"/>
+          </svg>
+          <span>go.mod</span>
+        </div>
+
+        <div class="file-tree-item" style="--depth: 1" data-filename=".env" data-content="APP_ENV=development
+APP_PORT=4000
+
+CACHE_DRIVER=memory
+STORAGE_DRIVER=local
+MAIL_DRIVER=log">
+          <svg class="file-tree-icon file-tree-icon--file" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clip-rule="evenodd"/>
+          </svg>
+          <span>.env</span>
+        </div>
+      </div>
+
+      <div class="code-block file-tree-preview">
+        <div class="code-block-header">
+          <div class="code-block-dots">
+            <span class="code-block-dot"></span>
+            <span class="code-block-dot"></span>
+            <span class="code-block-dot"></span>
+          </div>
+          <span class="code-block-filename">cmd/server/main.go</span>
+          <button type="button" class="code-block-copy">Copy</button>
+        </div>
+        <pre><code>package main
+
+import (
+    "log"
+    "myapp/internal/handlers"
+    "myapp/routes"
+    "github.com/velocitykode/velocity"
+)
+
+func main() {
+    app := velocity.New()
+
+    routes.Register(app)
+
+    log.Fatal(app.Listen(":4000"))
+}</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     WHY VELOCITY SECTION
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<section class="section">
+  <div class="section-inner">
+    <header class="section-header">
+      <p class="section-label">Developer Experience</p>
+      <h2 class="section-title">Why Velocity?</h2>
+      <p class="section-subtitle">Go's power with modern developer experience.</p>
+    </header>
+
+    <div class="two-col-grid">
+      <div>
+        <h3 style="color: var(--accent-secondary); font-size: 1.5rem; margin-bottom: var(--space-lg);">Move Faster</h3>
+        <ul class="feature-list">
+          <li>
+            <svg class="feature-list-icon" style="color: var(--accent-secondary);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+            </svg>
+            <div class="feature-list-content">
+              <h4>Automatic Route Discovery</h4>
+              <p>Routes auto-register from your routes/ directory</p>
+            </div>
+          </li>
+          <li>
+            <svg class="feature-list-icon" style="color: var(--accent-secondary);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2"/>
+              <path d="M3 9h18M9 21V9"/>
+            </svg>
+            <div class="feature-list-content">
+              <h4>RESTful Resources</h4>
+              <p>Built-in support for RESTful handler patterns</p>
+            </div>
+          </li>
+          <li>
+            <svg class="feature-list-icon" style="color: var(--accent-secondary);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4"/>
+            </svg>
+            <div class="feature-list-content">
+              <h4>Smart Defaults</h4>
+              <p>Convention-based routing and auto-initialization</p>
+            </div>
+          </li>
+        </ul>
+      </div>
+
+      <div>
+        <h3 style="color: var(--accent-primary); font-size: 1.5rem; margin-bottom: var(--space-lg);">Ship with Confidence</h3>
+        <ul class="feature-list">
+          <li>
+            <svg class="feature-list-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 12l2 2 4-4"/>
+              <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            <div class="feature-list-content">
+              <h4>Type Safety</h4>
+              <p>Full Go type checking throughout your application</p>
+            </div>
+          </li>
+          <li>
+            <svg class="feature-list-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M13 10V3L4 14h7v7l9-11h-7z"/>
+            </svg>
+            <div class="feature-list-content">
+              <h4>Native Performance</h4>
+              <p>Go performance with minimal framework overhead</p>
+            </div>
+          </li>
+          <li>
+            <svg class="feature-list-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/>
+            </svg>
+            <div class="feature-list-content">
+              <h4>Production Ready</h4>
+              <p>Single binary deployment with embedded assets</p>
+            </div>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     NOT DI SECTION
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<section class="section" style="background: var(--bg-secondary);">
+  <div class="section-inner">
+    <header class="section-header">
+      <p class="section-label">How It Works</p>
+      <h2 class="section-title">Not a DI Framework</h2>
+      <p class="section-subtitle">Velocity is explicit. No containers, no service providers.</p>
+    </header>
+
+    <table class="comparison-table">
+      <thead>
+        <tr>
+          <th>Traditional DI Framework</th>
+          <th>Velocity</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>IoC container resolves dependencies</td>
+          <td>Direct package imports</td>
+        </tr>
+        <tr>
+          <td>Hidden service provider registration</td>
+          <td>Explicit bootstrap initialization</td>
+        </tr>
+        <tr>
+          <td>Runtime service resolution</td>
+          <td>Compile-time imports</td>
+        </tr>
+        <tr>
+          <td>Framework owns the lifecycle</td>
+          <td>You own the lifecycle</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="not-di-code" style="margin-top: var(--space-2xl);">
+      <div class="code-block" style="max-width: 600px; margin: 0 auto;">
+        <div class="code-block-header">
+          <span class="code-block-filename">internal/app/app.go</span>
+        </div>
+        <pre><code><span class="comment">// Bootstrap: explicit initialization</span>
+<span class="keyword">arc</span>.<span class="function">InitFromEnv</span>()
+<span class="keyword">cache</span>.<span class="function">InitFromEnv</span>()
+
+<span class="comment">// Usage: direct calls</span>
+user, _ := <span class="keyword">arc</span>.<span class="function">Find</span>(&User{}, id)
+<span class="keyword">cache</span>.<span class="function">Put</span>("key", value, time.Hour)
+
+<span class="comment">// No container. No resolution. Import and call.</span></code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     STATS SECTION
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<section class="section">
+  <div class="section-inner">
+    <div class="stats-grid">
+      <div class="stat-item">
+        <div class="stat-value">21</div>
+        <div class="stat-label">Packages</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value">1</div>
+        <div class="stat-label">API Pattern</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value">0</div>
+        <div class="stat-label">Config Lock-in</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     CTA SECTION
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<section class="section cta-section">
+  <div class="section-inner">
+    <header class="section-header">
+      <p class="section-label">Ready to Start?</p>
+      <h2 class="section-title">Get Started in Seconds</h2>
+    </header>
+
+    <div class="cta-install">
+      <code>go install github.com/velocitykode/vel@latest</code>
+      <button type="button" class="cta-copy-btn" aria-label="Copy install command">
+        <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+          <rect x="9" y="9" width="13" height="13" rx="2"/>
+          <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+        </svg>
+        <svg class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+          <path d="M20 6L9 17l-5-5"/>
+        </svg>
+      </button>
+    </div>
+
+    <div style="margin-top: var(--space-2xl);">
+      <a href="{{ "docs/getting-started/" | relURL }}" class="btn btn-primary">
+        Read the Docs
+        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M4 10h12M12 4l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </a>
+    </div>
+  </div>
+</section>
+{{ end }}

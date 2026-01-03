@@ -1,0 +1,28 @@
+<aside class="docs-sidebar" role="navigation" aria-label="Documentation navigation">
+  {{ $currentPage := . }}
+  {{ $sections := site.GetPage "docs" }}
+
+  {{ if $sections }}
+    {{ range $sections.Sections }}
+      <div class="sidebar-section">
+        <h3 class="sidebar-section-title">{{ .Title }}</h3>
+        <ul class="sidebar-nav">
+          <!-- Section index page -->
+          <li>
+            <a href="{{ .Permalink }}" class="sidebar-link{{ if eq $currentPage.Permalink .Permalink }} active{{ end }}">
+              Overview
+            </a>
+          </li>
+          <!-- Child pages -->
+          {{ range .Pages }}
+            <li>
+              <a href="{{ .Permalink }}" class="sidebar-link sidebar-link--nested{{ if eq $currentPage.Permalink .Permalink }} active{{ end }}">
+                {{ .Title }}
+              </a>
+            </li>
+          {{ end }}
+        </ul>
+      </div>
+    {{ end }}
+  {{ end }}
+</aside>

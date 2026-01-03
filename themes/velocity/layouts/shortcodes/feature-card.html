@@ -1,0 +1,23 @@
+{{- $icon := .Get "icon" | default "diamond" -}}
+{{- $title := .Get "title" -}}
+<article class="pillar-card">
+  <div class="pillar-icon pillar-icon--{{ $icon }}">
+    {{ if eq $icon "diamond" }}
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+      <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+    </svg>
+    {{ else if eq $icon "circle" }}
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+    </svg>
+    {{ else if eq $icon "hexagon" }}
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+      <path d="M4 7v10l8 5 8-5V7l-8-5-8 5z"/>
+      <path d="M12 22V12M20 7l-8 5-8-5"/>
+    </svg>
+    {{ end }}
+  </div>
+  <h3 class="pillar-title">{{ $title }}</h3>
+  <p class="pillar-desc">{{ .Inner | markdownify }}</p>
+</article>

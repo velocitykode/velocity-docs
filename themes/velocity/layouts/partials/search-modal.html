@@ -1,0 +1,31 @@
+<div class="search-modal" id="search-modal" role="dialog" aria-modal="true" aria-labelledby="search-label">
+  <div class="search-dialog">
+    <div class="search-input-wrapper">
+      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path d="M9 17A8 8 0 1 0 9 1a8 8 0 0 0 0 16z" stroke="currentColor" stroke-width="1.5"/>
+        <path d="m19 19-4.35-4.35" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      <input
+        type="search"
+        id="search-input"
+        class="search-input"
+        placeholder="Search documentation..."
+        autocomplete="off"
+        aria-label="Search documentation"
+      >
+      <kbd>Esc</kbd>
+    </div>
+
+    <div class="search-results" id="search-results" role="listbox" aria-label="Search results">
+      <p style="padding: var(--space-lg); color: var(--text-tertiary); text-align: center;">
+        Type to search...
+      </p>
+    </div>
+
+    <div class="search-footer">
+      <span><kbd>&uarr;</kbd> <kbd>&darr;</kbd> to navigate</span>
+      <span><kbd>Enter</kbd> to select</span>
+      <span><kbd>Esc</kbd> to close</span>
+    </div>
+  </div>
+</div>

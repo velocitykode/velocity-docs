@@ -2,7 +2,8 @@ baseURL = 'https://velocitykode.com/'
 languageCode = 'en-us'
 title = 'Velocity - Go Web Framework'
 
-theme = "hextra"
+# Use the new custom theme
+theme = "velocity"
 
 # Sitemap
 [sitemap]
@@ -11,6 +12,10 @@ theme = "hextra"
   filename = "sitemap.xml"
 
 enableRobotsTXT = true
+
+# Enable JSON output for search index
+[outputs]
+  home = ["HTML", "RSS", "JSON"]
 
 [markup]
   [markup.goldmark.renderer]
@@ -22,69 +27,48 @@ enableRobotsTXT = true
     noClasses = false
     codeFences = true
     guessSyntax = true
-    hl_Lines = ""
-    hl_inline = false
-    anchorLineNos = false
     tabWidth = 4
+  [markup.tableOfContents]
+    startLevel = 2
+    endLevel = 4
+    ordered = false
 
 [params]
   # SEO
-  description = "Velocity is a full-stack Go web framework for rapid application development. Build faster with zero config, batteries included, and Laravel-like developer experience."
+  description = "Velocity is a full-stack Go web framework with unified API, driver-based architecture, and zero configuration lock-in. Build faster, ship sooner."
   images = ["images/velocity-og.png"]
-
-  # Custom CSS
-  customCSS = ["css/custom.css"]
-  # Primary color - Velocity logo blue
-  primaryColor = "#1e3a8a"
 
   # Favicon
   favicon = "images/velocity-icon-32.png"
 
-  # External link decoration (shows icon for external links)
-  externalLinkDecoration = true
+[params.search]
+  enable = true
+  type = "flexsearch"
 
-  [params.search]
-    enable = true
-    type = "flexsearch"
-    [params.search.flexsearch]
-      index = "content"
-      tokenize = "forward"
-
-  [params.navbar]
-    displayTitle = false
-    displayLogo = true
-    [params.navbar.logo]
-      path = "images/velocity-logo-light-bg.png"
-      dark = "images/velocity-logo-dark-bg.png"
-      link = "/"
-      width = 200
-      height = 67
-  
 [params.theme]
-  default = "system"
+  default = "dark"
   displayToggle = true
 
 [params.footer]
-  displayThemeToggle = false
   displayPoweredBy = false
 
 [menu]
   [[menu.main]]
-    name = "Search"
+    name = "Docs"
+    url = "/docs/"
     weight = 1
-    [menu.main.params]
-      type = "search"
 
   [[menu.main]]
-    name = "Theme"
-    weight = 5
-    [menu.main.params]
-      type = "theme-toggle"
+    name = "Getting Started"
+    url = "/docs/getting-started/"
+    weight = 2
+
+  [[menu.main]]
+    name = "CLI"
+    url = "/docs/cli/"
+    weight = 3
 
   [[menu.main]]
     name = "GitHub"
     url = "https://github.com/velocitykode/velocity"
     weight = 10
-    [menu.main.params]
-      icon = "github"
-
