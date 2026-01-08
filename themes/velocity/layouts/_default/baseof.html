@@ -15,13 +15,13 @@
   <link rel="icon" type="image/png" href="{{ "images/velocity-icon-32.png" | relURL }}">
 
   <!-- CSS -->
-  {{ $css := resources.Get "css/main.css" }}
-  {{ $syntax := resources.Get "css/syntax.css" }}
+  {{ $css := resources.Get "css/main.css" | fingerprint }}
+  {{ $syntax := resources.Get "css/syntax.css" | fingerprint }}
   {{ if $css }}
-    <link rel="stylesheet" href="{{ $css.RelPermalink }}">
+    <link rel="stylesheet" href="{{ $css.RelPermalink }}" integrity="{{ $css.Data.Integrity }}">
   {{ end }}
   {{ if $syntax }}
-    <link rel="stylesheet" href="{{ $syntax.RelPermalink }}">
+    <link rel="stylesheet" href="{{ $syntax.RelPermalink }}" integrity="{{ $syntax.Data.Integrity }}">
   {{ end }}
 
   <!-- Theme initialization (prevent flash) -->
@@ -68,9 +68,9 @@
   {{ partial "search-modal.html" . }}
 
   <!-- JavaScript -->
-  {{ $theme := resources.Get "js/theme.js" }}
-  {{ $search := resources.Get "js/search.js" }}
-  {{ $main := resources.Get "js/main.js" }}
+  {{ $theme := resources.Get "js/theme.js" | fingerprint }}
+  {{ $search := resources.Get "js/search.js" | fingerprint }}
+  {{ $main := resources.Get "js/main.js" | fingerprint }}
 
   {{ if $theme }}
     <script src="{{ $theme.RelPermalink }}" defer></script>
