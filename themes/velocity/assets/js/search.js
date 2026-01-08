@@ -76,6 +76,30 @@
     renderResults(matches);
   }
 
+  // Get snippet of content around search term
+  function getSnippet(content, query, maxLength = 120) {
+    if (!content || !query) return '';
+
+    const lowerContent = content.toLowerCase();
+    const lowerQuery = query.toLowerCase();
+    const index = lowerContent.indexOf(lowerQuery);
+
+    if (index === -1) return content.slice(0, maxLength) + '...';
+
+    const start = Math.max(0, index - 40);
+    const end = Math.min(content.length, index + query.length + 80);
+    let snippet = content.slice(start, end);
+
+    if (start > 0) snippet = '...' + snippet;
+    if (end < content.length) snippet = snippet + '...';
+
+    // Highlight the search term
+    const regex = new RegExp(`(${query})`, 'gi');
+    snippet = snippet.replace(regex, '<mark>$1</mark>');
+
+    return snippet;
+  }
+
   // Render search results
   function renderResults(items) {
     if (!results) return;
@@ -89,10 +113,11 @@
       return;
     }
 
+    const query = input?.value || '';
     results.innerHTML = items.map((item, i) => `
       <a href="${item.permalink}" class="search-result${i === selectedIndex ? ' selected' : ''}" role="option" data-index="${i}">
         <div class="search-result-title">${item.title}</div>
-        <div class="search-result-path">${item.section || 'Documentation'}</div>
+        <div class="search-result-snippet">${getSnippet(item.content, query)}</div>
       </a>
     `).join('');
   }
@@ -124,6 +149,9 @@
 
   // Event listeners
   trigger?.addEventListener('click', openSearch);
+
+  // Mobile search button on docs pages
+  document.getElementById('search-btn')?.addEventListener('click', openSearch);
 
   modal?.addEventListener('click', (e) => {
     if (e.target === modal) closeSearch();
