@@ -1,0 +1,14 @@
+{{ define "main" }}
+<article class="section">
+  <div class="section-inner" style="max-width: 800px;">
+    <header>
+      <h1>{{ .Title }}</h1>
+      {{ with .Description }}<p style="font-size: 1.25rem; color: var(--text-secondary);">{{ . }}</p>{{ end }}
+    </header>
+
+    <div class="content" style="margin-top: var(--space-2xl);">
+      {{ .Content }}
+    </div>
+  </div>
+</article>
+{{ end }}

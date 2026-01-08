@@ -1,0 +1,10 @@
+[theme]
+name = "Velocity"
+license = "MIT"
+licenselink = "https://github.com/velocitykode/velocity-docs/blob/main/LICENSE"
+description = "Custom theme for Velocity Go Framework documentation"
+homepage = "https://velocitykode.com"
+
+[author]
+name = "Velocity Team"
+homepage = "https://velocitykode.com"

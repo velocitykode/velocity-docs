@@ -1,0 +1,37 @@
+{{ define "title" }}{{ .Title }} | Velocity Docs{{ end }}
+
+{{ define "main" }}
+<div class="docs-layout">
+  <!-- Sidebar Navigation -->
+  {{ partial "sidebar.html" . }}
+
+  <!-- Main Content -->
+  <article class="docs-content">
+    <header>
+      <h1>{{ .Title }}</h1>
+      {{ with .Description }}<p class="docs-description">{{ . }}</p>{{ end }}
+    </header>
+
+    {{ .Content }}
+
+    {{ if .Pages }}
+    <nav class="docs-section-nav">
+      <h2>In This Section</h2>
+      <ul>
+        {{ range .Pages }}
+        <li>
+          <a href="{{ .Permalink }}">
+            <strong>{{ .Title }}</strong>
+            {{ with .Description }}<span>{{ . }}</span>{{ end }}
+          </a>
+        </li>
+        {{ end }}
+      </ul>
+    </nav>
+    {{ end }}
+  </article>
+
+  <!-- Table of Contents -->
+  {{ partial "toc.html" . }}
+</div>
+{{ end }}

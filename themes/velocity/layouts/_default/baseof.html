@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="{{ .Site.Language.Lang | default "en" }}" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="{{ with .Description }}{{ . }}{{ else }}{{ .Site.Params.description }}{{ end }}">
+
+  <title>{{ block "title" . }}{{ .Title }} | {{ .Site.Title }}{{ end }}</title>
+
+  <!-- Preload fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="{{ "images/velocity-icon-32.png" | relURL }}">
+
+  <!-- CSS -->
+  {{ $css := resources.Get "css/main.css" }}
+  {{ $syntax := resources.Get "css/syntax.css" }}
+  {{ if $css }}
+    <link rel="stylesheet" href="{{ $css.RelPermalink }}">
+  {{ end }}
+  {{ if $syntax }}
+    <link rel="stylesheet" href="{{ $syntax.RelPermalink }}">
+  {{ end }}
+
+  <!-- Theme initialization (prevent flash) -->
+  <script>
+    (function() {
+      const theme = localStorage.getItem('velocity-theme') ||
+        (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+      document.documentElement.setAttribute('data-theme', theme);
+    })();
+  </script>
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="{{ .Title }}">
+  <meta property="og:description" content="{{ with .Description }}{{ . }}{{ else }}{{ .Site.Params.description }}{{ end }}">
+  <meta property="og:type" content="{{ if .IsPage }}article{{ else }}website{{ end }}">
+  <meta property="og:url" content="{{ .Permalink }}">
+  {{ with .Site.Params.images }}
+  <meta property="og:image" content="{{ index . 0 | absURL }}">
+  {{ end }}
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{ .Title }}">
+  <meta name="twitter:description" content="{{ with .Description }}{{ . }}{{ else }}{{ .Site.Params.description }}{{ end }}">
+
+  {{ block "head" . }}{{ end }}
+</head>
+<body{{ if .IsHome }} class="home-page"{{ end }}>
+  <!-- Grid background pattern (landing page only) -->
+  {{ if .IsHome }}<div class="grid-bg" aria-hidden="true"></div>{{ end }}
+
+  <!-- Navigation -->
+  {{ partial "navbar.html" . }}
+
+  <!-- Main content -->
+  <main id="main-content">
+    {{ block "main" . }}{{ end }}
+  </main>
+
+  <!-- Footer -->
+  {{ partial "footer.html" . }}
+
+  <!-- Search Modal -->
+  {{ partial "search-modal.html" . }}
+
+  <!-- JavaScript -->
+  {{ $theme := resources.Get "js/theme.js" }}
+  {{ $search := resources.Get "js/search.js" }}
+  {{ $main := resources.Get "js/main.js" }}
+
+  {{ if $theme }}
+    <script src="{{ $theme.RelPermalink }}" defer></script>
+  {{ end }}
+  {{ if $search }}
+    <script src="{{ $search.RelPermalink }}" defer></script>
+  {{ end }}
+  {{ if $main }}
+    <script src="{{ $main.RelPermalink }}" defer></script>
+  {{ end }}
+
+  {{ block "scripts" . }}{{ end }}
+</body>
+</html>

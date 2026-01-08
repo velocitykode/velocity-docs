@@ -1,0 +1,19 @@
+<div class="terminal">
+  <div class="terminal-header">
+    <span class="code-block-dot"></span>
+    <span class="code-block-dot"></span>
+    <span class="code-block-dot"></span>
+  </div>
+  <div class="terminal-body">
+    {{- $lines := split .Inner "\n" -}}
+    {{- range $lines -}}
+      {{- if . -}}
+        {{- if hasPrefix . "$ " -}}
+          <div><span class="terminal-prompt">$</span> <span class="terminal-command">{{ strings.TrimPrefix "$ " . }}</span></div>
+        {{- else -}}
+          <div class="terminal-output">{{ . }}</div>
+        {{- end -}}
+      {{- end -}}
+    {{- end -}}
+  </div>
+</div>

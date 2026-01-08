@@ -1,0 +1,23 @@
+{{- $uniqueID := delimit (shuffle (seq 1 5)) "" -}}
+{{- $items := split (.Get "items") "," -}}
+<div class="tabs" id="tabs-{{ $uniqueID }}">
+  <ul class="tabs-list" role="tablist">
+    {{- range $index, $item := $items -}}
+    <li>
+      <button
+        type="button"
+        class="tab-trigger{{ if eq $index 0 }} active{{ end }}"
+        role="tab"
+        data-tab="tabs-{{ $uniqueID }}-panel-{{ $index }}"
+        aria-selected="{{ if eq $index 0 }}true{{ else }}false{{ end }}"
+        aria-controls="tabs-{{ $uniqueID }}-panel-{{ $index }}"
+      >
+        {{ $item | strings.TrimSpace }}
+      </button>
+    </li>
+    {{- end -}}
+  </ul>
+  <div class="tabs-panels">
+    {{ .Inner }}
+  </div>
+</div>
