@@ -33,7 +33,7 @@ SESSION_SAME_SITE=lax
 
 ### Initialization
 
-Initialize the auth system in your application bootstrap:
+Initialize the auth system in your app initialization:
 
 ```go
 package main
@@ -116,7 +116,7 @@ func (u *User) SetRememberToken(token string) {
 
 ## Quick Start
 
-Using authentication in controllers:
+Using authentication in handlers:
 
 ```go
 import (
@@ -125,7 +125,7 @@ import (
     "github.com/velocitykode/velocity/pkg/view"
 )
 
-func (c *AuthController) Login(ctx *router.Context) error {
+func (c *AuthHandler) Login(ctx *router.Context) error {
     var formData struct {
         Email    string `json:"email"`
         Password string `json:"password"`
@@ -324,7 +324,7 @@ func AuthMiddleware(next router.HandlerFunc) router.HandlerFunc {
 }
 
 // Apply to routes
-r.Get("/dashboard", AuthMiddleware(dashboardController.Index))
+r.Get("/dashboard", AuthMiddleware(dashboardHandler.Index))
 ```
 
 ### Guest Middleware
@@ -346,8 +346,8 @@ func GuestMiddleware(next router.HandlerFunc) router.HandlerFunc {
 }
 
 // Apply to login/register routes
-r.Get("/login", GuestMiddleware(authController.ShowLoginForm))
-r.Get("/register", GuestMiddleware(authController.ShowRegisterForm))
+r.Get("/login", GuestMiddleware(authHandler.ShowLoginForm))
+r.Get("/register", GuestMiddleware(authHandler.ShowRegisterForm))
 ```
 
 ## Session Management

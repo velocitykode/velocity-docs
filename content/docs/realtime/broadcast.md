@@ -419,7 +419,7 @@ func (d *RedisDriver) Broadcast(channels []string, event string, data interface{
 
 ## Integration with HTTP Routes
 
-### Broadcasting from Controllers
+### Broadcasting from Handlers
 
 ```go
 import (
@@ -427,7 +427,7 @@ import (
     "github.com/velocitykode/velocity/pkg/router"
 )
 
-func (c *OrderController) Ship(ctx *router.Context) error {
+func (c *OrderHandler) Ship(ctx *router.Context) error {
     orderID := ctx.Param("id")
 
     // Ship the order
@@ -461,7 +461,7 @@ func (c *OrderController) Ship(ctx *router.Context) error {
 ### Real-Time Chat
 
 ```go
-func (c *ChatController) SendMessage(ctx *router.Context) error {
+func (c *ChatHandler) SendMessage(ctx *router.Context) error {
     var msg struct {
         RoomID  string `json:"room_id"`
         Message string `json:"message"`
@@ -490,7 +490,7 @@ func (c *ChatController) SendMessage(ctx *router.Context) error {
 ### Live Notifications
 
 ```go
-func (c *NotificationController) SendNotification(userID int, notification Notification) {
+func (c *NotificationHandler) SendNotification(userID int, notification Notification) {
     // Broadcast to user's private channel
     broadcast.Private(fmt.Sprintf("user.%d", userID)).
         Emit("NewNotification", map[string]interface{}{
@@ -505,7 +505,7 @@ func (c *NotificationController) SendNotification(userID int, notification Notif
 ### Live Dashboard Updates
 
 ```go
-func (c *DashboardController) UpdateMetrics() {
+func (c *DashboardHandler) UpdateMetrics() {
     metrics := calculateMetrics()
 
     // Broadcast to admin dashboard channel

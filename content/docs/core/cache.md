@@ -622,7 +622,7 @@ func TestCaching(t *testing.T) {
 
 ## Examples
 
-### Complete Controller Example
+### Complete Handler Example
 
 ```go
 import (
@@ -631,9 +631,9 @@ import (
     "github.com/velocitykode/velocity/pkg/router"
 )
 
-type ProductController struct{}
+type ProductHandler struct{}
 
-func (c *ProductController) Show(ctx *router.Context) error {
+func (c *ProductHandler) Show(ctx *router.Context) error {
     productID := ctx.Param("id")
     key := fmt.Sprintf("product:%s", productID)
 
@@ -654,7 +654,7 @@ func (c *ProductController) Show(ctx *router.Context) error {
     return ctx.JSON(200, product)
 }
 
-func (c *ProductController) Update(ctx *router.Context) error {
+func (c *ProductHandler) Update(ctx *router.Context) error {
     productID := ctx.Param("id")
 
     // Update product in database

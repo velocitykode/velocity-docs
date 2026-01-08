@@ -55,7 +55,7 @@ This creates a new project and automatically starts the development servers. You
 ```
 myapp/
 ├── app/
-│   ├── controllers/     # HTTP controllers
+│   ├── handlers/     # HTTP handlers
 │   ├── middleware/      # Custom middleware
 │   └── models/          # Database models
 ├── config/              # Configuration files

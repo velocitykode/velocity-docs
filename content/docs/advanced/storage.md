@@ -615,7 +615,7 @@ func TestUserAvatar(t *testing.T) {
 Here's a complete example of a file upload handler:
 
 ```go
-package controllers
+package handlers
 
 import (
     "fmt"
@@ -628,10 +628,10 @@ import (
     "github.com/velocitykode/velocity/pkg/storage"
 )
 
-type FileController struct{}
+type FileHandler struct{}
 
 // Upload handles file uploads
-func (fc *FileController) Upload(c *http.Context) error {
+func (fc *FileHandler) Upload(c *http.Context) error {
     // Parse multipart form (32 MB max)
     err := c.Request.ParseMultipartForm(32 << 20)
     if err != nil {
@@ -681,7 +681,7 @@ func (fc *FileController) Upload(c *http.Context) error {
 }
 
 // Download generates a temporary download link
-func (fc *FileController) Download(c *http.Context) error {
+func (fc *FileHandler) Download(c *http.Context) error {
     filePath := c.Param("path")
 
     // Check if file exists
@@ -706,7 +706,7 @@ func (fc *FileController) Download(c *http.Context) error {
 }
 
 // Delete removes a file
-func (fc *FileController) Delete(c *http.Context) error {
+func (fc *FileHandler) Delete(c *http.Context) error {
     filePath := c.Param("path")
 
     // Check if file exists

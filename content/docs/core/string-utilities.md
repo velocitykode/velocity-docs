@@ -133,7 +133,7 @@ Studly case is used for Go struct names, class names, and other type definitions
 ```go
 // Get text after a substring
 str.After("user@example.com", "@")          // "example.com"
-str.After("app/controllers/UserController", "/") // "controllers/UserController"
+str.After("internal/handlers/UserHandler", "/") // "handlers/UserHandler"
 
 // Get text before a substring
 str.Before("user@example.com", "@")         // "user"
@@ -346,14 +346,14 @@ func generateEndpoint(modelName string) string {
     return "/api/" + str.Snake(modelName)
 }
 
-endpoint := generateEndpoint("UserController")
-// Result: "/api/user_controller"
+endpoint := generateEndpoint("UserHandler")
+// Result: "/api/user_handler"
 
 // Multiple endpoints
 endpoints := []string{
-    generateEndpoint("ProductController"),  // "/api/product_controller"
-    generateEndpoint("OrderController"),    // "/api/order_controller"
-    generateEndpoint("CustomerController"), // "/api/customer_controller"
+    generateEndpoint("ProductHandler"),  // "/api/product_handler"
+    generateEndpoint("OrderHandler"),    // "/api/order_handler"
+    generateEndpoint("CustomerHandler"), // "/api/customer_handler"
 }
 ```
 

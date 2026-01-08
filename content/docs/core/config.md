@@ -308,10 +308,10 @@ DB_DATABASE=myapp_test
 
 ### Application Bootstrap
 
-Centralize configuration loading in your bootstrap:
+Centralize configuration loading in your app initialization:
 
 ```go
-package bootstrap
+package app
 
 import (
     "log"

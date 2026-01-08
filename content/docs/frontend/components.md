@@ -1,10 +1,10 @@
 ---
 title: React Components
-description: Build type-safe React components that receive props directly from Velocity Go controllers.
+description: Build type-safe React components that receive props directly from Velocity Go handlers.
 weight: 30
 ---
 
-Build type-safe React components that receive props directly from Go controllers.
+Build type-safe React components that receive props directly from Go handlers.
 
 ## Page Components
 

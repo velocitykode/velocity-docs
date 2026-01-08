@@ -259,7 +259,7 @@ Velocity provides template functions for easy CSRF token inclusion:
 Generates a hidden input field with the CSRF token:
 
 ```go
-// In your controller
+// In your handler
 func ShowForm(ctx *router.Context) error {
     sessionID := getSessionID(ctx.Request)
 
@@ -331,14 +331,14 @@ Apply to specific routes or groups:
 func init() {
     router.Register(func(r router.Router) {
         // Public routes without CSRF
-        r.Get("/", homeController.Index)
+        r.Get("/", homeHandler.Index)
 
         // Protected routes with CSRF
         protected := r.Group("/account")
         protected.Use(csrf.Middleware())
         {
-            protected.Post("/update", accountController.Update)
-            protected.Delete("/delete", accountController.Delete)
+            protected.Post("/update", accountHandler.Update)
+            protected.Delete("/delete", accountHandler.Delete)
         }
     })
 }

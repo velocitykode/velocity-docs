@@ -1,12 +1,12 @@
 ---
 title: Core Framework
-description: Core Velocity features including routing, controllers, middleware, authentication, validation, caching, and logging.
+description: Core Velocity features including routing, handlers, middleware, authentication, validation, caching, and logging.
 weight: 30
 sidebar:
   open: true
 ---
 
-Core Velocity framework features including routing, controllers, authentication, and middleware.
+Core Velocity framework features including routing, handlers, authentication, and middleware.
 
 ## In This Section
 
@@ -14,7 +14,7 @@ Core Velocity framework features including routing, controllers, authentication,
 - **[Authentication](authentication)** - Secure your application with built-in auth systems
 - **[Cache](cache)** - Multi-driver caching for improved performance
 - **[Config](config)** - Environment-based configuration management
-- **[Controllers](controllers)** - Organize request handling logic with controller patterns
+- **[Handlers](handlers)** - Organize request handling logic with handler patterns
 - **[Crypto](crypto)** - Encryption, decryption, and hashing utilities
 - **[CSRF Protection](csrf)** - Cross-site request forgery protection middleware
 - **[HTTP Router](http-router)** - Low-level HTTP routing with context and middleware

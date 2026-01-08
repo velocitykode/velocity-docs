@@ -10,7 +10,7 @@ Velocity's frontend stack combines Go, Inertia.js, React, TypeScript, and Vite f
 
 The frontend stack combines four technologies:
 
-- **Go Backend** - Handles routing, controllers, and data
+- **Go Backend** - Handles routing, handlers, and data
 - **Inertia.js** - Bridge between Go and React (no API endpoints needed)
 - **React + TypeScript** - Type-safe frontend components
 - **Vite** - Fast development server and production bundling
@@ -18,19 +18,19 @@ The frontend stack combines four technologies:
 The flow works like this:
 
 1. User visits `/posts`
-2. Go router calls `PostController.Index()`
-3. Controller fetches data and calls `view.Render("Posts/Index", props)`
+2. Go router calls `PostHandler.Index()`
+3. Handler fetches data and calls `view.Render("Posts/Index", props)`
 4. Inertia sends props to React component at `resources/js/pages/Posts/Index.tsx`
 5. React renders the page with full SPA navigation
 
-No REST API, no GraphQL, no separate frontend routing. Just controllers and components.
+No REST API, no GraphQL, no separate frontend routing. Just handlers and components.
 
 ## Project Structure
 
 ```
 your-app/
 ├── app/
-│   └── controllers/       # Go controllers
+│   └── handlers/       # Go handlers
 ├── resources/
 │   ├── js/
 │   │   ├── app.tsx        # React entry point

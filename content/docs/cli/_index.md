@@ -26,13 +26,13 @@ velocity (global)          vel (per-project)
 ├── init                   ├── build
 ├── config                 ├── migrate
 └── self-update            ├── migrate:fresh
-                           ├── make:controller
+                           ├── make:handler
                            └── key:generate
 ```
 
 **Why two CLIs?**
 - `velocity` is installed globally via Homebrew
-- `vel` is built from your project source, so it has access to your migrations, models, and bootstrap code
+- `vel` is built from your project source, so it has access to your migrations, models, and app initialization code
 
 ## Quick Reference
 
@@ -53,7 +53,7 @@ velocity (global)          vel (per-project)
 | `vel build` | Build for production |
 | `vel migrate` | Run database migrations |
 | `vel migrate:fresh` | Drop all tables and re-migrate |
-| `vel make:controller` | Generate a controller |
+| `vel make:handler` | Generate a handler |
 | `vel key:generate` | Generate encryption key |
 
 ## Using vel

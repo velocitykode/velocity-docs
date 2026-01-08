@@ -182,37 +182,37 @@ This command is destructive and will delete all data. Use only in development.
 
 ---
 
-### vel make:controller
+### vel make:handler
 
-Generate a new HTTP controller.
+Generate a new HTTP handler.
 
 ```bash
-vel make:controller <name> [flags]
+vel make:handler <name> [flags]
 ```
 
 **Arguments:**
-- `name` - Controller name (automatically converts to snake_case)
+- `name` - Handler name (automatically converts to snake_case)
 
 **Flags:**
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--resource` | `false` | Generate CRUD methods |
-| `--api` | `false` | Generate API controller (JSON responses) |
+| `--api` | `false` | Generate API handler (JSON responses) |
 
 **Examples:**
 
 ```bash
-# Basic controller
-vel make:controller User
+# Basic handler
+vel make:handler User
 
-# Resource controller with CRUD methods
-vel make:controller Post --resource
+# Resource handler with CRUD methods
+vel make:handler Post --resource
 
-# API controller
-vel make:controller Product --api --resource
+# API handler
+vel make:handler Product --api --resource
 ```
 
-**Generated file:** `app/http/controllers/<name>_controller.go`
+**Generated file:** `internal/handlers/<name>.go`
 
 ---
 

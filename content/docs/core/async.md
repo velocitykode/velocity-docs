@@ -244,7 +244,7 @@ async.SetPanicHandler(func(p any) {
 
 ## Examples
 
-### Dashboard Controller
+### Dashboard Handler
 
 ```go
 func GetDashboard(w http.ResponseWriter, r *http.Request) {

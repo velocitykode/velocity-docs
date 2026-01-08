@@ -41,7 +41,7 @@ Velocity handlers use a Context-based pattern that provides error handling and c
 func(ctx *router.Context) error
 
 // Example handler
-func (h *HomeController) Index(ctx *router.Context) error {
+func (h *HomeHandler) Index(ctx *router.Context) error {
     // Access request and response
     userID := ctx.Request.URL.Query().Get("user_id")
 
@@ -53,7 +53,7 @@ func (h *HomeController) Index(ctx *router.Context) error {
 }
 
 // Handler with error
-func (h *UserController) Profile(ctx *router.Context) error {
+func (h *UserHandler) Profile(ctx *router.Context) error {
     user, err := getUserFromContext(ctx.Request.Context())
     if err != nil {
         return err  // Error is handled automatically
@@ -93,8 +93,8 @@ Apply middleware to specific route groups:
 ```go
 func init() {
     router.Register(func(r router.Router) {
-        // Create controller instance
-        adminController := controllers.AdminController{}
+        // Create handler instance
+        adminHandler := handlers.AdminHandler{}
         
         // Admin routes with authentication
         admin := r.Group("/admin")
@@ -103,8 +103,8 @@ func init() {
             middleware.NewRateLimitMiddleware(50),
         )
         {
-            admin.Get("/", adminController.Dashboard)
-            admin.Get("/users", adminController.Users)
+            admin.Get("/", adminHandler.Dashboard)
+            admin.Get("/users", adminHandler.Users)
         }
     })
 }
@@ -117,22 +117,22 @@ Apply middleware to individual routes:
 ```go
 func init() {
     router.Register(func(r router.Router) {
-        // Create controller instances
-        homeController := controllers.HomeController{}
-        userController := controllers.UserController{}
-        contactController := controllers.ContactController{}
+        // Create handler instances
+        homeHandler := handlers.HomeHandler{}
+        userHandler := handlers.UserHandler{}
+        contactHandler := handlers.ContactHandler{}
         
         // Public routes - no middleware
-        r.Get("/", homeController.Index)
+        r.Get("/", homeHandler.Index)
         
         // Protected route with middleware
-        r.Get("/profile", userController.Profile).Use(
+        r.Get("/profile", userHandler.Profile).Use(
             middleware.AuthMiddleware,
             middleware.ProfileMiddleware,
         )
         
         // Chain multiple middleware
-        r.Post("/contact", contactController.Submit).
+        r.Post("/contact", contactHandler.Submit).
             Use(middleware.RateLimitMiddleware).
             Use(middleware.CSRFMiddleware).
             Use(middleware.ValidationMiddleware)
@@ -305,7 +305,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 }
 
 // Get value in handler
-func (h *UserController) Dashboard(ctx *router.Context) error {
+func (h *UserHandler) Dashboard(ctx *router.Context) error {
     userID := ctx.Request.Context().Value("userID").(string)
 
     user, err := getUserByID(userID)

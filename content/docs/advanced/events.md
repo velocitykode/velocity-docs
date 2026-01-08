@@ -526,8 +526,8 @@ func init() {
     events.Listen("user.registered", &TrackRegistration{})
 }
 
-// Usage in controller
-func (c *AuthController) Register(ctx *router.Context) error {
+// Usage in handler
+func (c *AuthHandler) Register(ctx *router.Context) error {
     user := createUser(email, password)
 
     events.Dispatch(UserRegistered{

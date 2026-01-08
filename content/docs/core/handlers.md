@@ -1,33 +1,33 @@
 ---
-title: Controllers
-description: Organize HTTP request handling with Velocity controllers using the MVC pattern and Context-based handlers.
+title: Handlers
+description: Organize HTTP request handling with Velocity handlers and Context-based handlers.
 weight: 20
 ---
 
-Controllers in Velocity handle HTTP requests and responses, providing a clean way to organize your application logic following the MVC pattern. Controllers use Context-based handlers that receive a `*router.Context` and return an `error`.
+Handlers in Velocity handle HTTP requests and responses, providing a clean way to organize your application logic following the MVC pattern. Handlers use Context-based functions that receive a `*router.Context` and return an `error`.
 
 ## Quick Start
 
-Creating and using controllers in Velocity:
+Creating and using handlers in Velocity:
 
 ```go
-// app/controllers/user_controller.go
-package controllers
+// internal/handlers/user_handler.go
+package handlers
 
 import (
-    "myapp/app/models"
+    "myapp/internal/models"
 
     "github.com/velocitykode/velocity/pkg/router"
     "github.com/velocitykode/velocity/pkg/view"
 )
 
-type UserController struct{}
+type UserHandler struct{}
 
-func NewUserController() *UserController {
-    return &UserController{}
+func NewUserHandler() *UserHandler {
+    return &UserHandler{}
 }
 
-func (c *UserController) Index(ctx *router.Context) error {
+func (c *UserHandler) Index(ctx *router.Context) error {
     users, err := models.User{}.All()
     if err != nil {
         return ctx.JSON(500, map[string]string{"error": "Failed to load users"})
@@ -39,7 +39,7 @@ func (c *UserController) Index(ctx *router.Context) error {
     return nil
 }
 
-func (c *UserController) Show(ctx *router.Context) error {
+func (c *UserHandler) Show(ctx *router.Context) error {
     id := ctx.Param("id")
     user, err := models.User{}.Find(id)
 
@@ -54,29 +54,29 @@ func (c *UserController) Show(ctx *router.Context) error {
 }
 ```
 
-## Controller Structure
+## Handler Structure
 
-### Basic Controller
+### Basic Handler
 
 ```go
-package controllers
+package handlers
 
 import (
-    "myapp/app/models"
+    "myapp/internal/models"
 
     "github.com/velocitykode/velocity/pkg/auth"
     "github.com/velocitykode/velocity/pkg/router"
     "github.com/velocitykode/velocity/pkg/view"
 )
 
-type PostController struct{}
+type PostHandler struct{}
 
-func NewPostController() *PostController {
-    return &PostController{}
+func NewPostHandler() *PostHandler {
+    return &PostHandler{}
 }
 
 // Show all posts
-func (c *PostController) Index(ctx *router.Context) error {
+func (c *PostHandler) Index(ctx *router.Context) error {
     posts, err := models.Post{}.With("User").OrderBy("created_at", "DESC").Get()
     if err != nil {
         return ctx.JSON(500, map[string]string{"error": "Failed to load posts"})
@@ -89,7 +89,7 @@ func (c *PostController) Index(ctx *router.Context) error {
 }
 
 // Show single post
-func (c *PostController) Show(ctx *router.Context) error {
+func (c *PostHandler) Show(ctx *router.Context) error {
     id := ctx.Param("id")
     post, err := models.Post{}.With("User", "Comments.User").Find(id)
 
@@ -104,13 +104,13 @@ func (c *PostController) Show(ctx *router.Context) error {
 }
 
 // Show create form
-func (c *PostController) Create(ctx *router.Context) error {
+func (c *PostHandler) Create(ctx *router.Context) error {
     view.Render(ctx.Response, ctx.Request, "posts/create", view.Props{})
     return nil
 }
 
 // Store new post
-func (c *PostController) Store(ctx *router.Context) error {
+func (c *PostHandler) Store(ctx *router.Context) error {
     // Bind and validate request
     var input struct {
         Title string `json:"title"`
@@ -139,7 +139,7 @@ func (c *PostController) Store(ctx *router.Context) error {
 }
 
 // Show edit form
-func (c *PostController) Edit(ctx *router.Context) error {
+func (c *PostHandler) Edit(ctx *router.Context) error {
     id := ctx.Param("id")
     post, err := models.Post{}.Find(id)
 
@@ -154,7 +154,7 @@ func (c *PostController) Edit(ctx *router.Context) error {
 }
 
 // Update post
-func (c *PostController) Update(ctx *router.Context) error {
+func (c *PostHandler) Update(ctx *router.Context) error {
     id := ctx.Param("id")
     post, err := models.Post{}.Find(id)
 
@@ -181,7 +181,7 @@ func (c *PostController) Update(ctx *router.Context) error {
 }
 
 // Delete post
-func (c *PostController) Destroy(ctx *router.Context) error {
+func (c *PostHandler) Destroy(ctx *router.Context) error {
     id := ctx.Param("id")
     post, err := models.Post{}.Find(id)
 
@@ -198,25 +198,25 @@ func (c *PostController) Destroy(ctx *router.Context) error {
 }
 ```
 
-## Base Controller
+## Base Handler
 
-Create a base controller with common functionality:
+Create a base handler with common functionality:
 
 ```go
-// app/controllers/base_controller.go
-package controllers
+// internal/handlers/base_handler.go
+package handlers
 
 import (
     "github.com/velocitykode/velocity/pkg/router"
     "github.com/velocitykode/velocity/pkg/view"
     "github.com/velocitykode/velocity/pkg/auth"
-    "myapp/app/models"
+    "myapp/internal/models"
 )
 
-type BaseController struct{}
+type BaseHandler struct{}
 
 // JSON response helper
-func (c *BaseController) JSON(ctx *router.Context, data interface{}, status ...int) error {
+func (c *BaseHandler) JSON(ctx *router.Context, data interface{}, status ...int) error {
     statusCode := 200
     if len(status) > 0 {
         statusCode = status[0]
@@ -225,7 +225,7 @@ func (c *BaseController) JSON(ctx *router.Context, data interface{}, status ...i
 }
 
 // Error response helper
-func (c *BaseController) Error(ctx *router.Context, message string, status ...int) error {
+func (c *BaseHandler) Error(ctx *router.Context, message string, status ...int) error {
     statusCode := 500
     if len(status) > 0 {
         statusCode = status[0]
@@ -236,22 +236,22 @@ func (c *BaseController) Error(ctx *router.Context, message string, status ...in
 }
 
 // Not found response
-func (c *BaseController) NotFound(ctx *router.Context) error {
+func (c *BaseHandler) NotFound(ctx *router.Context) error {
     return c.Error(ctx, "Resource not found", 404)
 }
 
 // Forbidden response
-func (c *BaseController) Forbidden(ctx *router.Context) error {
+func (c *BaseHandler) Forbidden(ctx *router.Context) error {
     return c.Error(ctx, "Access forbidden", 403)
 }
 
 // Unauthorized response
-func (c *BaseController) Unauthorized(ctx *router.Context) error {
+func (c *BaseHandler) Unauthorized(ctx *router.Context) error {
     return c.Error(ctx, "Authentication required", 401)
 }
 
 // Redirect helper
-func (c *BaseController) Redirect(ctx *router.Context, url string, status ...int) error {
+func (c *BaseHandler) Redirect(ctx *router.Context, url string, status ...int) error {
     statusCode := 302
     if len(status) > 0 {
         statusCode = status[0]
@@ -260,12 +260,12 @@ func (c *BaseController) Redirect(ctx *router.Context, url string, status ...int
 }
 
 // Render with validation errors
-func (c *BaseController) WithErrors(ctx *router.Context, errors map[string][]string) {
+func (c *BaseHandler) WithErrors(ctx *router.Context, errors map[string][]string) {
     view.WithErrors(ctx.Response, errors)
 }
 
 // Authorization helper
-func (c *BaseController) authorize(ctx *router.Context, action string, resource interface{}) bool {
+func (c *BaseHandler) authorize(ctx *router.Context, action string, resource interface{}) bool {
     user := auth.User(ctx.Request)
     if user == nil {
         return false
@@ -277,34 +277,34 @@ func (c *BaseController) authorize(ctx *router.Context, action string, resource 
 }
 
 // Get authenticated user
-func (c *BaseController) user(ctx *router.Context) *models.User {
+func (c *BaseHandler) user(ctx *router.Context) *models.User {
     return auth.User(ctx.Request).(*models.User)
 }
 ```
 
-## Resource Controllers
+## Resource Handlers
 
-Velocity supports RESTful resource controllers:
+Velocity supports RESTful resource handlers:
 
 ```go
-// app/controllers/api/user_controller.go
+// internal/handlers/api/user_handler.go
 package api
 
 import (
     "strconv"
-    "myapp/app/models"
+    "myapp/internal/models"
 
     "github.com/velocitykode/velocity/pkg/router"
     "github.com/velocitykode/velocity/pkg/auth"
     "github.com/velocitykode/velocity/pkg/validation"
 )
 
-type UserController struct {
-    BaseController
+type UserHandler struct {
+    BaseHandler
 }
 
 // GET /api/users
-func (c *UserController) Index(ctx *router.Context) error {
+func (c *UserHandler) Index(ctx *router.Context) error {
     page := ctx.Query("page")
     if page == "" {
         page = "1"
@@ -322,7 +322,7 @@ func (c *UserController) Index(ctx *router.Context) error {
 }
 
 // GET /api/users/{id}
-func (c *UserController) Show(ctx *router.Context) error {
+func (c *UserHandler) Show(ctx *router.Context) error {
     id := ctx.Param("id")
     user, err := models.User{}.With("Profile", "Posts").Find(id)
 
@@ -334,7 +334,7 @@ func (c *UserController) Show(ctx *router.Context) error {
 }
 
 // POST /api/users
-func (c *UserController) Store(ctx *router.Context) error {
+func (c *UserHandler) Store(ctx *router.Context) error {
     data, err := validation.Validate(ctx.Request, validation.Rules{
         "name":     "required|string|max:255",
         "email":    "required|email|unique:users,email",
@@ -363,7 +363,7 @@ func (c *UserController) Store(ctx *router.Context) error {
 }
 
 // PUT /api/users/{id}
-func (c *UserController) Update(ctx *router.Context) error {
+func (c *UserHandler) Update(ctx *router.Context) error {
     id := ctx.Param("id")
     user, err := models.User{}.Find(id)
 
@@ -390,7 +390,7 @@ func (c *UserController) Update(ctx *router.Context) error {
 }
 
 // DELETE /api/users/{id}
-func (c *UserController) Destroy(ctx *router.Context) error {
+func (c *UserHandler) Destroy(ctx *router.Context) error {
     id := ctx.Param("id")
     user, err := models.User{}.Find(id)
 
@@ -407,39 +407,39 @@ func (c *UserController) Destroy(ctx *router.Context) error {
 }
 ```
 
-## Controller Middleware
+## Handler Middleware
 
-Apply middleware to controllers:
+Apply middleware to handlers:
 
 ```go
 // routes/web.go
 package routes
 
 import (
-    "myapp/app/controllers"
-    "myapp/app/middleware"
+    "myapp/internal/handlers"
+    "myapp/internal/middleware"
 
     "github.com/velocitykode/velocity/pkg/router"
 )
 
 func WebRoutes(r *router.Router) {
     // Public routes
-    homeController := &controllers.HomeController{}
-    postController := &controllers.PostController{}
+    homeHandler := &handlers.HomeHandler{}
+    postHandler := &handlers.PostHandler{}
 
-    r.Get("/", homeController.Index)
-    r.Get("/posts", postController.Index)
-    r.Get("/posts/{id}", postController.Show)
+    r.Get("/", homeHandler.Index)
+    r.Get("/posts", postHandler.Index)
+    r.Get("/posts/{id}", postHandler.Show)
 
     // Protected routes
     r.Group(func(r *router.Router) {
         r.Use(middleware.Auth)
 
-        r.Get("/posts/create", postController.Create)
-        r.Post("/posts", postController.Store)
-        r.Get("/posts/{id}/edit", postController.Edit)
-        r.Put("/posts/{id}", postController.Update)
-        r.Delete("/posts/{id}", postController.Destroy)
+        r.Get("/posts/create", postHandler.Create)
+        r.Post("/posts", postHandler.Store)
+        r.Get("/posts/{id}/edit", postHandler.Edit)
+        r.Put("/posts/{id}", postHandler.Update)
+        r.Delete("/posts/{id}", postHandler.Destroy)
     })
 }
 ```
@@ -449,7 +449,7 @@ func WebRoutes(r *router.Router) {
 Handle form submissions:
 
 ```go
-func (c *PostController) Store(ctx *router.Context) error {
+func (c *PostHandler) Store(ctx *router.Context) error {
     // Parse form data
     if err := ctx.Request.ParseForm(); err != nil {
         return c.Error(ctx, "Invalid form data")
@@ -492,10 +492,10 @@ func (c *PostController) Store(ctx *router.Context) error {
 
 ## File Uploads
 
-Handle file uploads in controllers:
+Handle file uploads in handlers:
 
 ```go
-func (c *UserController) UpdateAvatar(ctx *router.Context) error {
+func (c *UserHandler) UpdateAvatar(ctx *router.Context) error {
     // Parse multipart form
     if err := ctx.Request.ParseMultipartForm(10 << 20); err != nil { // 10MB max
         return c.Error(ctx, "File too large")
@@ -541,11 +541,11 @@ func (c *UserController) UpdateAvatar(ctx *router.Context) error {
 
 ## Request/Response Helpers
 
-Useful helpers for controllers:
+Useful helpers for handlers:
 
 ```go
 // Get query parameters
-func (c *BaseController) getQuery(ctx *router.Context, key string, defaultValue ...string) string {
+func (c *BaseHandler) getQuery(ctx *router.Context, key string, defaultValue ...string) string {
     value := ctx.Query(key)
     if value == "" && len(defaultValue) > 0 {
         return defaultValue[0]
@@ -554,7 +554,7 @@ func (c *BaseController) getQuery(ctx *router.Context, key string, defaultValue 
 }
 
 // Get form value
-func (c *BaseController) getForm(ctx *router.Context, key string, defaultValue ...string) string {
+func (c *BaseHandler) getForm(ctx *router.Context, key string, defaultValue ...string) string {
     value := ctx.Request.FormValue(key)
     if value == "" && len(defaultValue) > 0 {
         return defaultValue[0]
@@ -563,12 +563,12 @@ func (c *BaseController) getForm(ctx *router.Context, key string, defaultValue .
 }
 
 // Parse JSON body
-func (c *BaseController) parseJSON(ctx *router.Context, v interface{}) error {
+func (c *BaseHandler) parseJSON(ctx *router.Context, v interface{}) error {
     return ctx.Bind(v)
 }
 
 // Get client IP
-func (c *BaseController) getClientIP(ctx *router.Context) string {
+func (c *BaseHandler) getClientIP(ctx *router.Context) string {
     forwarded := ctx.Request.Header.Get("X-Forwarded-For")
     if forwarded != "" {
         return strings.Split(forwarded, ",")[0]
@@ -582,8 +582,8 @@ func (c *BaseController) getClientIP(ctx *router.Context) string {
 Centralized error handling:
 
 ```go
-// app/controllers/error_controller.go
-package controllers
+// internal/handlers/error_handler.go
+package handlers
 
 import (
     "github.com/velocitykode/velocity/pkg/router"
@@ -591,9 +591,9 @@ import (
     "github.com/velocitykode/velocity/pkg/log"
 )
 
-type ErrorController struct{}
+type ErrorHandler struct{}
 
-func (c *ErrorController) NotFound(ctx *router.Context) error {
+func (c *ErrorHandler) NotFound(ctx *router.Context) error {
     ctx.Response.WriteHeader(404)
     view.Render(ctx.Response, ctx.Request, "errors/404", view.Props{
         "url": ctx.Request.URL.Path,
@@ -601,7 +601,7 @@ func (c *ErrorController) NotFound(ctx *router.Context) error {
     return nil
 }
 
-func (c *ErrorController) InternalError(ctx *router.Context, err error) error {
+func (c *ErrorHandler) InternalError(ctx *router.Context, err error) error {
     log.Error("Internal server error", "error", err, "url", ctx.Request.URL.Path)
 
     ctx.Response.WriteHeader(500)
@@ -611,20 +611,20 @@ func (c *ErrorController) InternalError(ctx *router.Context, err error) error {
     return nil
 }
 
-func (c *ErrorController) Forbidden(ctx *router.Context) error {
+func (c *ErrorHandler) Forbidden(ctx *router.Context) error {
     ctx.Response.WriteHeader(403)
     view.Render(ctx.Response, ctx.Request, "errors/403", view.Props{})
     return nil
 }
 ```
 
-## Testing Controllers
+## Testing Handlers
 
-Test your controllers:
+Test your handlers:
 
 ```go
-// app/controllers/user_controller_test.go
-package controllers
+// internal/handlers/user_handler_test.go
+package handlers
 
 import (
     "net/http"
@@ -634,12 +634,12 @@ import (
     "strings"
 
     "github.com/stretchr/testify/assert"
-    "myapp/app/models"
+    "myapp/internal/models"
 
     "github.com/velocitykode/velocity/pkg/router"
 )
 
-func TestUserController_Index(t *testing.T) {
+func TestUserHandler_Index(t *testing.T) {
     // Setup test database
     setupTestDB()
     defer teardownTestDB()
@@ -661,9 +661,9 @@ func TestUserController_Index(t *testing.T) {
         Response: w,
     }
 
-    // Call controller
-    controller := &UserController{}
-    err := controller.Index(ctx)
+    // Call handler
+    handler := &UserHandler{}
+    err := handler.Index(ctx)
 
     // Assert response
     assert.NoError(t, err)
@@ -671,7 +671,7 @@ func TestUserController_Index(t *testing.T) {
     assert.Contains(t, w.Body.String(), "Test User")
 }
 
-func TestUserController_Store(t *testing.T) {
+func TestUserHandler_Store(t *testing.T) {
     setupTestDB()
     defer teardownTestDB()
 
@@ -690,9 +690,9 @@ func TestUserController_Store(t *testing.T) {
         Response: w,
     }
 
-    // Call controller
-    controller := &UserController{}
-    err := controller.Store(ctx)
+    // Call handler
+    handler := &UserHandler{}
+    err := handler.Store(ctx)
 
     // Assert response
     assert.NoError(t, err)
@@ -707,12 +707,12 @@ func TestUserController_Store(t *testing.T) {
 
 ## Best Practices
 
-1. **Keep controllers thin** - Move business logic to models or services
-2. **Use base controller** - Share common functionality across controllers
+1. **Keep handlers thin** - Move business logic to models or services
+2. **Use base handler** - Share common functionality across handlers
 3. **Validate input** - Always validate user input before processing
 4. **Handle errors gracefully** - Provide meaningful error messages
 5. **Use middleware** - Apply cross-cutting concerns like authentication
 6. **Return appropriate status codes** - Use correct HTTP status codes
-7. **Test controllers** - Write unit tests for controller methods
-8. **Separate concerns** - Keep API and web controllers separate
+7. **Test handlers** - Write unit tests for handler methods
+8. **Separate concerns** - Keep API and web handlers separate
 

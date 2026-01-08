@@ -15,18 +15,18 @@ Define routes in your application's `routes/` directory. Each file uses `init()`
 package routes
 
 import (
-    "myapp/app/controllers"
+    "myapp/internal/handlers"
     "github.com/velocitykode/velocity/pkg/router"
 )
 
 func init() {
     router.Register(func(r router.Router) {
-        // Create controller instances
-        homeController := controllers.NewHomeController()
-        aboutController := controllers.NewAboutController()
+        // Create handler instances
+        homeHandler := handlers.NewHomeHandler()
+        aboutHandler := handlers.NewAboutHandler()
 
-        r.Get("/", homeController.Index)
-        r.Get("/about", aboutController.Index)
+        r.Get("/", homeHandler.Index)
+        r.Get("/about", aboutHandler.Index)
     })
 }
 ```
@@ -57,7 +57,7 @@ func main() {
 All route handlers use `router.HandlerFunc` which receives a `*router.Context` and returns an `error`:
 
 ```go
-func (c *UserController) Index(ctx *router.Context) error {
+func (c *UserHandler) Index(ctx *router.Context) error {
     users, err := models.User{}.All()
     if err != nil {
         return err
@@ -73,7 +73,7 @@ func (c *UserController) Index(ctx *router.Context) error {
 The Context provides convenient methods for accessing request data:
 
 ```go
-func (c *UserController) Show(ctx *router.Context) error {
+func (c *UserHandler) Show(ctx *router.Context) error {
     // Get URL parameter
     id := ctx.Param("id")
 
@@ -146,23 +146,23 @@ r.Get("/api/{uuid:[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}}"
 
 ## RESTful Resources
 
-Following RESTful conventions with standard controller methods:
+Following RESTful conventions with standard handler methods:
 
 ```go
 // routes/user.go
 func init() {
     router.Register(func(r router.Router) {
-        // Create controller instance
-        userController := controllers.UserController{}
+        // Create handler instance
+        userHandler := handlers.UserHandler{}
         
         // RESTful routes
-        r.Get("/users", userController.Index)       // List all
-        r.Get("/users/create", userController.Create)  // Show form
-        r.Post("/users", userController.Store)      // Save new
-        r.Get("/users/{id}", userController.Show)   // Display one
-        r.Get("/users/{id}/edit", userController.Edit) // Edit form
-        r.Put("/users/{id}", userController.Update) // Update
-        r.Delete("/users/{id}", userController.Destroy) // Delete
+        r.Get("/users", userHandler.Index)       // List all
+        r.Get("/users/create", userHandler.Create)  // Show form
+        r.Post("/users", userHandler.Store)      // Save new
+        r.Get("/users/{id}", userHandler.Show)   // Display one
+        r.Get("/users/{id}/edit", userHandler.Edit) // Edit form
+        r.Put("/users/{id}", userHandler.Update) // Update
+        r.Delete("/users/{id}", userHandler.Destroy) // Delete
     })
 }
 ```
@@ -186,19 +186,19 @@ Group related routes to share common paths:
 ```go
 func init() {
     router.Register(func(r router.Router) {
-        // Create controller instances
-        dashboardController := controllers.Admin.DashboardController{}
-        adminUserController := controllers.Admin.UserController{}
-        settingsController := controllers.Admin.SettingsController{}
-        apiUserController := controllers.API.UserController{}
-        apiPostController := controllers.API.PostController{}
+        // Create handler instances
+        dashboardHandler := handlers.Admin.DashboardHandler{}
+        adminUserHandler := handlers.Admin.UserHandler{}
+        settingsHandler := handlers.Admin.SettingsHandler{}
+        apiUserHandler := handlers.API.UserHandler{}
+        apiPostHandler := handlers.API.PostHandler{}
         
         // Admin routes group
         admin := r.Group("/admin")
         {
-            admin.Get("/", dashboardController.Index)
-            admin.Get("/users", adminUserController.Index)
-            admin.Get("/settings", settingsController.Index)
+            admin.Get("/", dashboardHandler.Index)
+            admin.Get("/users", adminUserHandler.Index)
+            admin.Get("/settings", settingsHandler.Index)
         }
         
         // API routes with versioning
@@ -206,8 +206,8 @@ func init() {
         {
             v1 := api.Group("/v1")
             {
-                v1.Get("/users", apiUserController.Index)
-                v1.Get("/posts", apiPostController.Index)
+                v1.Get("/users", apiUserHandler.Index)
+                v1.Get("/posts", apiPostHandler.Index)
             }
         }
     })
@@ -271,7 +271,7 @@ url, _ := router.Route("users.show", map[string]string{"id": "123"})
 
 ## Testing Routes
 
-Test your routes and controllers:
+Test your routes and handlers:
 
 ```go
 func TestUserRoutes(t *testing.T) {
@@ -292,25 +292,25 @@ func TestUserRoutes(t *testing.T) {
 }
 ```
 
-## Controller Example
+## Handler Example
 
-Here's a complete controller example using the Context-based handlers:
+Here's a complete handler example using the Context-based handlers:
 
 ```go
-package controllers
+package handlers
 
 import (
     "github.com/velocitykode/velocity/pkg/router"
     "github.com/velocitykode/velocity/pkg/view"
 )
 
-type UserController struct{}
+type UserHandler struct{}
 
-func NewUserController() *UserController {
-    return &UserController{}
+func NewUserHandler() *UserHandler {
+    return &UserHandler{}
 }
 
-func (c *UserController) Index(ctx *router.Context) error {
+func (c *UserHandler) Index(ctx *router.Context) error {
     users, _ := models.User{}.All()
     view.Render(ctx.Response, ctx.Request, "users/index", view.Props{
         "users": users,
@@ -318,7 +318,7 @@ func (c *UserController) Index(ctx *router.Context) error {
     return nil
 }
 
-func (c *UserController) Show(ctx *router.Context) error {
+func (c *UserHandler) Show(ctx *router.Context) error {
     id := ctx.Param("id")
     user, err := models.User{}.Find(id)
     if err != nil {
@@ -330,7 +330,7 @@ func (c *UserController) Show(ctx *router.Context) error {
     return nil
 }
 
-func (c *UserController) Store(ctx *router.Context) error {
+func (c *UserHandler) Store(ctx *router.Context) error {
     var input struct {
         Name  string `json:"name"`
         Email string `json:"email"`
@@ -352,25 +352,25 @@ func (c *UserController) Store(ctx *router.Context) error {
 }
 ```
 
-### Using Controllers in Routes
+### Using Handlers in Routes
 
-Store controller instances in variables for cleaner code:
+Store handler instances in variables for cleaner code:
 
 ```go
 func init() {
     router.Register(func(r router.Router) {
-        // Create controller instances
-        userController := controllers.NewUserController()
-        postController := controllers.NewPostController()
+        // Create handler instances
+        userHandler := handlers.NewUserHandler()
+        postHandler := handlers.NewPostHandler()
 
         // User routes
-        r.Get("/users", userController.Index)
-        r.Get("/users/{id}", userController.Show)
-        r.Post("/users", userController.Store)
+        r.Get("/users", userHandler.Index)
+        r.Get("/users/{id}", userHandler.Show)
+        r.Post("/users", userHandler.Store)
 
         // Post routes
-        r.Get("/posts", postController.Index)
-        r.Get("/posts/{id}", postController.Show)
+        r.Get("/posts", postHandler.Index)
+        r.Get("/posts/{id}", postHandler.Show)
     })
 }
 ```

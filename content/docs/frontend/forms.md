@@ -240,8 +240,8 @@ reset('title', 'body')
 Errors come from Go validation and are keyed by field name:
 
 ```go
-// Go controller
-func (c *PostController) Store(ctx *router.Context) error {
+// Go handler
+func (c *PostHandler) Store(ctx *router.Context) error {
     errors := validate.Check(ctx.Request, validate.Rules{
         "title": {"required", "min:3"},
         "body":  {"required", "min:10"},

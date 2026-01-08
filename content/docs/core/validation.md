@@ -801,16 +801,16 @@ rules := validation.Rules{
 Here's a complete example of a user registration endpoint with validation:
 
 ```go
-package controllers
+package handlers
 
 import (
     "github.com/velocitykode/velocity/pkg/http"
     "github.com/velocitykode/velocity/pkg/validation"
 )
 
-type UserController struct{}
+type UserHandler struct{}
 
-func (uc *UserController) Register(c *http.Context) error {
+func (uc *UserHandler) Register(c *http.Context) error {
     // Define validation rules
     rules := validation.Rules{
         "name":                 "required|string|min:2|max:100",
@@ -873,7 +873,7 @@ func (uc *UserController) Register(c *http.Context) error {
     })
 }
 
-func (uc *UserController) UpdateProfile(c *http.Context) error {
+func (uc *UserHandler) UpdateProfile(c *http.Context) error {
     userID := c.Param("id")
 
     rules := validation.Rules{
