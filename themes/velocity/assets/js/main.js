@@ -100,6 +100,27 @@
     });
   }
 
+  // Versus interactive comparison
+  function initVersus() {
+    const container = document.querySelector('.versus-container');
+    if (!container) return;
+
+    const items = container.querySelectorAll('.versus-item');
+    const details = container.querySelectorAll('.versus-detail-content');
+
+    items.forEach(item => {
+      item.addEventListener('click', () => {
+        const detailId = item.getAttribute('data-detail');
+
+        items.forEach(i => i.classList.remove('active'));
+        details.forEach(d => d.classList.remove('active'));
+
+        item.classList.add('active');
+        container.querySelector(`.versus-detail-content[data-detail="${detailId}"]`)?.classList.add('active');
+      });
+    });
+  }
+
   // Table of contents scroll spy
   function initScrollSpy() {
     const toc = document.querySelector('.docs-toc');
@@ -171,6 +192,7 @@
     initCopyButtons();
     initMobileNav();
     initTabs();
+    initVersus();
     initScrollSpy();
     initSmoothScroll();
     initFileTree();

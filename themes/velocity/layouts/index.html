@@ -89,44 +89,6 @@
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════════════════════
-     CODE SHOWCASE SECTION
-     ═══════════════════════════════════════════════════════════════════════════ -->
-<section class="section code-showcase">
-  <div class="section-inner">
-    <header class="section-header">
-      <p class="section-label">Unified Pattern</p>
-      <h2 class="section-title">Same API, Every Package</h2>
-      <p class="section-subtitle">Stop context-switching between library APIs. One consistent interface across 21 packages.</p>
-    </header>
-
-    <div class="code-block">
-      <div class="code-block-header">
-        <div class="code-block-dots">
-          <span class="code-block-dot"></span>
-          <span class="code-block-dot"></span>
-          <span class="code-block-dot"></span>
-        </div>
-        <span class="code-block-filename">handlers/user.go</span>
-        <button type="button" class="code-block-copy">Copy</button>
-      </div>
-      <pre><code><span class="comment">// Same conventions. Same patterns. Every package.</span>
-<span class="keyword">cache</span>.<span class="function">Get</span>(key)              <span class="keyword">storage</span>.<span class="function">Get</span>(path)
-<span class="keyword">cache</span>.<span class="function">Put</span>(key, val, ttl)    <span class="keyword">storage</span>.<span class="function">Put</span>(path, content)
-
-<span class="keyword">mail</span>.<span class="function">Send</span>(message)           <span class="keyword">queue</span>.<span class="function">Push</span>(job)
-
-<span class="keyword">log</span>.<span class="function">Info</span>("msg", "key", val) <span class="keyword">arc</span>.<span class="function">Find</span>(&users)
-
-<span class="comment">// Bootstrap: explicit initialization</span>
-<span class="keyword">arc</span>.<span class="function">InitFromEnv</span>()
-<span class="keyword">cache</span>.<span class="function">InitFromEnv</span>()
-
-<span class="comment">// No container. No resolution. Import and call.</span></code></pre>
-    </div>
-  </div>
-</section>
-
-<!-- ═══════════════════════════════════════════════════════════════════════════
      DRIVERS SECTION
      ═══════════════════════════════════════════════════════════════════════════ -->
 <section class="section" style="background: var(--bg-secondary);">
@@ -199,6 +161,42 @@ CACHE_DRIVER=redis</code></pre>
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════════════════════
+     CODE SHOWCASE SECTION
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<section class="section code-showcase">
+  <div class="section-inner">
+    <header class="section-header">
+      <p class="section-label">Unified Pattern</p>
+      <h2 class="section-title">Fluent API, Every Package</h2>
+      <p class="section-subtitle">One consistent interface across 21 packages.</p>
+    </header>
+
+    <div class="code-showcase-grid">
+      <div class="code-block">
+        <div class="code-block-header">
+          <span class="code-block-filename">Cache & Storage</span>
+        </div>
+        <pre><code><span class="keyword">cache</span>.<span class="function">Get</span>(key)
+<span class="keyword">cache</span>.<span class="function">Put</span>(key, val, ttl)
+
+<span class="keyword">storage</span>.<span class="function">Get</span>(path)
+<span class="keyword">storage</span>.<span class="function">Put</span>(path, content)</code></pre>
+      </div>
+      <div class="code-block">
+        <div class="code-block-header">
+          <span class="code-block-filename">Mail & Queue</span>
+        </div>
+        <pre><code><span class="keyword">mail</span>.<span class="function">Send</span>(message)
+<span class="keyword">mail</span>.<span class="function">To</span>(addr).<span class="function">Send</span>()
+
+<span class="keyword">queue</span>.<span class="function">Push</span>(job)
+<span class="keyword">queue</span>.<span class="function">Later</span>(job, delay)</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
      WHY VELOCITY SECTION
      ═══════════════════════════════════════════════════════════════════════════ -->
 <section class="section">
@@ -211,10 +209,10 @@ CACHE_DRIVER=redis</code></pre>
 
     <div class="two-col-grid">
       <div>
-        <h3 style="color: var(--accent-secondary); font-size: 1.5rem; margin-bottom: var(--space-lg);">Move Faster</h3>
+        <h3 style="color: var(--accent-primary); font-size: 1.5rem; margin-bottom: var(--space-lg);">Move Faster</h3>
         <ul class="feature-list">
           <li>
-            <svg class="feature-list-icon" style="color: var(--accent-secondary);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg class="feature-list-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
             </svg>
             <div class="feature-list-content">
@@ -223,7 +221,7 @@ CACHE_DRIVER=redis</code></pre>
             </div>
           </li>
           <li>
-            <svg class="feature-list-icon" style="color: var(--accent-secondary);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg class="feature-list-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <rect x="3" y="3" width="18" height="18" rx="2"/>
               <path d="M3 9h18M9 21V9"/>
             </svg>
@@ -233,7 +231,7 @@ CACHE_DRIVER=redis</code></pre>
             </div>
           </li>
           <li>
-            <svg class="feature-list-icon" style="color: var(--accent-secondary);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg class="feature-list-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4"/>
             </svg>
             <div class="feature-list-content">
@@ -292,49 +290,64 @@ CACHE_DRIVER=redis</code></pre>
       <p class="section-subtitle">Velocity is explicit. No containers, no service providers.</p>
     </header>
 
-    <table class="comparison-table">
-      <thead>
-        <tr>
-          <th>Traditional DI Framework</th>
-          <th>Velocity</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td>IoC container resolves dependencies</td>
-          <td>Direct package imports</td>
-        </tr>
-        <tr>
-          <td>Hidden service provider registration</td>
-          <td>Explicit bootstrap initialization</td>
-        </tr>
-        <tr>
-          <td>Runtime service resolution</td>
-          <td>Compile-time imports</td>
-        </tr>
-        <tr>
-          <td>Framework owns the lifecycle</td>
-          <td>You own the lifecycle</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <div class="not-di-code" style="margin-top: var(--space-2xl);">
-      <div class="code-block" style="max-width: 600px; margin: 0 auto;">
-        <div class="code-block-header">
-          <span class="code-block-filename">internal/app/app.go</span>
+    <div class="versus-container">
+      <div class="versus">
+        <div class="versus-item active" data-detail="0">
+          <span class="versus-strike">IoC containers</span>
+          <span class="versus-arrow">→</span>
+          <span class="versus-new">Direct imports</span>
         </div>
-        <pre><code><span class="comment">// Bootstrap: explicit initialization</span>
-<span class="keyword">arc</span>.<span class="function">InitFromEnv</span>()
-<span class="keyword">cache</span>.<span class="function">InitFromEnv</span>()
+        <div class="versus-item" data-detail="1">
+          <span class="versus-strike">Hidden registration</span>
+          <span class="versus-arrow">→</span>
+          <span class="versus-new">Explicit init</span>
+        </div>
+        <div class="versus-item" data-detail="2">
+          <span class="versus-strike">Runtime resolution</span>
+          <span class="versus-arrow">→</span>
+          <span class="versus-new">Compile-time</span>
+        </div>
+        <div class="versus-item" data-detail="3">
+          <span class="versus-strike">Framework lifecycle</span>
+          <span class="versus-arrow">→</span>
+          <span class="versus-new">You own it</span>
+        </div>
+      </div>
+      <div class="versus-detail">
+        <div class="versus-detail-content active" data-detail="0">
+          <h4>Direct imports</h4>
+          <p>No magic. Import the package, call the function. Your IDE understands it, your compiler checks it.</p>
+          <pre><code><span class="keyword">import</span> "github.com/velocitykode/velocity/pkg/cache"
 
-<span class="comment">// Usage: direct calls</span>
-user, _ := <span class="keyword">arc</span>.<span class="function">Find</span>(&User{}, id)
-<span class="keyword">cache</span>.<span class="function">Put</span>("key", value, time.Hour)
+cache.<span class="function">Get</span>("user:1")</code></pre>
+        </div>
+        <div class="versus-detail-content" data-detail="1">
+          <h4>Explicit initialization</h4>
+          <p>You decide when packages initialize. One line in your bootstrap, complete control over order and error handling.</p>
+          <pre><code><span class="keyword">func</span> <span class="function">main</span>() {
+    cache.<span class="function">InitFromEnv</span>()
+    arc.<span class="function">InitFromEnv</span>()
+}</code></pre>
+        </div>
+        <div class="versus-detail-content" data-detail="2">
+          <h4>Compile-time safety</h4>
+          <p>No runtime surprises. If it compiles, your dependencies are wired correctly. The compiler is your safety net.</p>
+          <pre><code><span class="comment">// Typo? Compiler catches it.</span>
+cache.<span class="function">Gett</span>("key") <span class="comment">// ❌ Build error</span>
 
-<span class="comment">// No container. No resolution. Import and call.</span></code></pre>
+<span class="comment">// Wrong type? Compiler catches it.</span>
+cache.<span class="function">Put</span>(123, val) <span class="comment">// ❌ Build error</span></code></pre>
+        </div>
+        <div class="versus-detail-content" data-detail="3">
+          <h4>You own the lifecycle</h4>
+          <p>No framework black box. You control initialization, shutdown, and everything in between. Debug with standard Go tools.</p>
+          <pre><code><span class="comment">// Graceful shutdown? Your code.</span>
+<span class="keyword">defer</span> cache.<span class="function">Close</span>()
+<span class="keyword">defer</span> arc.<span class="function">Close</span>()</code></pre>
+        </div>
       </div>
     </div>
+
   </div>
 </section>
 
