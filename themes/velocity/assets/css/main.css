@@ -1512,7 +1512,6 @@ code, pre {
 .tabs-list {
   display: flex;
   gap: var(--space-xs);
-  border-bottom: 1px solid var(--border-subtle);
   margin-bottom: 0;
   padding: 0;
   list-style: none;

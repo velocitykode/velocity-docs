@@ -1,4 +1,8 @@
-{{- $uniqueID := delimit (shuffle (seq 1 5)) "" -}}
+{{- $counter := .Page.Scratch.Get "tabsCounter" | default 0 -}}
+{{- .Page.Scratch.Set "tabsCounter" (add $counter 1) -}}
+{{- $uniqueID := printf "%d" $counter -}}
+{{- .Scratch.Set "tabsID" $uniqueID -}}
+{{- .Scratch.Set "currentTabIndex" 0 -}}
 {{- $items := split (.Get "items") "," -}}
 <div class="tabs" id="tabs-{{ $uniqueID }}">
   <ul class="tabs-list" role="tablist">

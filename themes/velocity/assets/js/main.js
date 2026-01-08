@@ -86,15 +86,15 @@
       const triggers = tabContainer.querySelectorAll('.tab-trigger');
       const panels = tabContainer.querySelectorAll('.tab-panel');
 
-      triggers.forEach(trigger => {
+      triggers.forEach((trigger, index) => {
         trigger.addEventListener('click', () => {
-          const targetId = trigger.getAttribute('data-tab');
-
           triggers.forEach(t => t.classList.remove('active'));
           panels.forEach(p => p.classList.remove('active'));
 
           trigger.classList.add('active');
-          tabContainer.querySelector(`#${targetId}`)?.classList.add('active');
+          if (panels[index]) {
+            panels[index].classList.add('active');
+          }
         });
       });
     });
