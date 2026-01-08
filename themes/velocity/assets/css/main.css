@@ -319,6 +319,7 @@ code, pre {
 .navbar-docs-btn svg {
   width: 16px;
   height: 16px;
+  margin-left: 0.5rem;
 }
 
 .navbar-docs-btn:hover {
@@ -814,11 +815,27 @@ code, pre {
   grid-template-columns: 1fr 1fr;
   gap: var(--space-2xl);
   margin-top: var(--space-2xl);
-  align-items: start;
+  align-items: stretch;
+}
+
+.drivers-code {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
 }
 
 .drivers-code .code-block {
+  flex: 1;
   max-width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.drivers-code .code-block pre {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  margin: 0;
 }
 
 .drivers-table {
@@ -826,10 +843,13 @@ code, pre {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .drivers-table table {
   width: 100%;
+  flex: 1;
   border-collapse: collapse;
 }
 
