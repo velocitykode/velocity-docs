@@ -15,6 +15,9 @@
       {{ if not (hasPrefix .RelPermalink "/docs") }}
       <a href="{{ "docs/" | relURL }}" class="navbar-docs-btn">
         Docs
+        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M4 10h12M12 4l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
       </a>
       {{ end }}
 

@@ -316,6 +316,11 @@ code, pre {
   transition: all var(--transition-fast);
 }
 
+.navbar-docs-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
 .navbar-docs-btn:hover {
   background: var(--accent-hover);
   color: var(--bg-primary);
@@ -1620,6 +1625,38 @@ code, pre {
   color: var(--text-tertiary);
 }
 
+/* Hide browser's native clear button on search input */
+.search-input::-webkit-search-cancel-button,
+.search-input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.search-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.search-close:hover {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+}
+
+.search-close svg {
+  width: 20px;
+  height: 20px;
+}
+
 .search-results {
   max-height: 400px;
   overflow-y: auto;
@@ -1635,7 +1672,12 @@ code, pre {
 
 .search-result:hover,
 .search-result.selected {
-  background: var(--accent-glow);
+  background: rgba(59, 104, 217, 0.25);
+}
+
+[data-theme="light"] .search-result:hover,
+[data-theme="light"] .search-result.selected {
+  background: #dbe4ff;
 }
 
 .search-result-title {
@@ -1697,11 +1739,6 @@ code, pre {
 
 [data-theme="light"] .search-dialog {
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
-}
-
-[data-theme="light"] .search-result:hover,
-[data-theme="light"] .search-result.selected {
-  background: var(--bg-secondary);
 }
 
 /* Mobile search modal */
@@ -1834,6 +1871,11 @@ code, pre {
   
   .navbar-actions {
     gap: var(--space-sm);
+  }
+
+  /* Hide GitHub on mobile docs pages only, show on landing */
+  body:not(.home-page) .github-link {
+    display: none;
   }
 }
 
