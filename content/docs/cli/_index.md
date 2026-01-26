@@ -41,6 +41,7 @@ velocity (global)          vel (per-project)
 | Command | Description |
 |---------|-------------|
 | `velocity new <name>` | Create a new Velocity project |
+| `velocity new <name> --api` | Create an API-only project (no frontend) |
 | `velocity init` | Initialize Velocity in existing project |
 | `velocity config` | Manage CLI configuration |
 | `velocity self-update` | Update the installer |

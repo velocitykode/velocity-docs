@@ -47,6 +47,10 @@ velocity new myapp
 
 This creates a new project and automatically starts the development servers. Your application will be available at:
 
+{{< callout type="tip" >}}
+Building an API without a frontend? Use `velocity new myapi --api` to create an API-only project. See the [CLI Reference](/docs/cli/commands/#api-only-projects) for details.
+{{< /callout >}}
+
 - **Go server**: http://localhost:4000
 - **Vite dev server**: http://localhost:5173
 

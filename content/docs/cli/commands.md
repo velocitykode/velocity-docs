@@ -27,6 +27,7 @@ velocity new <project-name> [flags]
 |------|---------|-------------|
 | `--database` | `sqlite` | Database driver: `postgres`, `sqlite` |
 | `--cache` | `memory` | Cache driver: `redis`, `memory` |
+| `--api` | `false` | Create an API-only project (no frontend) |
 
 **Examples:**
 
@@ -36,14 +37,53 @@ velocity new myapp
 
 # Create with PostgreSQL and Redis
 velocity new myapp --database postgres --cache redis
+
+# Create an API-only project
+velocity new myapi --api
+
+# API project with PostgreSQL
+velocity new myapi --api --database postgres
 ```
 
 After creation, the CLI:
 1. Scaffolds the project
-2. Installs Go and JS dependencies
+2. Installs Go dependencies (and JS dependencies for full-stack projects)
 3. Runs database migrations
 4. Builds the `./vel` binary
-5. Starts development servers (Go on :4000, Vite on :5173)
+5. Starts development servers (Go on :4000, Vite on :5173 for full-stack)
+
+### API-Only Projects
+
+Use the `--api` flag to create a lightweight API server without frontend dependencies:
+
+```bash
+velocity new myapi --api
+```
+
+**What's different:**
+- No Vite, Tailwind, or React
+- No CSRF protection (stateless API)
+- JSON-only responses
+- API-focused middleware (returns 401 JSON instead of redirects)
+- Uses `AUTH_GUARD=api` by default
+
+**Template endpoints:**
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/health` | No | Health check |
+| POST | `/api/users` | No | Create user |
+| GET | `/api/users` | Yes | List users |
+| GET | `/api/users/:id` | Yes | Get user |
+| GET | `/api/me` | Yes | Current user |
+
+**Project structure:**
+```
+myapi/
+├── routes/api.go           # API route definitions
+├── internal/handlers/      # JSON handlers
+├── internal/middleware/    # API middleware (auth returns JSON 401)
+└── internal/models/        # Database models
+```
 
 ---
 
