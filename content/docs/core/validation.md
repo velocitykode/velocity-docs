@@ -4,7 +4,7 @@ description: Validate HTTP requests and form data with Velocity's declarative ru
 weight: 50
 ---
 
-Velocity provides a flexible, extensible validation system for validating HTTP requests, form data, and general data structures. The validation package uses a declarative, rule-based approach similar to Laravel but designed for Go's type system.
+Velocity provides a flexible, extensible validation system for validating HTTP requests, form data, and general data structures. The validation package uses a declarative, rule-based approach designed for Go's type system.
 
 ## Quick Start
 

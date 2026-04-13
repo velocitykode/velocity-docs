@@ -520,7 +520,7 @@ config.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 
 ### HTTP Status Code 419
 
-Velocity uses status code `419 Authentication Timeout` for CSRF failures, following Laravel's convention. This distinguishes CSRF errors from other validation errors.
+Velocity uses status code `419 Authentication Timeout` for CSRF failures. This distinguishes CSRF errors from other validation errors.
 
 ### SameSite Cookie Attribute
 

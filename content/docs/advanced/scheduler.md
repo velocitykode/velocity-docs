@@ -4,7 +4,7 @@ description: Schedule recurring tasks with Velocity's fluent scheduler for cron 
 weight: 50
 ---
 
-Velocity provides a Laravel-inspired task scheduler for running recurring jobs with an expressive, fluent API.
+Velocity provides a task scheduler for running recurring jobs with an expressive, fluent API.
 
 ## Quick Start
 

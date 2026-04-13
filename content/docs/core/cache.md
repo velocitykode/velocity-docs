@@ -4,7 +4,7 @@ description: Store and retrieve data with Velocity's multi-driver cache system s
 weight: 40
 ---
 
-Velocity provides a unified caching interface supporting multiple drivers. The cache system auto-initializes from your environment configuration and provides simple, Laravel-like APIs for storing and retrieving data.
+Velocity provides a unified caching interface supporting multiple drivers. The cache system auto-initializes from your environment configuration and provides a simple API for storing and retrieving data.
 
 ## Quick Start
 

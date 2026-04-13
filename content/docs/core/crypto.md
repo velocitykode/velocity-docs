@@ -1,10 +1,10 @@
 ---
 title: Cryptography
-description: Encrypt and decrypt data with AES cipher modes, key rotation, and Laravel-compatible encryption in Velocity.
+description: Encrypt and decrypt data with AES cipher modes and key rotation in Velocity.
 weight: 50
 ---
 
-Velocity provides robust encryption utilities for securing sensitive data with support for multiple AES cipher modes, automatic key rotation, and Laravel-compatible encryption.
+Velocity provides robust encryption utilities for securing sensitive data with support for multiple AES cipher modes and automatic key rotation.
 
 ## Quick Start
 
@@ -104,7 +104,7 @@ Configure encryption through environment variables in your `.env` file:
 # Encryption key (required)
 CRYPTO_KEY=base64:your-base64-encoded-key-here
 
-# Alternative: Laravel compatibility
+# Alternative env var name (also read by default)
 APP_KEY=base64:your-base64-encoded-key-here
 
 # Cipher algorithm (optional, defaults to AES-256-CBC)
@@ -125,7 +125,7 @@ Velocity supports multiple AES cipher modes:
 | `AES-128-GCM` | 16 bytes | GCM | Built-in |
 | `AES-256-GCM` | 32 bytes | GCM | Built-in |
 
-**Recommended**: `AES-256-CBC` for Laravel compatibility or `AES-256-GCM` for maximum security.
+**Recommended**: `AES-256-GCM` for new projects (authenticated encryption). Use `AES-256-CBC` if you need interop with existing systems using that cipher.
 
 ## API Reference
 
@@ -356,22 +356,6 @@ func decryptFile(inputPath, outputPath string) error {
     return os.WriteFile(outputPath, data, 0644)
 }
 ```
-
-## Laravel Compatibility
-
-Velocity's crypto package is fully compatible with Laravel's encryption:
-
-```php
-// Laravel (PHP)
-$encrypted = encrypt('sensitive data');
-```
-
-```go
-// Velocity (Go)
-encrypted, _ := crypto.Encrypt("sensitive data")
-```
-
-Both use the same format and can decrypt each other's payloads when using the same key and cipher.
 
 ## Security Best Practices
 
