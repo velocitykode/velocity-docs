@@ -8,7 +8,7 @@ weight: 10
 
 ### Prerequisites
 
-- Go 1.25 or higher
+- Go 1.26 or higher
 - Node.js 18+ (for frontend assets)
 - Git
 
@@ -34,7 +34,7 @@ go install github.com/velocitykode/velocity-cli@latest
 Verify the installation:
 
 ```bash
-velocity version
+velocity --version
 ```
 
 ## Creating Your First Project
@@ -147,7 +147,7 @@ The development server includes:
 velocity serve --port 8080
 
 # Disable hot reload
-velocity serve --watch=false
+velocity serve --no-watch
 
 # Specify environment
 velocity serve --env production

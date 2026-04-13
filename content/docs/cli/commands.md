@@ -140,7 +140,7 @@ vel serve
 vel serve --port 3000
 
 # Production environment, no hot reload
-vel serve --env production --watch=false
+vel serve --env production --no-watch
 ```
 
 **What happens:**
@@ -165,8 +165,7 @@ vel build [flags]
 | `--output` | `-o` | `./dist/app` | Output path for binary |
 | `--os` | | (current OS) | Target operating system |
 | `--arch` | | (current arch) | Target architecture |
-| `--optimize` | | `true` | Enable optimizations |
-| `--version` | | | Version to embed in binary |
+| `--tags` | | | Go build tags |
 
 **Examples:**
 

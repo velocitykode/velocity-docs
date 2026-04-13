@@ -9,7 +9,7 @@ Install the Velocity CLI to create and manage Velocity projects.
 
 ## Requirements
 
-- **Go 1.25 or higher** - Required for building projects
+- **Go 1.26 or higher** - Required for building projects
 - **Node.js 18+** - Required for frontend asset compilation (Vite)
 - **Git** - Required for project initialization
 
