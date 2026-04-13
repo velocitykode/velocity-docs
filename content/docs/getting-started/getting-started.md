@@ -132,7 +132,7 @@ func init() {
 Start the development server with hot reload:
 
 ```bash
-velocity serve
+vel serve
 ```
 
 The development server includes:
@@ -144,13 +144,13 @@ The development server includes:
 
 ```bash
 # Custom port
-velocity serve --port 8080
+vel serve --port 8080
 
 # Disable hot reload
-velocity serve --no-watch
+vel serve --no-watch
 
 # Specify environment
-velocity serve --env production
+vel serve --env production
 ```
 
 ## Building for Production
@@ -158,7 +158,7 @@ velocity serve --env production
 Create an optimized production build:
 
 ```bash
-velocity build
+vel build
 ```
 
 This produces a single binary with:
@@ -170,13 +170,13 @@ This produces a single binary with:
 
 ```bash
 # Custom output path
-velocity build --output ./bin/myapp
+vel build --output ./bin/myapp
 
 # Cross-compile for Linux
-velocity build --os linux --arch amd64
+vel build --os linux --arch amd64
 
-# Embed version information
-velocity build --version 1.0.0
+# Build with Go build tags
+vel build --tags prod
 ```
 
 ## Configuration
@@ -207,7 +207,7 @@ DB_PASSWORD=password
 CACHE_DRIVER=memory     # redis, memory
 
 # Security
-CRYPTO_KEY=             # Run: velocity key:generate
+CRYPTO_KEY=             # Run: vel key:generate
 ```
 
 ### Generate Application Key
@@ -215,7 +215,7 @@ CRYPTO_KEY=             # Run: velocity key:generate
 Generate a secure encryption key:
 
 ```bash
-velocity key:generate
+vel key:generate
 ```
 
 This updates the `CRYPTO_KEY` in your `.env` file automatically.
