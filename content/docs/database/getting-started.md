@@ -10,7 +10,7 @@ Velocity provides a powerful ORM built on top of GORM, offering a fluent, develo
 
 ```go
 import (
-    "github.com/velocitykode/velocity/pkg/orm"
+    "github.com/velocitykode/velocity/orm"
     "github.com/joho/godotenv"
 )
 
@@ -63,7 +63,7 @@ DB_SLOW_QUERY_THRESHOLD=200ms
 package models
 
 import (
-    "github.com/velocitykode/velocity/pkg/orm"
+    "github.com/velocitykode/velocity/orm"
 )
 
 type User struct {

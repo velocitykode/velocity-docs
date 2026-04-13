@@ -11,8 +11,8 @@ Inertia.js bridges Go handlers and React components, enabling SPA-like navigatio
 ```go
 // Handler
 import (
-    "github.com/velocitykode/velocity/pkg/router"
-    "github.com/velocitykode/velocity/pkg/view"
+    "github.com/velocitykode/velocity/router"
+    "github.com/velocitykode/velocity/view"
 )
 
 func (c *UserHandler) Index(ctx *router.Context) error {
@@ -55,7 +55,7 @@ export default function UsersIndex({ users, title }: Props) {
 ### Initialize View System
 
 ```go
-import "github.com/velocitykode/velocity/pkg/view"
+import "github.com/velocitykode/velocity/view"
 
 func main() {
     // Initialize with default template
@@ -79,8 +79,8 @@ func main() {
 
 ```go
 import (
-    "github.com/velocitykode/velocity/pkg/router"
-    "github.com/velocitykode/velocity/pkg/view"
+    "github.com/velocitykode/velocity/router"
+    "github.com/velocitykode/velocity/view"
 )
 
 func (c *PostHandler) Index(ctx *router.Context) error {
@@ -191,8 +191,8 @@ func (c *PostHandler) Update(ctx *router.Context) error {
 
 ```go
 import (
-    "github.com/velocitykode/velocity/pkg/router"
-    "github.com/velocitykode/velocity/pkg/view"
+    "github.com/velocitykode/velocity/router"
+    "github.com/velocitykode/velocity/view"
 )
 
 func SetupRoutes() *router.Router {

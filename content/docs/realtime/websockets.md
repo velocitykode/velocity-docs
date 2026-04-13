@@ -12,8 +12,8 @@ Setting up WebSockets is straightforward:
 
 ```go
 import (
-    "github.com/velocitykode/velocity/pkg/websocket"
-    "github.com/velocitykode/velocity/pkg/log"
+    "github.com/velocitykode/velocity/websocket"
+    "github.com/velocitykode/velocity/log"
 )
 
 func main() {

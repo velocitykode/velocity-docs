@@ -16,7 +16,7 @@ Velocity provides a unified storage interface for file operations across differe
 
 {{< tab >}}
 ```go
-import "github.com/velocitykode/velocity/pkg/storage"
+import "github.com/velocitykode/velocity/storage"
 
 func uploadAvatar(userID int, imageData []byte) error {
     // Store file using default disk
@@ -40,7 +40,7 @@ func deleteAvatar(userID int) error {
 ```go
 import (
     "os"
-    "github.com/velocitykode/velocity/pkg/storage"
+    "github.com/velocitykode/velocity/storage"
 )
 
 func uploadVideo(videoPath string) error {
@@ -80,7 +80,7 @@ func downloadVideo(outputPath string) error {
 ```go
 import (
     "time"
-    "github.com/velocitykode/velocity/pkg/storage"
+    "github.com/velocitykode/velocity/storage"
 )
 
 func getPublicURL(filePath string) string {
@@ -438,7 +438,7 @@ if err != nil {
 
 ```go
 import (
-    "github.com/velocitykode/velocity/pkg/storage"
+    "github.com/velocitykode/velocity/storage"
 )
 
 func setupCustomStorage() error {
@@ -589,7 +589,7 @@ func TestFileUpload(t *testing.T) {
 ### Testing with Fake Storage
 
 ```go
-import "github.com/velocitykode/velocity/pkg/storage/testing"
+import "github.com/velocitykode/velocity/storage/testing"
 
 func TestUserAvatar(t *testing.T) {
     // Create fake storage
@@ -624,8 +624,8 @@ import (
     "time"
 
     "github.com/google/uuid"
-    "github.com/velocitykode/velocity/pkg/http"
-    "github.com/velocitykode/velocity/pkg/storage"
+    "github.com/velocitykode/velocity/http"
+    "github.com/velocitykode/velocity/storage"
 )
 
 type FileHandler struct{}

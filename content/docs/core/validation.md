@@ -16,7 +16,7 @@ Velocity provides a flexible, extensible validation system for validating HTTP r
 
 {{< tab >}}
 ```go
-import "github.com/velocitykode/velocity/pkg/validation"
+import "github.com/velocitykode/velocity/validation"
 
 func validateUser(data map[string]interface{}) error {
     rules := validation.Rules{
@@ -46,8 +46,8 @@ func validateUser(data map[string]interface{}) error {
 {{< tab >}}
 ```go
 import (
-    "github.com/velocitykode/velocity/pkg/http"
-    "github.com/velocitykode/velocity/pkg/validation"
+    "github.com/velocitykode/velocity/http"
+    "github.com/velocitykode/velocity/validation"
 )
 
 func RegisterUser(c *http.Context) error {
@@ -82,7 +82,7 @@ func RegisterUser(c *http.Context) error {
 
 {{< tab >}}
 ```go
-import "github.com/velocitykode/velocity/pkg/validation"
+import "github.com/velocitykode/velocity/validation"
 
 func validateWithCustomMessages(data map[string]interface{}) error {
     rules := validation.Rules{
@@ -628,7 +628,7 @@ if errors.IsEmpty() {
 You can register custom validation rules:
 
 ```go
-import "github.com/velocitykode/velocity/pkg/validation"
+import "github.com/velocitykode/velocity/validation"
 
 func init() {
     // Register a custom "strong_password" rule
@@ -804,8 +804,8 @@ Here's a complete example of a user registration endpoint with validation:
 package handlers
 
 import (
-    "github.com/velocitykode/velocity/pkg/http"
-    "github.com/velocitykode/velocity/pkg/validation"
+    "github.com/velocitykode/velocity/http"
+    "github.com/velocitykode/velocity/validation"
 )
 
 type UserHandler struct{}

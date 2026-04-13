@@ -16,7 +16,7 @@ Velocity provides a simple yet powerful configuration system that reads from env
 
 {{< tab >}}
 ```go
-import "github.com/velocitykode/velocity/pkg/config"
+import "github.com/velocitykode/velocity/config"
 
 func main() {
     // Get environment variable with fallback
@@ -53,7 +53,7 @@ REDIS_PORT=6379
 
 {{< tab >}}
 ```go
-import "github.com/velocitykode/velocity/pkg/config"
+import "github.com/velocitykode/velocity/config"
 
 func main() {
     // String with fallback
@@ -164,7 +164,7 @@ func init() {
 Retrieve an environment variable with a fallback:
 
 ```go
-import "github.com/velocitykode/velocity/pkg/config"
+import "github.com/velocitykode/velocity/config"
 
 // Get with fallback
 appName := config.Get("APP_NAME", "DefaultApp")
@@ -215,7 +215,7 @@ enableCache := config.EnvBool("ENABLE_CACHE", true)
 The config package provides structured configuration for logging:
 
 ```go
-import "github.com/velocitykode/velocity/pkg/config"
+import "github.com/velocitykode/velocity/config"
 
 // Get logging configuration
 loggingConfig := config.GetLoggingConfig()
@@ -317,7 +317,7 @@ import (
     "log"
     "os"
     "github.com/joho/godotenv"
-    "github.com/velocitykode/velocity/pkg/config"
+    "github.com/velocitykode/velocity/config"
 )
 
 type AppConfig struct {
@@ -601,7 +601,7 @@ import (
     "os"
 
     "github.com/joho/godotenv"
-    "github.com/velocitykode/velocity/pkg/config"
+    "github.com/velocitykode/velocity/config"
 )
 
 type Config struct {

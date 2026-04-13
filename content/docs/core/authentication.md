@@ -41,9 +41,9 @@ package main
 import (
     "os"
 
-    "github.com/velocitykode/velocity/pkg/auth"
-    "github.com/velocitykode/velocity/pkg/auth/drivers/guards"
-    "github.com/velocitykode/velocity/pkg/crypto"
+    "github.com/velocitykode/velocity/auth"
+    "github.com/velocitykode/velocity/auth/drivers/guards"
+    "github.com/velocitykode/velocity/crypto"
 )
 
 func initAuth() error {
@@ -120,9 +120,9 @@ Using authentication in handlers:
 
 ```go
 import (
-    "github.com/velocitykode/velocity/pkg/auth"
-    "github.com/velocitykode/velocity/pkg/router"
-    "github.com/velocitykode/velocity/pkg/view"
+    "github.com/velocitykode/velocity/auth"
+    "github.com/velocitykode/velocity/router"
+    "github.com/velocitykode/velocity/view"
 )
 
 func (c *AuthHandler) Login(ctx *router.Context) error {

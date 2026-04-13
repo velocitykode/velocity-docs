@@ -16,7 +16,7 @@ Velocity provides a powerful broadcasting system for real-time event communicati
 
 {{< tab >}}
 ```go
-import "github.com/velocitykode/velocity/pkg/broadcast"
+import "github.com/velocitykode/velocity/broadcast"
 
 func main() {
     // Broadcast to a public channel
@@ -33,7 +33,7 @@ func main() {
 
 {{< tab >}}
 ```go
-import "github.com/velocitykode/velocity/pkg/broadcast"
+import "github.com/velocitykode/velocity/broadcast"
 
 func main() {
     // Broadcast to a private channel
@@ -47,7 +47,7 @@ func main() {
 
 {{< tab >}}
 ```go
-import "github.com/velocitykode/velocity/pkg/broadcast"
+import "github.com/velocitykode/velocity/broadcast"
 
 func main() {
     // Broadcast to a presence channel
@@ -127,7 +127,7 @@ broadcast.Presence("chat.room.1").Emit("MessageSent", message)
 Directly broadcast events to channels:
 
 ```go
-import "github.com/velocitykode/velocity/pkg/broadcast"
+import "github.com/velocitykode/velocity/broadcast"
 
 func shipOrder(orderID int) error {
     // Process order...
@@ -206,7 +206,7 @@ Configure authorization handlers for private and presence channels:
 ```go
 import (
     "strings"
-    "github.com/velocitykode/velocity/pkg/broadcast"
+    "github.com/velocitykode/velocity/broadcast"
 )
 
 func setupBroadcasting() {
@@ -249,7 +249,7 @@ func setupBroadcasting() {
 For convenience, use global authorization functions:
 
 ```go
-import "github.com/velocitykode/velocity/pkg/broadcast"
+import "github.com/velocitykode/velocity/broadcast"
 
 func init() {
     // Set global authorizer
@@ -270,9 +270,9 @@ The default WebSocket driver provides real-time communication:
 
 ```go
 import (
-    "github.com/velocitykode/velocity/pkg/broadcast"
-    "github.com/velocitykode/velocity/pkg/broadcast/drivers"
-    "github.com/velocitykode/velocity/pkg/websocket"
+    "github.com/velocitykode/velocity/broadcast"
+    "github.com/velocitykode/velocity/broadcast/drivers"
+    "github.com/velocitykode/velocity/websocket"
 )
 
 func main() {
@@ -362,7 +362,7 @@ ws.onclose = () => {
 Retrieve clients subscribed to a channel:
 
 ```go
-import "github.com/velocitykode/velocity/pkg/broadcast"
+import "github.com/velocitykode/velocity/broadcast"
 
 func getChannelInfo(channelName string) {
     broadcaster := broadcast.Default()
@@ -423,8 +423,8 @@ func (d *RedisDriver) Broadcast(channels []string, event string, data interface{
 
 ```go
 import (
-    "github.com/velocitykode/velocity/pkg/broadcast"
-    "github.com/velocitykode/velocity/pkg/router"
+    "github.com/velocitykode/velocity/broadcast"
+    "github.com/velocitykode/velocity/router"
 )
 
 func (c *OrderHandler) Ship(ctx *router.Context) error {

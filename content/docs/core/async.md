@@ -12,7 +12,7 @@ Velocity's async package provides simple, Go-idiomatic wrappers around goroutine
 
 {{< tab >}}
 ```go
-import "github.com/velocitykode/velocity/pkg/async"
+import "github.com/velocitykode/velocity/async"
 
 // Run a function asynchronously
 result := async.Run(func() string {

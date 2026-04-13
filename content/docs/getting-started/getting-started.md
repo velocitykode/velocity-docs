@@ -91,8 +91,8 @@ import (
     "net/http"
     _ "myapp/routes" // Auto-register all routes
 
-    "github.com/velocitykode/velocity/pkg/log"
-    "github.com/velocitykode/velocity/pkg/router"
+    "github.com/velocitykode/velocity/log"
+    "github.com/velocitykode/velocity/router"
 )
 
 func main() {
@@ -114,7 +114,7 @@ Define routes in `routes/web.go`:
 package routes
 
 import (
-    "github.com/velocitykode/velocity/pkg/router"
+    "github.com/velocitykode/velocity/router"
 )
 
 func init() {

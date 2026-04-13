@@ -13,7 +13,7 @@ Migrations provide version control for your database schema.
 package migrations
 
 import (
-    "github.com/velocitykode/velocity/pkg/orm"
+    "github.com/velocitykode/velocity/orm"
 )
 
 type CreateUsersTable struct {

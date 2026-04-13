@@ -14,7 +14,7 @@ package main
 import (
     "net/http"
 
-    "github.com/velocitykode/velocity/pkg/router"
+    "github.com/velocitykode/velocity/router"
 )
 
 func main() {
@@ -536,7 +536,7 @@ import (
     "time"
 
     github.com/velocitykode/velocity
-    "github.com/velocitykode/velocity/pkg/log"
+    "github.com/velocitykode/velocity/log"
 )
 
 type User struct {

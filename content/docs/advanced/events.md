@@ -12,7 +12,7 @@ Velocity provides a powerful event system that allows you to decouple various pa
 
 {{< tab >}}
 ```go
-import "github.com/velocitykode/velocity/pkg/events"
+import "github.com/velocitykode/velocity/events"
 
 // Define an event
 type UserRegistered struct {
@@ -617,7 +617,7 @@ func init() {
 ### Using Fake Dispatcher
 
 ```go
-import "github.com/velocitykode/velocity/pkg/events"
+import "github.com/velocitykode/velocity/events"
 
 func TestUserRegistration(t *testing.T) {
     // Create fake dispatcher
@@ -740,7 +740,7 @@ events.DispatchAsync(event)
 For high-volume applications, integrate with the queue system:
 
 ```go
-import "github.com/velocitykode/velocity/pkg/queue"
+import "github.com/velocitykode/velocity/queue"
 
 // Setup queue dispatcher
 queueDispatcher := &QueueEventDispatcher{

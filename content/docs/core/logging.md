@@ -16,7 +16,7 @@ Velocity provides a powerful, driver-based logging system that auto-initializes 
 
 {{< tab >}}
 ```go
-import "github.com/velocitykode/velocity/pkg/log"
+import "github.com/velocitykode/velocity/log"
 
 func main() {
     // Logger auto-initializes from .env
@@ -30,7 +30,7 @@ func main() {
 
 {{< tab >}}
 ```go
-import "github.com/velocitykode/velocity/pkg/log"
+import "github.com/velocitykode/velocity/log"
 
 func main() {
     // Structured logging with key-value pairs
@@ -51,7 +51,7 @@ func main() {
 
 {{< tab >}}
 ```go
-import "github.com/velocitykode/velocity/pkg/log"
+import "github.com/velocitykode/velocity/log"
 
 func processOrder(orderID string) error {
     log.Info("Processing order", "order_id", orderID)
@@ -124,8 +124,8 @@ For complex applications, use the Manager to handle multiple log channels:
 
 ```go
 import (
-    "github.com/velocitykode/velocity/pkg/log"
-    "github.com/velocitykode/velocity/pkg/config"
+    "github.com/velocitykode/velocity/log"
+    "github.com/velocitykode/velocity/config"
 )
 
 func setupLogging() {
@@ -222,8 +222,8 @@ func TestMyFunction(t *testing.T) {
 ```go
 import (
     "time"
-    "github.com/velocitykode/velocity/pkg/log"
-    "github.com/velocitykode/velocity/pkg/http"
+    "github.com/velocitykode/velocity/log"
+    "github.com/velocitykode/velocity/http"
 )
 
 func LoggingMiddleware(next http.HandlerFunc) http.HandlerFunc {

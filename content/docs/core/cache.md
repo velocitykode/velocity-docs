@@ -18,7 +18,7 @@ Velocity provides a unified caching interface supporting multiple drivers. The c
 ```go
 import (
     "time"
-    "github.com/velocitykode/velocity/pkg/cache"
+    "github.com/velocitykode/velocity/cache"
 )
 
 func main() {
@@ -44,7 +44,7 @@ func main() {
 ```go
 import (
     "time"
-    "github.com/velocitykode/velocity/pkg/cache"
+    "github.com/velocitykode/velocity/cache"
 )
 
 func getUser(userID int) (*User, error) {
@@ -70,7 +70,7 @@ func getUser(userID int) (*User, error) {
 ```go
 import (
     "time"
-    "github.com/velocitykode/velocity/pkg/cache"
+    "github.com/velocitykode/velocity/cache"
 )
 
 func bulkOperations() {
@@ -179,7 +179,7 @@ Store a value in the cache with a TTL:
 ```go
 import (
     "time"
-    "github.com/velocitykode/velocity/pkg/cache"
+    "github.com/velocitykode/velocity/cache"
 )
 
 // Store string
@@ -254,7 +254,7 @@ Get from cache or compute and store:
 ```go
 import (
     "time"
-    "github.com/velocitykode/velocity/pkg/cache"
+    "github.com/velocitykode/velocity/cache"
 )
 
 func getExpensiveData(id int) (*Data, error) {
@@ -335,7 +335,7 @@ Store multiple values at once:
 ```go
 import (
     "time"
-    "github.com/velocitykode/velocity/pkg/cache"
+    "github.com/velocitykode/velocity/cache"
 )
 
 func cacheUserData(users []User) {
@@ -386,7 +386,7 @@ CACHE_STORES=session:memory,api:redis
 ### Using Named Stores
 
 ```go
-import "github.com/velocitykode/velocity/pkg/cache"
+import "github.com/velocitykode/velocity/cache"
 
 func useMultipleStores() {
     // Get named store
@@ -410,7 +410,7 @@ For complex applications, use the Manager directly:
 
 ```go
 import (
-    "github.com/velocitykode/velocity/pkg/cache"
+    "github.com/velocitykode/velocity/cache"
 )
 
 func setupCaching() {
@@ -627,8 +627,8 @@ func TestCaching(t *testing.T) {
 ```go
 import (
     "time"
-    "github.com/velocitykode/velocity/pkg/cache"
-    "github.com/velocitykode/velocity/pkg/router"
+    "github.com/velocitykode/velocity/cache"
+    "github.com/velocitykode/velocity/router"
 )
 
 type ProductHandler struct{}

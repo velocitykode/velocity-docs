@@ -58,7 +58,7 @@ func (e *EmailJob) Failed(err error) {
 ### Basic Usage
 
 ```go
-import "github.com/velocitykode/velocity/pkg/queue"
+import "github.com/velocitykode/velocity/queue"
 
 // Push to default queue
 job := &EmailJob{
@@ -172,7 +172,7 @@ import (
     "log"
     "time"
 
-    "github.com/velocitykode/velocity/pkg/queue"
+    "github.com/velocitykode/velocity/queue"
     "myapp/app/jobs"
 )
 

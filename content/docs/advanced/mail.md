@@ -16,7 +16,7 @@ Velocity provides a powerful, driver-based email system that supports multiple m
 
 {{< tab >}}
 ```go
-import "github.com/velocitykode/velocity/pkg/mail"
+import "github.com/velocitykode/velocity/mail"
 
 func main() {
     // Mail auto-initializes from .env
@@ -31,7 +31,7 @@ func main() {
 
 {{< tab >}}
 ```go
-import "github.com/velocitykode/velocity/pkg/mail"
+import "github.com/velocitykode/velocity/mail"
 
 func main() {
     html := `
@@ -51,7 +51,7 @@ func main() {
 
 {{< tab >}}
 ```go
-import "github.com/velocitykode/velocity/pkg/mail"
+import "github.com/velocitykode/velocity/mail"
 
 func main() {
     mail.NewMessage().
@@ -130,7 +130,7 @@ MAIL_FROM_NAME="My Application"
 The `Message` type provides a fluent, chainable API:
 
 ```go
-import "github.com/velocitykode/velocity/pkg/mail"
+import "github.com/velocitykode/velocity/mail"
 
 msg := mail.NewMessage().
     From("sender@example.com", "Sender Name").
@@ -176,7 +176,7 @@ Render HTML templates for emails:
 
 ```go
 import (
-    "github.com/velocitykode/velocity/pkg/mail"
+    "github.com/velocitykode/velocity/mail"
 )
 
 // Create template file: templates/welcome.html
@@ -225,7 +225,7 @@ mail.NewMessage().
 ### From Memory
 
 ```go
-import "github.com/velocitykode/velocity/pkg/mail"
+import "github.com/velocitykode/velocity/mail"
 
 // Generate PDF or other data
 pdfData := generateInvoicePDF()
@@ -248,7 +248,7 @@ For timeout control and cancellation:
 import (
     "context"
     "time"
-    "github.com/velocitykode/velocity/pkg/mail"
+    "github.com/velocitykode/velocity/mail"
 )
 
 func sendEmail() error {
@@ -267,7 +267,7 @@ func sendEmail() error {
 ### Priority Levels
 
 ```go
-import "github.com/velocitykode/velocity/pkg/mail"
+import "github.com/velocitykode/velocity/mail"
 
 // High priority (urgent)
 mail.NewMessage().
@@ -300,8 +300,8 @@ For advanced use cases, create and manage your own mailer:
 
 ```go
 import (
-    "github.com/velocitykode/velocity/pkg/mail"
-    "github.com/velocitykode/velocity/pkg/mail/drivers"
+    "github.com/velocitykode/velocity/mail"
+    "github.com/velocitykode/velocity/mail/drivers"
 )
 
 // Create custom mailer

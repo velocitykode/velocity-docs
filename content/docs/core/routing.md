@@ -16,7 +16,7 @@ package routes
 
 import (
     "myapp/internal/handlers"
-    "github.com/velocitykode/velocity/pkg/router"
+    "github.com/velocitykode/velocity/router"
 )
 
 func init() {
@@ -40,7 +40,7 @@ package main
 
 import (
     _ "myapp/routes" // Auto-register all routes
-    "github.com/velocitykode/velocity/pkg/router"
+    "github.com/velocitykode/velocity/router"
 )
 
 func main() {
@@ -300,8 +300,8 @@ Here's a complete handler example using the Context-based handlers:
 package handlers
 
 import (
-    "github.com/velocitykode/velocity/pkg/router"
-    "github.com/velocitykode/velocity/pkg/view"
+    "github.com/velocitykode/velocity/router"
+    "github.com/velocitykode/velocity/view"
 )
 
 type UserHandler struct{}

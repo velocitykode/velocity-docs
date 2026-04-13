@@ -13,8 +13,8 @@ Velocity provides comprehensive CSRF (Cross-Site Request Forgery) protection to 
 {{< tab >}}
 ```go
 import (
-    "github.com/velocitykode/velocity/pkg/csrf"
-    "github.com/velocitykode/velocity/pkg/router"
+    "github.com/velocitykode/velocity/csrf"
+    "github.com/velocitykode/velocity/router"
 )
 
 func main() {
@@ -43,8 +43,8 @@ func main() {
 {{< tab >}}
 ```go
 import (
-    "github.com/velocitykode/velocity/pkg/csrf"
-    "github.com/velocitykode/velocity/pkg/router"
+    "github.com/velocitykode/velocity/csrf"
+    "github.com/velocitykode/velocity/router"
 )
 
 func setupCSRF() {
@@ -194,7 +194,7 @@ config := &csrf.Config{
 Server-side token storage using sessions. Most secure for traditional web applications.
 
 ```go
-import "github.com/velocitykode/velocity/pkg/csrf/stores"
+import "github.com/velocitykode/velocity/csrf/stores"
 
 config := csrf.DefaultConfig()
 config.Store = stores.NewSessionStore()

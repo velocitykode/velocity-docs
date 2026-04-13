@@ -16,7 +16,7 @@ Velocity provides robust encryption utilities for securing sensitive data with s
 
 {{< tab >}}
 ```go
-import "github.com/velocitykode/velocity/pkg/crypto"
+import "github.com/velocitykode/velocity/crypto"
 
 func main() {
     // Encrypt data (auto-initialized from .env)
@@ -42,7 +42,7 @@ func main() {
 ```go
 import (
     "encoding/json"
-    "github.com/velocitykode/velocity/pkg/crypto"
+    "github.com/velocitykode/velocity/crypto"
 )
 
 func encryptUserData(user User) (string, error) {
@@ -76,7 +76,7 @@ func decryptUserData(encrypted string) (*User, error) {
 
 {{< tab >}}
 ```go
-import "github.com/velocitykode/velocity/pkg/crypto"
+import "github.com/velocitykode/velocity/crypto"
 
 func generateNewKey() error {
     // Generate a new encryption key
@@ -154,7 +154,7 @@ func Init(config Config) error
 ### Custom Encryptor Instances
 
 ```go
-import "github.com/velocitykode/velocity/pkg/crypto"
+import "github.com/velocitykode/velocity/crypto"
 
 func createCustomEncryptor() {
     // Create encryptor with custom configuration

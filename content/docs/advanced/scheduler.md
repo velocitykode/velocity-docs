@@ -14,8 +14,8 @@ Velocity provides a Laravel-inspired task scheduler for running recurring jobs w
 ```go
 import (
     "context"
-    "github.com/velocitykode/velocity/pkg/scheduler"
-    "github.com/velocitykode/velocity/pkg/log"
+    "github.com/velocitykode/velocity/scheduler"
+    "github.com/velocitykode/velocity/log"
 )
 
 func main() {
@@ -41,8 +41,8 @@ func main() {
 {{< tab >}}
 ```go
 import (
-    "github.com/velocitykode/velocity/pkg/scheduler"
-    "github.com/velocitykode/velocity/pkg/cache"
+    "github.com/velocitykode/velocity/scheduler"
+    "github.com/velocitykode/velocity/cache"
 )
 
 func main() {
@@ -66,7 +66,7 @@ func main() {
 
 {{< tab >}}
 ```go
-import "github.com/velocitykode/velocity/pkg/scheduler"
+import "github.com/velocitykode/velocity/scheduler"
 
 func main() {
     s := scheduler.New()
@@ -102,7 +102,7 @@ func main() {
 ```go
 import (
     "time"
-    "github.com/velocitykode/velocity/pkg/scheduler"
+    "github.com/velocitykode/velocity/scheduler"
 )
 
 s := scheduler.New()
@@ -559,9 +559,9 @@ import (
     "os/signal"
     "syscall"
 
-    "github.com/velocitykode/velocity/pkg/scheduler"
-    "github.com/velocitykode/velocity/pkg/log"
-    "github.com/velocitykode/velocity/pkg/cache"
+    "github.com/velocitykode/velocity/scheduler"
+    "github.com/velocitykode/velocity/log"
+    "github.com/velocitykode/velocity/cache"
 )
 
 func main() {
@@ -706,8 +706,8 @@ func setupScheduler() *scheduler.Scheduler {
 
 ```go
 import (
-    "github.com/velocitykode/velocity/pkg/scheduler"
-    "github.com/velocitykode/velocity/pkg/log"
+    "github.com/velocitykode/velocity/scheduler"
+    "github.com/velocitykode/velocity/log"
 )
 
 type CustomLogger struct{}

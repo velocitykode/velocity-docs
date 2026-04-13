@@ -16,7 +16,7 @@ Velocity provides a comprehensive string utilities package with powerful text ma
 
 {{< tab >}}
 ```go
-import "github.com/velocitykode/velocity/pkg/str"
+import "github.com/velocitykode/velocity/str"
 
 func main() {
     // Static functions - simple and direct
@@ -38,7 +38,7 @@ func main() {
 
 {{< tab >}}
 ```go
-import "github.com/velocitykode/velocity/pkg/str"
+import "github.com/velocitykode/velocity/str"
 
 func main() {
     // Fluent interface - chain multiple operations
@@ -192,7 +192,7 @@ str.Reverse("12345")                        // "54321"
 For method chaining, use the fluent interface:
 
 ```go
-import "github.com/velocitykode/velocity/pkg/str"
+import "github.com/velocitykode/velocity/str"
 
 result := str.Of("  Hello World Example  ").
     Trim().                    // Remove whitespace

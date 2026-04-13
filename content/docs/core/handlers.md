@@ -17,8 +17,8 @@ package handlers
 import (
     "myapp/internal/models"
 
-    "github.com/velocitykode/velocity/pkg/router"
-    "github.com/velocitykode/velocity/pkg/view"
+    "github.com/velocitykode/velocity/router"
+    "github.com/velocitykode/velocity/view"
 )
 
 type UserHandler struct{}
@@ -64,9 +64,9 @@ package handlers
 import (
     "myapp/internal/models"
 
-    "github.com/velocitykode/velocity/pkg/auth"
-    "github.com/velocitykode/velocity/pkg/router"
-    "github.com/velocitykode/velocity/pkg/view"
+    "github.com/velocitykode/velocity/auth"
+    "github.com/velocitykode/velocity/router"
+    "github.com/velocitykode/velocity/view"
 )
 
 type PostHandler struct{}
@@ -207,9 +207,9 @@ Create a base handler with common functionality:
 package handlers
 
 import (
-    "github.com/velocitykode/velocity/pkg/router"
-    "github.com/velocitykode/velocity/pkg/view"
-    "github.com/velocitykode/velocity/pkg/auth"
+    "github.com/velocitykode/velocity/router"
+    "github.com/velocitykode/velocity/view"
+    "github.com/velocitykode/velocity/auth"
     "myapp/internal/models"
 )
 
@@ -294,9 +294,9 @@ import (
     "strconv"
     "myapp/internal/models"
 
-    "github.com/velocitykode/velocity/pkg/router"
-    "github.com/velocitykode/velocity/pkg/auth"
-    "github.com/velocitykode/velocity/pkg/validation"
+    "github.com/velocitykode/velocity/router"
+    "github.com/velocitykode/velocity/auth"
+    "github.com/velocitykode/velocity/validation"
 )
 
 type UserHandler struct {
@@ -419,7 +419,7 @@ import (
     "myapp/internal/handlers"
     "myapp/internal/middleware"
 
-    "github.com/velocitykode/velocity/pkg/router"
+    "github.com/velocitykode/velocity/router"
 )
 
 func WebRoutes(r *router.Router) {
@@ -586,9 +586,9 @@ Centralized error handling:
 package handlers
 
 import (
-    "github.com/velocitykode/velocity/pkg/router"
-    "github.com/velocitykode/velocity/pkg/view"
-    "github.com/velocitykode/velocity/pkg/log"
+    "github.com/velocitykode/velocity/router"
+    "github.com/velocitykode/velocity/view"
+    "github.com/velocitykode/velocity/log"
 )
 
 type ErrorHandler struct{}
@@ -636,7 +636,7 @@ import (
     "github.com/stretchr/testify/assert"
     "myapp/internal/models"
 
-    "github.com/velocitykode/velocity/pkg/router"
+    "github.com/velocitykode/velocity/router"
 )
 
 func TestUserHandler_Index(t *testing.T) {
