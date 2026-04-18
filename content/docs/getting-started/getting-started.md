@@ -48,7 +48,7 @@ velocity new myapp
 This creates a new project and automatically starts the development servers. Your application will be available at:
 
 {{< callout type="tip" >}}
-Building an API without a frontend? Use `velocity new myapi --api` to create an API-only project. See the [CLI Reference](/docs/cli/commands/#api-only-projects) for details.
+Building an API without a frontend? Use `velocity new myapi --api` to create an API-only project. See the [Installer Commands](/docs/cli/installer/) page for the full `velocity new` flag reference.
 {{< /callout >}}
 
 - **Go server**: http://localhost:4000
@@ -58,25 +58,26 @@ Building an API without a frontend? Use `velocity new myapi --api` to create an 
 
 ```
 myapp/
-├── app/
-│   ├── handlers/     # HTTP handlers
+├── internal/
+│   ├── app/             # Bootstrap: CSRF, view engine, middleware stacks
+│   ├── handlers/        # HTTP handlers
 │   ├── middleware/      # Custom middleware
 │   └── models/          # Database models
 ├── config/              # Configuration files
 ├── database/
-│   ├── migrations/      # Database migrations
-│   └── seeders/         # Database seeders
+│   └── migrations/      # Database migrations
 ├── public/              # Static assets
 ├── resources/
 │   ├── js/              # JavaScript/React files
 │   ├── css/             # Stylesheets
-│   └── views/           # View templates
+│   └── views/           # Root HTML template (Inertia)
 ├── routes/              # Route definitions
-├── storage/             # File storage and logs
+├── storage/
+│   └── logs/            # Application logs
 ├── .env                 # Environment variables
 ├── go.mod               # Go module file
-├── package.json         # Node.js dependencies
-├── vite.config.js       # Vite configuration
+├── package.json         # Node.js dependencies (full-stack only)
+├── vite.config.ts       # Vite configuration
 └── main.go              # Application entry point
 ```
 
@@ -88,25 +89,51 @@ Here's what the generated `main.go` looks like:
 package main
 
 import (
-    "net/http"
-    _ "myapp/routes" // Auto-register all routes
+    "log"
+    "os"
 
-    "github.com/velocitykode/velocity/log"
-    "github.com/velocitykode/velocity/router"
+    "myapp/internal/app"
+    "myapp/routes"
+
+    "github.com/velocitykode/velocity"
+
+    // Blank import so each migration file's init() runs - otherwise
+    // `vel migrate` finds nothing.
+    _ "myapp/database/migrations"
 )
 
 func main() {
-    // Logger auto-initializes from .env
-    log.Info("Application started")
+    v, err := velocity.New()
+    if err != nil {
+        log.Fatal(err)
+    }
 
-    // Load all registered routes
-    router.LoadRoutes()
+    chain := v.
+        Providers(app.Configure).      // auth, CSRF, view engine setup
+        Middleware(app.Middleware).    // global / web / API stacks
+        Routes(routes.Register).       // your route definitions
+        Events(app.Events(v.Log))      // your event listeners
 
-    // Start server with router
-    log.Info("Server starting", "port", 4000)
-    http.ListenAndServe(":4000", router.Get())
+    // With CLI args - dispatch a `vel ...` command.
+    if len(os.Args) > 1 {
+        if err := chain.Run(); err != nil {
+            log.Fatal(err)
+        }
+        return
+    }
+
+    // Otherwise - start the HTTP server.
+    if err := chain.Serve(); err != nil {
+        log.Fatal(err)
+    }
 }
 ```
+
+The four callbacks (`app.Configure`, `app.Middleware`, `app.Events`,
+`routes.Register`) live in your own `app` and `routes` packages -
+`velocity new` scaffolds them for you. See
+[Routing](/docs/core/routing) and [Middleware](/docs/core/middleware)
+for the shapes.
 
 Define routes in `routes/web.go`:
 
@@ -114,18 +141,22 @@ Define routes in `routes/web.go`:
 package routes
 
 import (
+    "github.com/velocitykode/velocity"
     "github.com/velocitykode/velocity/router"
 )
 
-func init() {
-    router.Register(func(r router.Router) {
-        r.Get("/", func(ctx *router.Context) error {
+func Register(r *velocity.Routing) {
+    r.Web(func(web router.Router) {
+        web.Get("/", func(ctx *router.Context) error {
             ctx.Response.Write([]byte("Welcome to Velocity!"))
             return nil
         })
     })
 }
 ```
+
+See [Routing](/docs/core/routing) for groups, middleware stacks, API
+routes, and the full reference.
 
 ## Development Server
 
@@ -183,42 +214,49 @@ vel build --tags prod
 
 ### Environment Variables
 
-Velocity uses `.env` files for configuration:
+Velocity uses `.env` files for configuration. The installer writes a
+full `.env` with random keys; the most commonly edited values:
 
 ```bash
 APP_NAME=MyApp
 APP_ENV=development
 APP_URL=http://localhost:4000
+PORT=4000
 
 # Logging
 LOG_DRIVER=console      # console, file
-LOG_PATH=./storage/logs
-LOG_LEVEL=debug
+LOG_LEVEL=info
+
+# Encryption / signing - installer populates these at scaffold time
+APP_KEY=
+QUEUE_SIGNING_KEY=
+JWT_SECRET=
+CRYPTO_CIPHER=AES-256-CBC
 
 # Database
 DB_CONNECTION=sqlite    # postgres, mysql, sqlite
-DB_HOST=localhost
+DB_HOST=127.0.0.1
 DB_PORT=5432
-DB_DATABASE=myapp
-DB_USERNAME=user
-DB_PASSWORD=password
+DB_DATABASE=database.sqlite
+DB_USERNAME=
+DB_PASSWORD=
 
 # Cache
 CACHE_DRIVER=memory     # redis, memory
-
-# Security
-CRYPTO_KEY=             # Run: vel key:generate
 ```
 
-### Generate Application Key
+`APP_KEY` doubles as the crypto key. Set `CRYPTO_KEY` explicitly only
+if you want a dedicated encryption key separate from the app key.
 
-Generate a secure encryption key:
+### Regenerating the application key
 
 ```bash
 vel key:generate
 ```
 
-This updates the `CRYPTO_KEY` in your `.env` file automatically.
+This generates a fresh 32-byte base64 key and writes it to `.env` -
+useful if you need to rotate the key or the installer didn't run
+`key:generate` for you.
 
 ## Next Steps
 

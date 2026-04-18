@@ -5,12 +5,12 @@
   {{ if $sections }}
     {{ range $sections.Sections }}
       <div class="sidebar-section">
-        <h3 class="sidebar-section-title">{{ .Title }}</h3>
+        <h3 class="sidebar-section-title"><span>{{ .Title }}</span></h3>
         <ul class="sidebar-nav">
           <!-- Section index page -->
           <li>
             <a href="{{ .Permalink }}" class="sidebar-link{{ if eq $currentPage.Permalink .Permalink }} active{{ end }}">
-              Overview
+              overview
             </a>
           </li>
           <!-- Child pages -->

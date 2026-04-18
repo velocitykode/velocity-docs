@@ -9,14 +9,14 @@
   <article class="docs-content">
     <header>
       <h1>{{ .Title }}</h1>
-      {{ with .Description }}<p class="docs-description">{{ . }}</p>{{ end }}
+      {{ with .Description }}<p class="docs-description">&gt; {{ . }}</p>{{ end }}
     </header>
 
     {{ .Content }}
 
     {{ if .Pages }}
     <nav class="docs-section-nav">
-      <h2>In This Section</h2>
+      <h2>in this section</h2>
       <ul>
         {{ range .Pages }}
         <li>

@@ -23,16 +23,24 @@ brew install velocity
 ```
 velocity (global)          vel (per-project)
 ├── new                    ├── serve
-├── init                   ├── build
-├── config                 ├── migrate
-└── self-update            ├── migrate:fresh
-                           ├── make:handler
-                           └── key:generate
+├── config                 ├── build
+└── self-update            ├── migrate
+                           ├── migrate:fresh / rollback / status
+                           ├── db:wipe
+                           ├── cache:clear
+                           ├── queue:work
+                           ├── schedule:work
+                           ├── down / up
+                           ├── route:list
+                           ├── key:generate
+                           └── make:* (12 generators)
 ```
 
 **Why two CLIs?**
-- `velocity` is installed globally via Homebrew
-- `vel` is built from your project source, so it has access to your migrations, models, and app initialization code
+- `velocity` is installed globally via Homebrew and only knows how to
+  create, configure, and update itself.
+- `vel` is built from your project source, so it has access to your
+  migrations, models, and app initialization code.
 
 ## Quick Reference
 
@@ -41,21 +49,24 @@ velocity (global)          vel (per-project)
 | Command | Description |
 |---------|-------------|
 | `velocity new <name>` | Create a new Velocity project |
-| `velocity new <name> --api` | Create an API-only project (no frontend) |
-| `velocity init` | Initialize Velocity in existing project |
-| `velocity config` | Manage CLI configuration |
+| `velocity new <name> --api` | API-only project (no frontend) |
+| `velocity config` | Manage CLI defaults |
 | `velocity self-update` | Update the installer |
+
+Full reference: [Installer Commands](installer/).
 
 ### Project Commands (vel)
 
 | Command | Description |
 |---------|-------------|
-| `vel serve` | Start development server with hot reload |
-| `vel build` | Build for production |
+| `vel serve` | Dev server with live reload |
+| `vel build` | Production build |
 | `vel migrate` | Run database migrations |
-| `vel migrate:fresh` | Drop all tables and re-migrate |
+| `vel queue:work` | Process queued jobs |
 | `vel make:handler` | Generate a handler |
 | `vel key:generate` | Generate encryption key |
+
+Full reference: [vel Commands](commands/).
 
 ## Using vel
 
@@ -85,5 +96,6 @@ vel migrate
 ## In This Section
 
 - **[Installation](installation/)** - Install the Velocity CLI
-- **[Commands](commands/)** - Complete command reference
-- **[Configuration](configuration/)** - CLI configuration options
+- **[Installer Commands](installer/)** - `velocity new`, `config`, `self-update`
+- **[vel Commands](commands/)** - Complete per-project command reference
+- **[Configuration](configuration/)** - `velocity config` defaults in depth
