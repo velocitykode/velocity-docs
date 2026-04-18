@@ -14,81 +14,57 @@ Velocity provides comprehensive CSRF (Cross-Site Request Forgery) protection to 
 ```go
 import (
     "github.com/velocitykode/velocity/csrf"
-    "github.com/velocitykode/velocity/router"
+    "github.com/velocitykode/velocity/csrf/stores"
 )
 
-func main() {
-    // Create CSRF protection with default configuration
-    csrfConfig := csrf.DefaultConfig()
-    csrfProtection := csrf.New(csrfConfig)
+// Build a CSRF instance with the default configuration and a session store.
+config := csrf.DefaultConfig()
+config.Store = stores.NewSessionStore()
 
-    // Set global instance for template helpers
-    csrf.SetGlobalCSRF(csrfProtection)
+protection := csrf.New(config)
+```
 
-    // Create router
-    r := router.Get()
+Assign it to your Velocity app so other services (view engine, middleware)
+can reach it:
 
-    // Apply CSRF middleware globally
-    r.Use(csrf.Middleware())
-
-    // Your routes
-    r.Post("/submit-form", handleFormSubmission)
-    r.Post("/update-profile", handleProfileUpdate)
-
-    router.LoadRoutes()
-}
+```go
+v.CSRF = protection
 ```
 {{< /tab >}}
 
 {{< tab >}}
 ```go
-import (
-    "github.com/velocitykode/velocity/csrf"
-    "github.com/velocitykode/velocity/router"
-)
+// Apply CSRF to the web middleware stack
+v.Middleware(func(m *velocity.MiddlewareStack) {
+    csrfInstance := v.CSRF.(*csrf.CSRF)
 
-func setupCSRF() {
-    // Configure CSRF with custom settings
-    config := csrf.DefaultConfig()
-    config.ExcludePaths = []string{
-        "/api/webhooks/*",  // Webhook endpoints
-        "/health",          // Health check
-        "/metrics",         // Metrics endpoint
-    }
-
-    // Custom error handler for API responses
-    config.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-        w.Header().Set("Content-Type", "application/json")
-        w.WriteHeader(419)
-        json.NewEncoder(w).Encode(map[string]string{
-            "error": "CSRF token validation failed",
-            "code":  "CSRF_INVALID",
-        })
-    }
-
-    protection := csrf.New(config)
-    csrf.SetGlobalCSRF(protection)
-}
+    m.Web(
+        middleware.Session,               // must run before CSRF
+        csrfInstance.RouterMiddleware(),  // validates token on unsafe methods
+    )
+})
 ```
+
+`RouterMiddleware()` returns a `router.MiddlewareFunc` that reads the
+session cookie, looks up the token, and validates the request.
 {{< /tab >}}
 
 {{< tab >}}
 ```html
-<!-- In your HTML forms -->
-<form method="POST" action="/submit">
-    {{ csrfField .SessionID }}
+<!-- Meta tag: rendered by the view engine from shared props -->
+<head>
+    <meta name="csrf-token" content="{{ .csrfToken }}">
+</head>
 
+<!-- Form field: include the token on unsafe requests -->
+<form method="POST" action="/submit">
+    <input type="hidden" name="_token" value="{{ .csrfToken }}">
     <input type="text" name="email" />
     <button type="submit">Submit</button>
 </form>
 
-<!-- Or using meta tag for JavaScript -->
-<head>
-    {{ csrfMeta .SessionID }}
-</head>
-
 <script>
-    // Access token in JavaScript
+    // Read the token for AJAX
     const token = document.querySelector('meta[name="csrf-token"]').content;
 
     fetch('/api/data', {
@@ -101,30 +77,43 @@ func setupCSRF() {
     });
 </script>
 ```
+
+The token is obtained via `protection.GetToken(sessionID)`. Plug it into
+the view engine's shared props (or your own render pipeline) under the
+key your template reads:
+
+```go
+engine.SetSharePropsFunc(func(r *http.Request) (view.Props, error) {
+    props := view.Props{}
+    if cookie, err := r.Cookie("my_session"); err == nil {
+        if token, err := protection.GetToken(cookie.Value); err == nil {
+            props["csrf_token"] = token
+        }
+    }
+    return props, nil
+})
+```
 {{< /tab >}}
 
 {{< tab >}}
 ```go
-// For SPA/API applications
-func setupAPICSRF() {
-    config := csrf.DefaultConfig()
+// SPAs read the token from a refresh endpoint
+v.Routes(func(r *velocity.Routing) {
+    csrfInstance := v.CSRF.(*csrf.CSRF)
 
-    // Use header-based token validation
-    config.HeaderName = "X-CSRF-Token"
+    r.Web(func(web router.Router) {
+        web.Get("/csrf/token", func(c *router.Context) error {
+            csrfInstance.RefreshHandler()(c.Response, c.Request)
+            return nil
+        })
+    })
+})
+```
 
-    // Exclude read-only API endpoints
-    config.ExcludeFunc = func(r *http.Request) bool {
-        // Skip CSRF for API keys
-        return r.Header.Get("Authorization") != ""
-    }
+Exclude the refresh endpoint from CSRF validation itself:
 
-    protection := csrf.New(config)
-    csrf.SetGlobalCSRF(protection)
-
-    // Provide token refresh endpoint
-    r := router.Get()
-    r.Get("/csrf/token", protection.RefreshHandler())
-}
+```go
+config.ExcludePaths = []string{"/csrf/token"}
 ```
 {{< /tab >}}
 
@@ -250,113 +239,72 @@ config.Store = &CustomStore{
 }
 ```
 
-## Template Helpers
+## Template integration
 
-Velocity provides template functions for easy CSRF token inclusion:
-
-### CSRFField
-
-Generates a hidden input field with the CSRF token:
-
-```go
-// In your handler
-func ShowForm(ctx *router.Context) error {
-    sessionID := getSessionID(ctx.Request)
-
-    return view.Render(ctx.Response, ctx.Request, "form", view.Props{
-        "SessionID": sessionID,
-    })
-}
-```
+The token is exposed to templates as the shared prop `csrfToken`.
+Include it in your root template's meta tag and in any form that submits
+to an unsafe method:
 
 ```html
-<!-- In your template -->
+<meta name="csrf-token" content="{{ .csrfToken }}">
+
 <form method="POST" action="/submit">
-    {{ csrfField .SessionID }}
-
-    <input type="email" name="email" />
-    <button type="submit">Submit</button>
+    <input type="hidden" name="_token" value="{{ .csrfToken }}">
+    <!-- other fields -->
 </form>
-
-<!-- Renders as: -->
-<!-- <input type="hidden" name="_token" value="generated-token-here"> -->
 ```
 
-### CSRFMeta
+The default config looks for the token in:
 
-Generates a meta tag for JavaScript/AJAX:
+1. The `X-CSRF-Token` header (settable via `config.HeaderName`)
+2. The `_token` form field (settable via `config.FormField`)
 
-```html
-<head>
-    {{ csrfMeta .SessionID }}
-</head>
+## Middleware integration
 
-<!-- Renders as: -->
-<!-- <meta name="csrf-token" content="generated-token-here"> -->
-```
+### Applying CSRF to the web stack
 
-### CSRFToken
-
-Returns the raw token value:
+Add `RouterMiddleware()` to the web middleware list so it runs on all
+browser routes:
 
 ```go
-token := csrf.CSRFToken(sessionID)
-// Use token directly in code
+v.Middleware(func(m *velocity.MiddlewareStack) {
+    csrfInstance := v.CSRF.(*csrf.CSRF)
+
+    m.Web(
+        middleware.Session,               // session cookie first
+        csrfInstance.RouterMiddleware(),  // then CSRF validation
+    )
+})
 ```
 
-## Middleware Integration
+### Selective application
 
-### Global Middleware
-
-Apply CSRF protection to all routes:
-
-```go
-func main() {
-    r := router.Get()
-
-    // Apply globally
-    r.Use(csrf.Middleware())
-
-    // All routes protected
-    r.Post("/submit", handleSubmit)
-    r.Put("/update", handleUpdate)
-}
-```
-
-### Route-Specific Middleware
-
-Apply to specific routes or groups:
+To apply CSRF only to a subset of routes, omit it from the web stack and
+add it to a specific group instead:
 
 ```go
-func init() {
-    router.Register(func(r router.Router) {
-        // Public routes without CSRF
-        r.Get("/", homeHandler.Index)
+v.Routes(func(r *velocity.Routing) {
+    csrfInstance := v.CSRF.(*csrf.CSRF)
 
-        // Protected routes with CSRF
-        protected := r.Group("/account")
-        protected.Use(csrf.Middleware())
-        {
-            protected.Post("/update", accountHandler.Update)
-            protected.Delete("/delete", accountHandler.Delete)
-        }
+    r.Web(func(web router.Router) {
+        web.Get("/", handlers.Home)
+
+        web.Group("/account", func(acc router.Router) {
+            acc.Post("/update", handlers.AccountUpdate)
+            acc.Delete("/delete", handlers.AccountDelete)
+        }).Use(csrfInstance.RouterMiddleware())
     })
-}
+})
 ```
 
-### Conditional Middleware
+### Conditional bypass
+
+Use `ExcludeFunc` on the config rather than wrapping middleware:
 
 ```go
-func ConditionalCSRF(next router.HandlerFunc) router.HandlerFunc {
-    return func(ctx *router.Context) error {
-        // Skip CSRF for API requests with bearer tokens
-        if strings.HasPrefix(ctx.Request.Header.Get("Authorization"), "Bearer ") {
-            return next(ctx)
-        }
-
-        // Apply CSRF for session-based requests
-        return csrf.Middleware()(next)(ctx)
-    }
+config.ExcludeFunc = func(r *http.Request) bool {
+    // skip CSRF for requests carrying a bearer token
+    return strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ")
 }
 ```
 
@@ -400,20 +348,26 @@ config.ExcludeFunc = func(r *http.Request) bool {
 
 ### Setting Up for SPAs
 
+Expose a refresh endpoint and exclude it from CSRF validation:
+
 ```go
-// Provide token endpoint
-func setupSPA() {
-    r := router.Get()
+// Bootstrap: configure the CSRF instance
+config := csrf.DefaultConfig()
+config.ExcludePaths = []string{"/csrf/token"}
+v.CSRF = csrf.New(config)
 
-    // Token refresh endpoint (excluded from CSRF)
-    config := csrf.DefaultConfig()
-    config.ExcludePaths = []string{"/csrf/token"}
+// Routes: register the refresh handler
+v.Routes(func(r *velocity.Routing) {
+    csrfInstance := v.CSRF.(*csrf.CSRF)
+    handler := csrfInstance.RefreshHandler()
 
-    protection := csrf.New(config)
-    csrf.SetGlobalCSRF(protection)
-
-    r.Get("/csrf/token", protection.RefreshHandler())
-}
+    r.Web(func(web router.Router) {
+        web.Get("/csrf/token", func(c *router.Context) error {
+            handler(c.Response, c.Request)
+            return nil
+        })
+    })
+})
 ```
 
 ### JavaScript Integration
@@ -569,44 +523,44 @@ config.TokenLifetime = 24 * time.Hour
 
 ```go
 func TestCSRFProtection(t *testing.T) {
-    // Create CSRF protection
-    config := csrf.DefaultConfig()
-    protection := csrf.New(config)
-    csrf.SetGlobalCSRF(protection)
+    protection := csrf.New(csrf.DefaultConfig())
+    mw := protection.Middleware
 
-    // Create test handler
-    handler := csrf.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         w.WriteHeader(http.StatusOK)
-    }))
+    })
+    handler := mw(next)
 
-    // Test POST without token (should fail)
-    req := httptest.NewRequest("POST", "/submit", nil)
+    // POST without token → 419
+    req := httptest.NewRequest(http.MethodPost, "/submit", nil)
     rec := httptest.NewRecorder()
     handler.ServeHTTP(rec, req)
     assert.Equal(t, 419, rec.Code)
 
-    // Test POST with valid token (should succeed)
+    // POST with valid token → 200
     sessionID := "test-session"
     token, _ := protection.GetToken(sessionID)
 
-    req = httptest.NewRequest("POST", "/submit", nil)
+    req = httptest.NewRequest(http.MethodPost, "/submit", nil)
     req.Header.Set("X-CSRF-Token", token)
-    req.AddCookie(&http.Cookie{
-        Name:  "session_id",
-        Value: sessionID,
-    })
+    req.AddCookie(&http.Cookie{Name: "session_id", Value: sessionID})
 
     rec = httptest.NewRecorder()
     handler.ServeHTTP(rec, req)
     assert.Equal(t, http.StatusOK, rec.Code)
 
-    // Test GET request (should always pass)
-    req = httptest.NewRequest("GET", "/page", nil)
+    // GET → passes (safe method)
+    req = httptest.NewRequest(http.MethodGet, "/page", nil)
     rec = httptest.NewRecorder()
     handler.ServeHTTP(rec, req)
     assert.Equal(t, http.StatusOK, rec.Code)
 }
 ```
+
+`Middleware` takes an `http.Handler` (net/http compatible). For the
+router-compatible variant, call `RouterMiddleware()` — see the
+[testing docs](/docs/core/testing) for end-to-end tests through the
+full Velocity middleware chain.
 
 ## Troubleshooting
 
@@ -620,14 +574,16 @@ func TestCSRFProtection(t *testing.T) {
 3. Ensure cookies are not blocked by browser
 4. Verify HTTPS if `Secure: true` is set
 
-### Tokens Not Generated in Templates
+### Tokens Not Reaching Templates
 
-**Problem:** `csrfField` returns empty string
+**Problem:** `{{ .csrfToken }}` renders empty
 
 **Solutions:**
-1. Call `csrf.SetGlobalCSRF()` during initialization
-2. Verify sessionID is passed to template
-3. Check CSRF middleware is registered
+1. Verify the shared-props function (`engine.SetSharePropsFunc`) is
+   setting `csrf_token` — see [Template integration](#template-integration)
+2. Confirm the session cookie is being sent with the request
+3. Confirm `v.CSRF` is assigned in `Bootstrap` before the view engine
+   shared-props closure runs
 
 ### AJAX Requests Failing
 

@@ -1,197 +1,176 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   SYNTAX HIGHLIGHTING
-   Nord-inspired color scheme for code blocks
+   SYNTAX HIGHLIGHTING — V3 PHOSPHOR PALETTE
+   Magenta keywords, accent-green strings, cyan functions, amber types,
+   muted italic comments. Mirrors the .token-* classes from globals.css.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* Simple code block with copy icon */
+/* Hugo simple wrapper from render-codeblock.html */
 .code-block-simple {
   position: relative;
   margin: var(--space-lg) 0;
 }
-
-.code-block-simple .highlight {
-  margin: 0;
-}
+.code-block-simple .highlight { margin: 0; }
 
 .code-copy-btn {
   position: absolute;
-  top: var(--space-sm);
-  right: var(--space-sm);
-  display: flex;
+  top: 0.5rem;
+  right: 0.5rem;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  color: var(--text-tertiary);
+  width: 28px;
+  height: 28px;
+  background: var(--term-panel);
+  border: 1px solid var(--term-border);
+  color: var(--term-muted);
   cursor: pointer;
   opacity: 0;
   transition: all var(--transition-fast);
   z-index: 10;
+  font-family: var(--font-mono);
 }
-
-.code-block-simple:hover .code-copy-btn {
-  opacity: 1;
-}
-
+.code-block-simple:hover .code-copy-btn,
+.highlight:hover .code-copy-btn { opacity: 1; }
 .code-copy-btn:hover {
-  border-color: var(--accent-primary);
-  color: var(--accent-primary);
-  background: var(--bg-surface);
+  border-color: var(--term-accent-40);
+  color: var(--term-accent);
 }
+.code-copy-btn.copied { border-color: var(--term-accent); color: var(--term-accent); }
+.code-copy-btn .copy-icon { display: block; }
+.code-copy-btn .check-icon { display: none; }
+.code-copy-btn.copied .copy-icon { display: none; }
+.code-copy-btn.copied .check-icon { display: block; }
+.code-copy-btn svg { width: 14px; height: 14px; }
 
-.code-copy-btn.copied {
-  border-color: var(--success);
-  color: var(--success);
-}
-
-.code-copy-btn .copy-icon {
-  display: block;
-}
-
-.code-copy-btn .check-icon {
-  display: none;
-}
-
-.code-copy-btn.copied .copy-icon {
-  display: none;
-}
-
-.code-copy-btn.copied .check-icon {
-  display: block;
-}
-
-/* Hugo's Chroma highlighter */
+/* Hugo Chroma wrapper */
 .highlight {
   position: relative;
   margin: var(--space-lg) 0;
+  background: var(--term-deep);
+  border: 1px solid var(--term-border);
+  overflow: hidden;
 }
-
 .highlight pre {
   margin: 0;
-  padding: var(--space-lg);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
+  padding: var(--space-md) var(--space-lg);
+  background: transparent;
   overflow-x: auto;
   font-family: var(--font-mono);
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   line-height: 1.7;
+  color: var(--term-text);
 }
-
 .highlight code {
   background: none;
   border: none;
   padding: 0;
   font-size: inherit;
-  color: var(--text-primary);
+  color: var(--term-text);
+  font-family: var(--font-mono);
 }
+
+/* Custom scrollbar inside code blocks */
+.highlight pre::-webkit-scrollbar { height: 8px; }
+.highlight pre::-webkit-scrollbar-track { background: transparent; }
+.highlight pre::-webkit-scrollbar-thumb { background: var(--term-border-strong); }
 
 /* Line numbers */
-.highlight .ln {
-  color: var(--text-tertiary);
+.highlight .ln,
+.highlight .lnt {
+  color: var(--term-muted);
   margin-right: var(--space-md);
   user-select: none;
+  opacity: 0.6;
 }
+.highlight .lntable { border-collapse: collapse; }
+.highlight .lntable td { padding: 0; vertical-align: top; }
 
-/* Chroma token classes */
-/* Keywords */
-.highlight .k,
-.highlight .kc,
-.highlight .kd,
-.highlight .kn,
-.highlight .kp,
-.highlight .kr,
-.highlight .kt {
-  color: #c792ea;
+/* ─── Chroma token classes — DARK (default phosphor palette) ─────────────── */
+
+/* Keywords — magenta */
+.highlight .k,    /* Keyword */
+.highlight .kc,   /* Constant */
+.highlight .kd,   /* Declaration */
+.highlight .kn,   /* Namespace */
+.highlight .kp,   /* Pseudo */
+.highlight .kr,   /* Reserved */
+.highlight .kt,   /* Type */
+.highlight .ow {  /* Operator.Word */
+  color: var(--term-magenta);
 }
 
 /* Names */
-.highlight .n { color: var(--text-primary); }
-.highlight .na { color: #82aaff; }
-.highlight .nb { color: #82aaff; }
-.highlight .nc { color: #ffcb6b; }
-.highlight .nd { color: #82aaff; }
-.highlight .ne { color: #ff5370; }
-.highlight .nf { color: #82aaff; }
-.highlight .ni { color: var(--accent-primary); }
-.highlight .nn { color: #ffcb6b; }
-.highlight .nt { color: #f07178; }
-.highlight .nv { color: var(--text-primary); }
+.highlight .n  { color: var(--term-text); }
+.highlight .na { color: var(--term-cyan); }                /* Attribute */
+.highlight .nb { color: var(--term-cyan); }                /* Builtin */
+.highlight .bp { color: var(--term-cyan); }                /* Builtin pseudo */
+.highlight .nc { color: var(--term-amber); }               /* Class */
+.highlight .nd { color: var(--term-cyan); }                /* Decorator */
+.highlight .ne { color: var(--term-red); }                 /* Exception */
+.highlight .nf { color: var(--term-cyan); }                /* Function */
+.highlight .fm { color: var(--term-cyan); }                /* Function magic */
+.highlight .py { color: var(--term-text); }                /* Property */
+.highlight .ni { color: var(--term-accent); }              /* Entity */
+.highlight .nl { color: var(--term-amber); }               /* Label */
+.highlight .nn { color: var(--term-amber); }               /* Namespace */
+.highlight .nt { color: var(--term-magenta); }             /* Tag */
+.highlight .nv { color: var(--term-text); }                /* Variable */
+.highlight .vc { color: var(--term-text); }
+.highlight .vg { color: var(--term-text); }
+.highlight .vi { color: var(--term-text); }
 
-/* Strings */
+/* Strings — phosphor green */
 .highlight .s,
-.highlight .sa,
-.highlight .sb,
-.highlight .sc,
-.highlight .sd,
-.highlight .s2,
-.highlight .se,
-.highlight .sh,
-.highlight .si,
-.highlight .sx,
-.highlight .sr,
-.highlight .s1,
-.highlight .ss {
-  color: #c3e88d;
-}
+.highlight .sa, .highlight .sb, .highlight .sc, .highlight .dl,
+.highlight .sd, .highlight .s2, .highlight .se, .highlight .sh,
+.highlight .si, .highlight .sx, .highlight .sr, .highlight .s1,
+.highlight .ss { color: var(--term-accent); }
 
-/* Numbers */
+/* Numbers — amber */
 .highlight .m,
-.highlight .mb,
-.highlight .mf,
-.highlight .mh,
-.highlight .mi,
-.highlight .mo {
-  color: #f78c6c;
-}
+.highlight .mb, .highlight .mf, .highlight .mh, .highlight .mi,
+.highlight .il, .highlight .mo { color: var(--term-amber); }
 
 /* Operators */
-.highlight .o,
-.highlight .ow {
-  color: #89ddff;
-}
+.highlight .o { color: var(--term-magenta); }
 
 /* Punctuation */
-.highlight .p { color: var(--text-secondary); }
+.highlight .p { color: var(--term-dim); }
 
-/* Comments */
-.highlight .c,
-.highlight .c1,
-.highlight .ch,
-.highlight .cm,
-.highlight .cp,
-.highlight .cpf,
-.highlight .cs {
-  color: #546e7a;
+/* Comments — muted italic */
+.highlight .c, .highlight .ch, .highlight .cm,
+.highlight .c1, .highlight .cs, .highlight .cp, .highlight .cpf {
+  color: var(--term-muted);
   font-style: italic;
 }
 
-/* Generic */
-.highlight .gd { color: #ff5370; background: rgba(255, 83, 112, 0.1); }
+/* Generic / diff */
+.highlight .gd { color: var(--term-red); background: rgba(255, 110, 110, 0.08); }
+.highlight .gi { color: var(--term-accent); background: var(--term-accent-08); }
 .highlight .ge { font-style: italic; }
-.highlight .gi { color: #c3e88d; background: rgba(195, 232, 141, 0.1); }
-.highlight .go { color: var(--text-tertiary); }
-.highlight .gp { color: var(--text-tertiary); }
-.highlight .gs { font-weight: bold; }
-.highlight .gu { color: var(--accent-primary); }
+.highlight .gh { color: var(--term-accent); font-weight: 600; }
+.highlight .go { color: var(--term-dim); }
+.highlight .gp { color: var(--term-accent-70); }
+.highlight .gs { font-weight: 600; color: var(--term-bright); }
+.highlight .gu { color: var(--term-accent); font-weight: 600; }
+.highlight .gt { color: var(--term-red); }
 
 /* Errors */
 .highlight .err {
-  color: #ff5370;
-  background: rgba(255, 83, 112, 0.1);
+  color: var(--term-red);
+  background: rgba(255, 110, 110, 0.08);
 }
 
-/* Diff highlighting */
-.highlight .gi { color: #c3e88d; }
-.highlight .gd { color: #ff5370; }
+/* Highlighted line */
+.highlight .hl { background: var(--term-accent-08); display: block; }
 
-/* Light mode adjustments */
-[data-theme="light"] .highlight pre {
-  background: #f8f9fa;
+/* ─── Light theme — recolored AA-friendly variants ───────────────────────── */
+[data-theme="light"] .highlight {
+  background: var(--term-deep);
+  border-color: var(--term-border);
 }
+[data-theme="light"] .highlight pre,
+[data-theme="light"] .highlight code { color: var(--term-text); }
 
 [data-theme="light"] .highlight .k,
 [data-theme="light"] .highlight .kc,
@@ -199,68 +178,64 @@
 [data-theme="light"] .highlight .kn,
 [data-theme="light"] .highlight .kp,
 [data-theme="light"] .highlight .kr,
-[data-theme="light"] .highlight .kt {
-  color: #7c3aed;
-}
+[data-theme="light"] .highlight .kt,
+[data-theme="light"] .highlight .ow,
+[data-theme="light"] .highlight .nt,
+[data-theme="light"] .highlight .o { color: var(--term-magenta); }
 
 [data-theme="light"] .highlight .s,
-[data-theme="light"] .highlight .sa,
-[data-theme="light"] .highlight .sb,
-[data-theme="light"] .highlight .sc,
-[data-theme="light"] .highlight .sd,
-[data-theme="light"] .highlight .s2,
-[data-theme="light"] .highlight .se,
-[data-theme="light"] .highlight .sh,
-[data-theme="light"] .highlight .si,
-[data-theme="light"] .highlight .sx,
-[data-theme="light"] .highlight .sr,
-[data-theme="light"] .highlight .s1,
-[data-theme="light"] .highlight .ss {
-  color: #059669;
-}
+[data-theme="light"] .highlight .sa, [data-theme="light"] .highlight .sb,
+[data-theme="light"] .highlight .sc, [data-theme="light"] .highlight .dl,
+[data-theme="light"] .highlight .sd, [data-theme="light"] .highlight .s2,
+[data-theme="light"] .highlight .se, [data-theme="light"] .highlight .sh,
+[data-theme="light"] .highlight .si, [data-theme="light"] .highlight .sx,
+[data-theme="light"] .highlight .sr, [data-theme="light"] .highlight .s1,
+[data-theme="light"] .highlight .ss { color: var(--term-accent); }
 
 [data-theme="light"] .highlight .nf,
-[data-theme="light"] .highlight .nb {
-  color: #2563eb;
-}
+[data-theme="light"] .highlight .nb,
+[data-theme="light"] .highlight .nd,
+[data-theme="light"] .highlight .na,
+[data-theme="light"] .highlight .bp,
+[data-theme="light"] .highlight .fm { color: var(--term-cyan); }
 
 [data-theme="light"] .highlight .nc,
-[data-theme="light"] .highlight .nn {
-  color: #d97706;
-}
+[data-theme="light"] .highlight .nn,
+[data-theme="light"] .highlight .nl,
+[data-theme="light"] .highlight .m,
+[data-theme="light"] .highlight .mb,
+[data-theme="light"] .highlight .mf,
+[data-theme="light"] .highlight .mh,
+[data-theme="light"] .highlight .mi,
+[data-theme="light"] .highlight .il,
+[data-theme="light"] .highlight .mo { color: var(--term-amber); }
 
 [data-theme="light"] .highlight .c,
-[data-theme="light"] .highlight .c1,
 [data-theme="light"] .highlight .ch,
 [data-theme="light"] .highlight .cm,
+[data-theme="light"] .highlight .c1,
+[data-theme="light"] .highlight .cs,
 [data-theme="light"] .highlight .cp,
-[data-theme="light"] .highlight .cpf,
-[data-theme="light"] .highlight .cs {
-  color: #6b7280;
-}
+[data-theme="light"] .highlight .cpf { color: var(--term-muted); font-style: italic; }
 
-/* Copy button for code blocks */
+[data-theme="light"] .highlight .gd { color: var(--term-red); background: rgba(184, 50, 50, 0.06); }
+[data-theme="light"] .highlight .gi { color: var(--term-accent); background: var(--term-accent-08); }
+[data-theme="light"] .highlight .err { color: var(--term-red); background: rgba(184, 50, 50, 0.06); }
+
+/* Generic copy button (mirror of .code-copy-btn for older highlight markup) */
 .highlight .copy-button {
   position: absolute;
-  top: var(--space-sm);
-  right: var(--space-sm);
-  padding: var(--space-xs) var(--space-sm);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  color: var(--text-tertiary);
+  top: 0.5rem;
+  right: 0.5rem;
+  padding: 0.15rem 0.5rem;
+  background: var(--term-panel);
+  border: 1px solid var(--term-border);
+  color: var(--term-muted);
   font-family: var(--font-mono);
-  font-size: 0.75rem;
+  font-size: 0.625rem;
   cursor: pointer;
   opacity: 0;
   transition: all var(--transition-fast);
 }
-
-.highlight:hover .copy-button {
-  opacity: 1;
-}
-
-.highlight .copy-button:hover {
-  border-color: var(--accent-primary);
-  color: var(--accent-primary);
-}
+.highlight:hover .copy-button { opacity: 1; }
+.highlight .copy-button:hover { border-color: var(--term-accent-40); color: var(--term-accent); }

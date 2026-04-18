@@ -9,7 +9,7 @@
   <article class="docs-content">
     <header>
       <h1>{{ .Title }}</h1>
-      {{ with .Description }}<p class="docs-description">{{ . }}</p>{{ end }}
+      {{ with .Description }}<p class="docs-description">&gt; {{ . }}</p>{{ end }}
     </header>
 
     {{ .Content }}
@@ -21,6 +21,8 @@
         <span class="docs-pager-label">Previous</span>
         <span class="docs-pager-title">{{ .Title }}</span>
       </a>
+      {{ else }}
+      <span></span>
       {{ end }}
       {{ with .NextInSection }}
       <a href="{{ .Permalink }}" class="docs-pager-link docs-pager-next">

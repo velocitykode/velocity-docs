@@ -1,544 +1,435 @@
 ---
 title: WebSockets
-description: Enable real-time bidirectional communication with Velocity's WebSocket server and client APIs.
+description: Real-time bidirectional communication — typed message handlers, groups, broadcasts, and per-client metadata.
 weight: 70
 ---
 
-Velocity provides a powerful WebSocket implementation for real-time, bidirectional communication between your application and clients.
+The `websocket` package provides a typed WebSocket server with
+message routing, group membership for fan-out, per-client metadata,
+authentication hooks, and built-in rate limiting.
 
-## Quick Start
+Import path: `github.com/velocitykode/velocity/websocket`
 
-Setting up WebSockets is straightforward:
+## Quick start
 
 ```go
-import (
-    "github.com/velocitykode/velocity/websocket"
-    "github.com/velocitykode/velocity/log"
-)
+import "github.com/velocitykode/velocity/websocket"
 
-func main() {
-    // Create WebSocket server with default configuration
-    config := websocket.DefaultConfig()
-    config.Port = 6001
-    config.Path = "/ws"
+cfg := websocket.DefaultConfig()
+cfg.Host = "0.0.0.0"
+cfg.Port = 6001
+cfg.Path = "/ws"
 
-    server := websocket.NewServer(config)
+srv := websocket.New(cfg)
 
-    // Handle new connections
-    server.OnConnect(func(client *websocket.Client) {
-        log.Info("Client connected", "client_id", client.ID())
-
-        // Send welcome message
-        client.Send("welcome", map[string]interface{}{
-            "message": "Welcome to our WebSocket server!",
-            "client_id": client.ID(),
-        })
+srv.OnConnect(func(c *websocket.Client) {
+    c.SendJSON("welcome", map[string]any{
+        "client_id": c.ID,
+        "message":   "connected",
     })
+})
 
-    // Handle disconnections
-    server.OnDisconnect(func(client *websocket.Client) {
-        log.Info("Client disconnected", "client_id", client.ID())
+srv.On("chat", func(c *websocket.Client, msg websocket.Message) error {
+    return srv.Broadcast(websocket.Message{
+        Type: "chat",
+        From: c.ID,
+        Data: msg.Data,
     })
+})
 
-    // Start the WebSocket server
-    go server.Start()
-
-    // Your HTTP server continues to run
-    http.ListenAndServe(":4000", router.Get())
+if err := srv.Start(); err != nil {
+    log.Fatal(err)
 }
 ```
+
+`Start` launches the internal dispatcher goroutine. To accept
+connections, mount `srv.HandleConnection` on an HTTP route — see
+[Mounting](#mounting-on-an-http-route) below.
 
 ## Configuration
 
-### Server Configuration
+`DefaultConfig()` provides reasonable defaults. Override what you
+need:
 
 ```go
-config := websocket.Config{
-    Port:                3000,
-    Path:                "/ws",
-    AllowedOrigins:      []string{"*"},
-    EnableCompression:   true,
-    HandshakeTimeout:    10 * time.Second,
-    ReadBufferSize:      1024,
-    WriteBufferSize:     1024,
-    CheckOrigin: func(r *http.Request) bool {
-        // Custom origin checking logic
-        return true
+cfg := websocket.Config{
+    Host:             "0.0.0.0",
+    Port:             6001,
+    Path:             "/ws",
+    AllowedOrigins:   []string{"https://example.com"},
+    MaxConnections:   10000,
+    ReadBufferSize:   1024,
+    WriteBufferSize:  1024,
+    MaxMessageSize:   512 * 1024, // 512KB
+    PingInterval:     30 * time.Second,
+    PongTimeout:      60 * time.Second,
+    WriteTimeout:     10 * time.Second,
+    MessageRateLimit: 100, // msgs/sec per client (0 = unlimited)
+    MessageBurstSize: 200,
+    AuthFunc: func(r *http.Request) error {
+        if r.URL.Query().Get("token") == "" {
+            return errors.New("missing token")
+        }
+        return nil
     },
 }
-
-server := websocket.NewServer(config)
 ```
 
-### Environment Configuration
+`AuthFunc` runs **before** the WebSocket upgrade — return a non-nil
+error to reject the handshake.
 
-Configure WebSocket settings in your `.env` file:
+## Mounting on an HTTP route
 
-```env
-# WebSocket Server
-WS_PORT=6001
-WS_PATH=/ws
-WS_ALLOWED_ORIGINS=*
-WS_ENABLE_COMPRESSION=true
-WS_HANDSHAKE_TIMEOUT=10s
-WS_READ_BUFFER_SIZE=1024
-WS_WRITE_BUFFER_SIZE=1024
-```
-
-## Client Management
-
-### Client Information
+`HandleConnection` upgrades the connection and registers the client.
+Wire it into your Velocity routes:
 
 ```go
-server.OnConnect(func(client *websocket.Client) {
-    // Get client information
-    clientID := client.ID()
-    remoteAddr := client.RemoteAddr()
-    userAgent := client.UserAgent()
-
-    log.Info("New client connected",
-        "client_id", clientID,
-        "remote_addr", remoteAddr,
-        "user_agent", userAgent,
-    )
-})
-```
-
-### Client Collections
-
-```go
-// Get all connected clients
-clients := server.GetClients()
-log.Info("Total connected clients", "count", len(clients))
-
-// Get specific client by ID
-client := server.GetClient("client-123")
-if client != nil {
-    client.Send("ping", map[string]interface{}{
-        "timestamp": time.Now().Unix(),
+v.Routes(func(r *velocity.Routing) {
+    r.Web(func(web router.Router) {
+        web.Get("/ws", func(c *router.Context) error {
+            srv.HandleConnection(c.Response, c.Request)
+            return nil
+        })
     })
-}
+})
+```
 
-// Check if client is connected
-if server.IsConnected("client-123") {
-    log.Info("Client is still connected")
+Or attach to a stdlib mux:
+
+```go
+http.HandleFunc("/ws", srv.HandleConnection)
+```
+
+## Messages
+
+A message is a JSON envelope:
+
+```go
+type Message struct {
+    Type   string `json:"type"`             // routing key
+    Data   any    `json:"data"`             // payload
+    Target string `json:"target,omitempty"` // client ID for direct sends
+    From   string `json:"from,omitempty"`   // sender client ID
 }
 ```
 
-## Message Handling
+### Routing incoming messages
 
-### Receiving Messages
+Register handlers per message type:
 
 ```go
-server.OnMessage(func(client *websocket.Client, message websocket.Message) {
-    log.Info("Received message",
-        "client_id", client.ID(),
-        "event", message.Event,
-        "data", message.Data,
-    )
-
-    switch message.Event {
-    case "chat_message":
-        handleChatMessage(client, message.Data)
-    case "join_room":
-        handleJoinRoom(client, message.Data)
-    case "ping":
-        client.Send("pong", map[string]interface{}{
-            "timestamp": time.Now().Unix(),
-        })
-    default:
-        log.Warn("Unknown message event", "event", message.Event)
-    }
-})
-
-func handleChatMessage(client *websocket.Client, data interface{}) {
-    messageData := data.(map[string]interface{})
-    text := messageData["text"].(string)
-    room := messageData["room"].(string)
-
-    // Broadcast message to all clients in the room
-    server.ToRoom(room).Send("new_message", map[string]interface{}{
-        "text": text,
-        "user": client.ID(),
-        "timestamp": time.Now().Unix(),
+srv.On("chat", func(c *websocket.Client, msg websocket.Message) error {
+    text, _ := msg.Data.(map[string]any)["text"].(string)
+    return srv.Broadcast(websocket.Message{
+        Type: "chat",
+        From: c.ID,
+        Data: map[string]any{"text": text},
     })
+})
+
+srv.On("join", func(c *websocket.Client, msg websocket.Message) error {
+    room, _ := msg.Data.(map[string]any)["room"].(string)
+    return srv.JoinGroup(c.ID, room)
+})
+```
+
+Unknown message types are silently dropped — register handlers for
+everything you expect to receive.
+
+### Sending to one client
+
+```go
+client.SendJSON("notification", map[string]any{
+    "title": "New message",
+    "body":  "Alice sent you a DM",
+})
+
+// Or build the Message yourself:
+client.SendMessage(websocket.Message{
+    Type: "ping",
+    Data: time.Now().Unix(),
+})
+```
+
+`SendJSON` is non-blocking — it queues the message on the client's
+send channel.
+
+### Broadcast to everyone
+
+```go
+srv.Broadcast(websocket.Message{
+    Type: "announce",
+    Data: "Server restart in 5 minutes",
+})
+```
+
+### Send to a specific client by ID
+
+```go
+if err := srv.SendToClient("client-42", msg); err != nil {
+    // client not found
 }
 ```
 
-### Sending Messages
+## Groups (rooms)
+
+Groups are server-side bags of clients. Join, leave, and broadcast
+into them.
+
+### Membership
 
 ```go
-// Send to specific client
-client.Send("notification", map[string]interface{}{
-    "title": "New Message",
-    "body": "You have received a new message",
-    "timestamp": time.Now().Unix(),
-})
+srv.JoinGroup(client.ID, "room-1")
+srv.LeaveGroup(client.ID, "room-1")
+srv.LeaveAllGroups(client.ID)  // typically called on disconnect
 
-// Send to all connected clients
-server.Broadcast("server_announcement", map[string]interface{}{
-    "message": "Server maintenance in 5 minutes",
-    "type": "warning",
-})
-
-// Send to multiple clients
-clientIDs := []string{"client-1", "client-2", "client-3"}
-server.ToClients(clientIDs).Send("group_message", map[string]interface{}{
-    "message": "Hello group!",
-})
-```
-
-## Room Management
-
-### Joining and Leaving Rooms
-
-```go
-// Client joins a room
-server.OnMessage(func(client *websocket.Client, message websocket.Message) {
-    if message.Event == "join_room" {
-        roomName := message.Data.(map[string]interface{})["room"].(string)
-
-        // Add client to room
-        server.JoinRoom(client.ID(), roomName)
-
-        // Notify other room members
-        server.ToRoom(roomName).Except(client.ID()).Send("user_joined", map[string]interface{}{
-            "user_id": client.ID(),
-            "room": roomName,
-            "message": fmt.Sprintf("User %s joined the room", client.ID()),
-        })
-
-        // Send confirmation to the client
-        client.Send("room_joined", map[string]interface{}{
-            "room": roomName,
-            "message": "Successfully joined the room",
-        })
-    }
-})
-
-// Client leaves a room
-server.OnMessage(func(client *websocket.Client, message websocket.Message) {
-    if message.Event == "leave_room" {
-        roomName := message.Data.(map[string]interface{})["room"].(string)
-
-        // Remove client from room
-        server.LeaveRoom(client.ID(), roomName)
-
-        // Notify other room members
-        server.ToRoom(roomName).Send("user_left", map[string]interface{}{
-            "user_id": client.ID(),
-            "room": roomName,
-            "message": fmt.Sprintf("User %s left the room", client.ID()),
-        })
-    }
-})
-```
-
-### Room Broadcasting
-
-```go
-// Send message to all clients in a room
-server.ToRoom("general").Send("room_message", map[string]interface{}{
-    "text": "Hello everyone in the general room!",
-    "from": "system",
-})
-
-// Send to room except specific clients
-server.ToRoom("general").Except("client-123").Send("message", data)
-
-// Send to multiple rooms
-server.ToRooms([]string{"room1", "room2"}).Send("announcement", data)
-
-// Get room information
-roomClients := server.GetRoomClients("general")
-log.Info("Clients in general room", "count", len(roomClients))
-```
-
-## Error Handling
-
-### Connection Errors
-
-```go
-server.OnError(func(client *websocket.Client, err error) {
-    log.Error("WebSocket error",
-        "client_id", client.ID(),
-        "error", err,
-    )
-
-    // Optionally disconnect the client
-    if isServerError(err) {
-        client.Disconnect()
-    }
-})
-
-func isServerError(err error) bool {
-    // Determine if error requires disconnection
-    return strings.Contains(err.Error(), "server error")
+if client.IsInGroup("room-1") {
+    // ...
 }
 ```
 
-### Message Validation
+### Broadcasting
 
 ```go
-server.OnMessage(func(client *websocket.Client, message websocket.Message) {
-    // Validate message structure
-    if message.Event == "" {
-        client.Send("error", map[string]interface{}{
-            "message": "Event name is required",
-            "code": "INVALID_EVENT",
-        })
+// Send to every client in the group
+srv.BroadcastToGroup("room-1", websocket.Message{
+    Type: "chat",
+    Data: map[string]any{"text": "Hello room"},
+})
+
+// Same as Broadcast but with explicit semantics
+srv.SendToGroup("room-1", msg)
+
+// Skip the sender
+srv.SendToOthersInGroup("room-1", senderID, msg)
+```
+
+### Inspecting groups
+
+```go
+clients := srv.GetGroupMembers("room-1")  // []*Client
+ids     := srv.GetGroupMemberIDs("room-1")
+groups  := srv.GetGroups()                 // all group names
+n       := srv.GetGroupCount()             // number of groups
+empty   := srv.IsGroupEmpty("room-1")
+```
+
+## Lifecycle callbacks
+
+```go
+srv.OnConnect(func(c *websocket.Client) {
+    log.Info("connected", "id", c.ID)
+})
+
+srv.OnDisconnect(func(c *websocket.Client) {
+    srv.LeaveAllGroups(c.ID)
+    log.Info("disconnected", "id", c.ID)
+})
+
+srv.OnError(func(c *websocket.Client, err error) {
+    log.Error("client error", "id", c.ID, "err", err)
+})
+```
+
+## Per-client metadata
+
+Stash request-scoped data on the client itself:
+
+```go
+srv.OnConnect(func(c *websocket.Client) {
+    user, err := authenticateFromQuery(c.Conn)
+    if err != nil {
+        c.Close()
         return
     }
+    c.SetMetadata("user_id", user.ID)
+    c.SetMetadata("plan", user.Plan)
+})
 
-    // Validate message data
-    if message.Data == nil {
-        client.Send("error", map[string]interface{}{
-            "message": "Message data is required",
-            "code": "INVALID_DATA",
-        })
-        return
+srv.On("admin:purge", func(c *websocket.Client, msg websocket.Message) error {
+    plan, ok := c.GetMetadata("plan")
+    if !ok || plan != "admin" {
+        return c.SendJSON("error", map[string]any{"reason": "forbidden"})
     }
-
-    // Process valid message
-    handleValidMessage(client, message)
+    return runPurge()
 })
 ```
+
+## Middleware
+
+Wrap message handlers with cross-cutting concerns:
+
+```go
+logging := func(next websocket.MessageHandler) websocket.MessageHandler {
+    return func(c *websocket.Client, msg websocket.Message) error {
+        log.Info("ws.recv", "client", c.ID, "type", msg.Type)
+        err := next(c, msg)
+        if err != nil {
+            log.Warn("ws.handler.err", "client", c.ID, "err", err)
+        }
+        return err
+    }
+}
+
+srv.Use(logging)
+```
+
+Middleware runs in registration order around every dispatched
+message.
 
 ## Authentication
 
-### Connection Authentication
+Two layers:
+
+1. **Pre-upgrade** — `Config.AuthFunc(*http.Request) error`. Reject
+   the WebSocket handshake before the connection is established.
+   Read tokens from headers, query strings, or cookies.
+
+2. **Post-upgrade** — inside `OnConnect` or a message handler. Stash
+   the user via `SetMetadata`; gate handlers by reading the metadata.
 
 ```go
-server.OnConnect(func(client *websocket.Client) {
-    // Check for authentication token
-    token := client.Request().URL.Query().Get("token")
-    if token == "" {
-        client.Send("auth_required", map[string]interface{}{
-            "message": "Authentication token required",
-        })
-        client.Disconnect()
-        return
+cfg.AuthFunc = func(r *http.Request) error {
+    token := r.Header.Get("Authorization")
+    if !validateToken(token) {
+        return errors.New("invalid token")
     }
-
-    // Validate token
-    user, err := validateAuthToken(token)
-    if err != nil {
-        client.Send("auth_failed", map[string]interface{}{
-            "message": "Invalid authentication token",
-        })
-        client.Disconnect()
-        return
-    }
-
-    // Store user information with client
-    client.SetData("user", user)
-    client.SetData("authenticated", true)
-
-    log.Info("Authenticated client connected",
-        "client_id", client.ID(),
-        "user_id", user.ID,
-    )
-})
-```
-
-### Message-based Authentication
-
-```go
-server.OnMessage(func(client *websocket.Client, message websocket.Message) {
-    // Check if client is authenticated for protected events
-    if isProtectedEvent(message.Event) {
-        authenticated := client.GetData("authenticated")
-        if authenticated != true {
-            client.Send("unauthorized", map[string]interface{}{
-                "message": "Authentication required for this action",
-                "event": message.Event,
-            })
-            return
-        }
-    }
-
-    // Process authenticated message
-    handleMessage(client, message)
-})
-```
-
-## Performance & Monitoring
-
-### Connection Statistics
-
-```go
-// Get server statistics
-stats := server.GetStats()
-log.Info("WebSocket server stats",
-    "connected_clients", stats.ConnectedClients,
-    "total_messages_sent", stats.MessagesSent,
-    "total_messages_received", stats.MessagesReceived,
-    "bytes_sent", stats.BytesSent,
-    "bytes_received", stats.BytesReceived,
-)
-
-// Monitor connection health
-server.OnConnect(func(client *websocket.Client) {
-    // Set up periodic ping
-    ticker := time.NewTicker(30 * time.Second)
-    go func() {
-        defer ticker.Stop()
-        for {
-            select {
-            case <-ticker.C:
-                if !client.IsConnected() {
-                    return
-                }
-                client.Ping()
-            }
-        }
-    }()
-})
-```
-
-### Rate Limiting
-
-```go
-// Implement rate limiting per client
-server.OnMessage(func(client *websocket.Client, message websocket.Message) {
-    // Get rate limiter for client
-    limiter := getRateLimiter(client.ID())
-
-    if !limiter.Allow() {
-        client.Send("rate_limit_exceeded", map[string]interface{}{
-            "message": "Too many messages, please slow down",
-            "retry_after": time.Second * 5,
-        })
-        return
-    }
-
-    // Process message if rate limit allows
-    handleMessage(client, message)
-})
-
-func getRateLimiter(clientID string) *rate.Limiter {
-    // Implementation depends on your rate limiting strategy
-    // Return appropriate rate limiter for client
-    return rate.NewLimiter(rate.Limit(10), 10) // 10 messages per second
+    return nil
 }
 ```
 
-## Frontend Integration
+Pre-upgrade auth is preferred — rejected requests never consume a
+client slot.
 
-### JavaScript Client
+## Rate limiting
+
+Built into the config — no external code needed:
+
+```go
+cfg.MessageRateLimit = 50  // msgs/sec
+cfg.MessageBurstSize  = 100
+```
+
+When a client exceeds the burst, the server closes their connection.
+Set `MessageRateLimit = 0` to disable.
+
+## Stats
+
+```go
+stats := srv.GetStats()
+log.Info("ws stats",
+    "clients", stats.ConnectedClients,
+    "sent",    stats.MessagesSent,
+    "recv",    stats.MessagesReceived,
+    "bytes_in", stats.BytesReceived,
+    "bytes_out", stats.BytesSent,
+)
+```
+
+Read-only snapshot. Useful for `/health` endpoints and Prometheus
+exporters.
+
+## Inspecting clients
+
+```go
+client, ok := srv.GetClient("client-42")
+if ok {
+    client.SendJSON("ping", nil)
+}
+
+all := srv.GetClients()  // map[string]*Client — copy of the live set
+log.Info("connected", "n", len(all))
+```
+
+## Frontend (browser) example
 
 ```javascript
-// Connect to WebSocket server
-const ws = new WebSocket('ws://localhost:6001/ws');
+const ws = new WebSocket('wss://example.com/ws?token=' + token);
 
-// Handle connection open
-ws.onopen = function(event) {
-    console.log('Connected to WebSocket server');
-
-    // Send authentication
-    ws.send(JSON.stringify({
-        event: 'authenticate',
-        data: {
-            token: localStorage.getItem('auth_token')
-        }
-    }));
+ws.onopen = () => {
+    ws.send(JSON.stringify({ type: 'join', data: { room: 'lobby' } }));
 };
 
-// Handle incoming messages
-ws.onmessage = function(event) {
-    const message = JSON.parse(event.data);
-    console.log('Received message:', message);
-
-    switch(message.event) {
+ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    switch (msg.type) {
         case 'welcome':
-            handleWelcome(message.data);
+            console.log('connected as', msg.data.client_id);
             break;
-        case 'new_message':
-            displayMessage(message.data);
+        case 'chat':
+            renderChat(msg.from, msg.data.text);
             break;
-        case 'user_joined':
-            showUserJoined(message.data);
-            break;
-        default:
-            console.log('Unknown message event:', message.event);
     }
 };
 
-// Send message
-function sendMessage(event, data) {
-    ws.send(JSON.stringify({
-        event: event,
-        data: data
-    }));
-}
-
-// Join a room
-function joinRoom(roomName) {
-    sendMessage('join_room', { room: roomName });
-}
-
-// Send chat message
-function sendChatMessage(text, room) {
-    sendMessage('chat_message', {
-        text: text,
-        room: room
-    });
+function send(type, data) {
+    ws.send(JSON.stringify({ type, data }));
 }
 ```
 
-## Testing WebSockets
+The wire shape matches the Go `Message` struct directly — `type`,
+`data`, optional `target` and `from`.
+
+## Testing
+
+Spin up a server on port 0 (OS-assigned) and connect with the
+gorilla-websocket dialer:
 
 ```go
-func TestWebSocketServer(t *testing.T) {
-    // Create test server
-    config := websocket.DefaultConfig()
-    config.Port = 0 // Use random available port
-    server := websocket.NewServer(config)
+import gws "github.com/gorilla/websocket"
 
-    // Set up message handler
-    var receivedMessage websocket.Message
-    server.OnMessage(func(client *websocket.Client, message websocket.Message) {
-        receivedMessage = message
+func TestEcho(t *testing.T) {
+    cfg := websocket.DefaultConfig()
+    cfg.Port = 0
+    cfg.Path = "/ws"
+
+    srv := websocket.New(cfg)
+    received := make(chan websocket.Message, 1)
+
+    srv.On("echo", func(c *websocket.Client, m websocket.Message) error {
+        received <- m
+        return c.SendMessage(m)
     })
 
-    // Start server
-    go server.Start()
-    defer server.Stop()
+    if err := srv.Start(); err != nil {
+        t.Fatal(err)
+    }
+    defer srv.Stop()
 
-    // Connect test client
-    url := fmt.Sprintf("ws://localhost:%d%s", server.Port(), config.Path)
-    ws, _, err := websocket.DefaultDialer.Dial(url, nil)
-    assert.NoError(t, err)
-    defer ws.Close()
+    ts := httptest.NewServer(http.HandlerFunc(srv.HandleConnection))
+    defer ts.Close()
 
-    // Send test message
-    testMessage := websocket.Message{
-        Event: "test_event",
-        Data: map[string]interface{}{
-            "test": "data",
-        },
+    url := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws"
+    conn, _, err := gws.DefaultDialer.Dial(url, nil)
+    if err != nil {
+        t.Fatal(err)
+    }
+    defer conn.Close()
+
+    if err := conn.WriteJSON(websocket.Message{Type: "echo", Data: "hi"}); err != nil {
+        t.Fatal(err)
     }
 
-    err = ws.WriteJSON(testMessage)
-    assert.NoError(t, err)
-
-    // Wait for message to be received
-    time.Sleep(100 * time.Millisecond)
-
-    // Verify message was received
-    assert.Equal(t, "test_event", receivedMessage.Event)
-    assert.Equal(t, "data", receivedMessage.Data.(map[string]interface{})["test"])
+    select {
+    case got := <-received:
+        if got.Type != "echo" || got.Data != "hi" {
+            t.Errorf("got %+v", got)
+        }
+    case <-time.After(time.Second):
+        t.Fatal("timeout")
+    }
 }
 ```
 
-## Best Practices
+## Design notes
 
-1. **Handle Disconnections**: Always handle client disconnections gracefully
-2. **Authenticate Connections**: Validate client authentication before processing messages
-3. **Rate Limiting**: Implement rate limiting to prevent abuse
-4. **Message Validation**: Validate all incoming messages
-5. **Error Handling**: Provide clear error messages to clients
-6. **Room Management**: Clean up rooms when they become empty
-7. **Monitoring**: Monitor connection health and server performance
-8. **Security**: Validate origins and implement proper CORS policies
-
+- **Groups, not rooms.** Every set-of-clients abstraction is a group.
+  Use any naming convention you like (`room:lobby`, `tenant:42`,
+  `private-user.42`) — they're just strings.
+- **One dispatcher goroutine.** The server runs a single goroutine
+  fanning out broadcast/register/unregister channel events. Per-client
+  read and write pumps run independently.
+- **Channel-based send.** `SendJSON` and `SendMessage` enqueue on the
+  client's bounded send channel — they're safe to call from any
+  goroutine and don't block on slow consumers (full channels drop
+  the client).

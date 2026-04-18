@@ -4,385 +4,296 @@ description: Add middleware for authentication, logging, CORS, rate limiting, an
 weight: 40
 ---
 
-Velocity provides a flexible middleware system for HTTP request/response processing, allowing you to add cross-cutting concerns like authentication, logging, CORS, and rate limiting to your application.
+Middleware wraps Velocity handlers to add cross-cutting concerns —
+auth, logging, CORS, rate limiting, CSRF. Each middleware receives
+the next handler in the chain and returns a new handler.
 
-## Quick Start
+## Signature
 
-Middleware in Velocity wraps HTTP handlers to add functionality:
+Velocity middleware uses the `router.MiddlewareFunc` type:
 
 ```go
-func LoggingMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        start := time.Now()
-
-        // Before request
-        log.Info("Request started",
-            "method", r.Method,
-            "path", r.URL.Path,
-        )
-
-        // Process request
-        next.ServeHTTP(w, r)
-
-        // After request
-        log.Info("Request completed",
-            "duration", time.Since(start),
-        )
-    })
-}
+type HandlerFunc    func(*router.Context) error
+type MiddlewareFunc func(next HandlerFunc) HandlerFunc
 ```
 
-## Handler Functions with Context
-
-Velocity handlers use a Context-based pattern that provides error handling and convenient access to request/response objects:
+A minimal middleware:
 
 ```go
-// Handler signature
-func(ctx *router.Context) error
+package middleware
 
-// Example handler
-func (h *HomeHandler) Index(ctx *router.Context) error {
-    // Access request and response
-    userID := ctx.Request.URL.Query().Get("user_id")
+import "github.com/velocitykode/velocity/router"
 
-    // Return JSON response
-    return ctx.JSON(map[string]string{
-        "message": "Welcome",
-        "user": userID,
-    })
-}
-
-// Handler with error
-func (h *UserHandler) Profile(ctx *router.Context) error {
-    user, err := getUserFromContext(ctx.Request.Context())
-    if err != nil {
-        return err  // Error is handled automatically
+func Logging(next router.HandlerFunc) router.HandlerFunc {
+    return func(c *router.Context) error {
+        c.Log().Info("request",
+            "method", c.Request.Method,
+            "path",   c.Request.URL.Path,
+        )
+        return next(c)
     }
-
-    return ctx.JSON(user)
 }
 ```
 
-## Using Middleware
+## Stacks: global, web, API
 
-### Global Middleware
+Applications typically split middleware into three scopes:
 
-Apply middleware to all routes:
+- **Global** — runs on every request (logging, CORS, recovery,
+  maintenance mode)
+- **Web** — runs on browser/HTML routes (sessions, CSRF, view engine)
+- **API** — runs on JSON API routes (rate limiting, JSON enforcement)
+
+You declare them in a single function passed to `v.Middleware(...)`:
 
 ```go
-// main.go
-func main() {
-    r := router.Get()
+// internal/app/middleware.go
+package app
 
-    // Apply global middleware
-    r.Use(
-        middleware.RecoveryMiddleware,  // Catch panics first
-        middleware.LoggingMiddleware,   // Log all requests
-        middleware.CORSMiddleware,      // Handle CORS
+import (
+    "myapp/internal/middleware"
+
+    "github.com/velocitykode/velocity"
+    "github.com/velocitykode/velocity/csrf"
+    "github.com/velocitykode/velocity/view"
+)
+
+func Middleware(m *velocity.MiddlewareStack) {
+    // Runs on every request.
+    m.Global(
+        middleware.LoggingMiddleware,
+        middleware.TrustProxiesMiddleware,
+        middleware.CORSMiddleware,
+        middleware.PreventRequestsDuringMaintenanceMiddleware,
+        middleware.ValidatePostSizeMiddleware(10<<20),
+        middleware.TrimStringsMiddleware,
+        middleware.ConvertEmptyStringsToNullMiddleware,
     )
 
-    router.LoadRoutes()
-    http.ListenAndServe(":4000", r)
+    // The CSRF and view middleware need their service instances —
+    // pull them from the *app.Services container.
+    s := m.Services()
+    csrfInstance := s.CSRF.(*csrf.CSRF)
+    viewEngine := s.View.(*view.Engine)
+
+    // Runs on routes inside r.Web(...).
+    m.Web(
+        middleware.SessionMiddleware,    // session cookie before CSRF
+        middleware.CSRFTokenMiddleware,  // expose token to templates
+        csrfInstance.RouterMiddleware(), // validate CSRF on unsafe methods
+        viewEngine.Middleware(),         // Inertia version + headers
+    )
+
+    // Runs on routes inside r.API(prefix, ...).
+    m.API(
+        middleware.EnsureJSONMiddleware,
+    )
 }
 ```
 
-### Route Group Middleware
-
-Apply middleware to specific route groups:
+Wire it into `main.go` via the bootstrap chain:
 
 ```go
-func init() {
-    router.Register(func(r router.Router) {
-        // Create handler instance
-        adminHandler := handlers.AdminHandler{}
-        
-        // Admin routes with authentication
-        admin := r.Group("/admin")
-        admin.Use(
-            middleware.AuthMiddleware,
-            middleware.NewRateLimitMiddleware(50),
-        )
-        {
-            admin.Get("/", adminHandler.Dashboard)
-            admin.Get("/users", adminHandler.Users)
-        }
+chain := v.
+    Providers(app.Configure).
+    Middleware(app.Middleware).        // <— this function
+    Routes(routes.Register).
+    Events(app.Events(v.Log))
+```
+
+When you register routes through `v.Routes(...)`, the `r.Web(...)`
+group automatically gets the web stack and `r.API(prefix, ...)` gets
+the API stack — see [Routing](/docs/core/routing).
+
+## Per-group and per-route middleware
+
+Inside a `Web` or `API` closure, attach middleware to a sub-group or
+a single route:
+
+```go
+func Register(r *velocity.Routing) {
+    r.Web(func(web router.Router) {
+        // Group with middleware — applies to every route in the closure.
+        web.Group("", func(auth router.Router) {
+            auth.Get("/dashboard", handlers.Dashboard).Name("dashboard")
+            auth.Get("/account", handlers.Account)
+        }).Use(middleware.Auth)
+
+        // Single route with middleware.
+        web.Post("/contact", handlers.Contact).Use(middleware.RateLimit(5))
     })
 }
 ```
 
-### Route-Specific Middleware
+`Group("", fn).Use(mw)` is the idiom for grouping routes purely so
+they share middleware. `.Use(mw)` after a verb method attaches
+middleware to just that one route.
 
-Apply middleware to individual routes:
+## Order of execution
 
-```go
-func init() {
-    router.Register(func(r router.Router) {
-        // Create handler instances
-        homeHandler := handlers.HomeHandler{}
-        userHandler := handlers.UserHandler{}
-        contactHandler := handlers.ContactHandler{}
-        
-        // Public routes - no middleware
-        r.Get("/", homeHandler.Index)
-        
-        // Protected route with middleware
-        r.Get("/profile", userHandler.Profile).Use(
-            middleware.AuthMiddleware,
-            middleware.ProfileMiddleware,
-        )
-        
-        // Chain multiple middleware
-        r.Post("/contact", contactHandler.Submit).
-            Use(middleware.RateLimitMiddleware).
-            Use(middleware.CSRFMiddleware).
-            Use(middleware.ValidationMiddleware)
-    })
-}
-```
-
-## Middleware Patterns
-
-### Standard Middleware Signature
+Middleware wraps from the outside in. The first middleware in the
+list runs first on the way in and last on the way out:
 
 ```go
-func MyMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        // Before request processing
-
-        next.ServeHTTP(w, r)
-
-        // After request processing
-    })
-}
-```
-
-### Parameterized Middleware
-
-```go
-func RateLimitMiddleware(limit int) func(http.Handler) http.Handler {
-    return func(next http.Handler) http.Handler {
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            // Use limit parameter
-            next.ServeHTTP(w, r)
-        })
-    }
-}
-
-// Usage
-r.Use(RateLimitMiddleware(100))
-```
-
-### Middleware Chaining
-
-```go
-// Method 1: Variadic arguments
-r.Get("/dashboard", handler).Use(Auth, CSRF, RateLimit)
-
-// Method 2: Chain calls
-r.Get("/api/data", handler).
-    Use(APIAuth).
-    Use(RateLimit).
-    Use(Cache)
-
-// Method 3: Group with inherited middleware
-api := r.Group("/api").Use(APIAuth, RateLimit)
-v1 := api.Group("/v1").Use(JSONOnly)  // Inherits api middleware
-```
-
-## Common Middleware Examples
-
-### Authentication Middleware
-
-```go
-func AuthMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        token := r.Header.Get("Authorization")
-
-        if token == "" {
-            http.Error(w, "Unauthorized", http.StatusUnauthorized)
-            return
-        }
-
-        // Validate token and get user
-        user, err := validateToken(token)
-        if err != nil {
-            http.Error(w, "Invalid token", http.StatusUnauthorized)
-            return
-        }
-
-        // Add user to context
-        ctx := context.WithValue(r.Context(), "user", user)
-        next.ServeHTTP(w, r.WithContext(ctx))
-    })
-}
-```
-
-### CORS Middleware
-
-```go
-func CORSMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        w.Header().Set("Access-Control-Allow-Origin", "*")
-        w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-        w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-
-        if r.Method == "OPTIONS" {
-            w.WriteHeader(http.StatusOK)
-            return
-        }
-
-        next.ServeHTTP(w, r)
-    })
-}
-```
-
-### Rate Limiting Middleware
-
-```go
-func NewRateLimitMiddleware(requestsPerMin int) func(http.Handler) http.Handler {
-    limiter := rate.NewLimiter(rate.Limit(requestsPerMin/60), requestsPerMin)
-
-    return func(next http.Handler) http.Handler {
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            if !limiter.Allow() {
-                http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
-                return
-            }
-            next.ServeHTTP(w, r)
-        })
-    }
-}
-```
-
-### Recovery Middleware
-
-```go
-func RecoveryMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        defer func() {
-            if err := recover(); err != nil {
-                log.Error("Panic recovered",
-                    "error", fmt.Sprintf("%v", err),
-                    "stack", debug.Stack(),
-                )
-                http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-            }
-        }()
-
-        next.ServeHTTP(w, r)
-    })
-}
-```
-
-## Middleware Order
-
-Middleware execution order matters:
-
-```go
-// Execution order: Recovery -> Logging -> Auth -> Handler
-r.Use(
-    RecoveryMiddleware,  // 1. Catch panics (outermost)
-    LoggingMiddleware,   // 2. Log request/response
-    AuthMiddleware,      // 3. Check authentication
+m.Global(
+    middleware.RecoveryMiddleware,  // outermost — catches panics from everything below
+    middleware.LoggingMiddleware,   // logs the request
+    middleware.AuthMiddleware,      // innermost — runs just before the handler
 )
 ```
 
-The first middleware in the list wraps all others, so it executes first on the way in and last on the way out.
+Within a request, scopes run in this order:
+**global → web/API → group → route → handler**.
 
-## Context Values
+## Parameterized middleware
 
-Pass data through middleware using context:
+Middleware that needs configuration returns a `MiddlewareFunc`:
 
 ```go
-// Set value in middleware
-func AuthMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        // Authenticate and add user to context
-        userID := authenticateUser(r)
-        ctx := context.WithValue(r.Context(), "userID", userID)
-        next.ServeHTTP(w, r.WithContext(ctx))
-    })
+func RateLimit(requestsPerMinute int) router.MiddlewareFunc {
+    limiter := rate.NewLimiter(rate.Limit(requestsPerMinute)/60, requestsPerMinute)
+
+    return func(next router.HandlerFunc) router.HandlerFunc {
+        return func(c *router.Context) error {
+            if !limiter.Allow() {
+                return c.JSON(http.StatusTooManyRequests, map[string]string{
+                    "error": "rate limit exceeded",
+                })
+            }
+            return next(c)
+        }
+    }
 }
 
-// Get value in handler
-func (h *UserHandler) Dashboard(ctx *router.Context) error {
-    userID := ctx.Request.Context().Value("userID").(string)
+// Usage — call once at registration to capture the limiter, then attach.
+m.API(middleware.RateLimit(100))
+```
 
-    user, err := getUserByID(userID)
-    if err != nil {
-        return err
+The limiter is built once in the outer call. Every request shares it
+— exactly what you want for rate limiting.
+
+## Passing data through context
+
+Use the request context to hand data from middleware to the handler:
+
+```go
+func Auth(next router.HandlerFunc) router.HandlerFunc {
+    return func(c *router.Context) error {
+        user, err := authenticate(c.Request)
+        if err != nil {
+            return c.Redirect(http.StatusSeeOther, "/login")
+        }
+
+        ctx := context.WithValue(c.Request.Context(), "user", user)
+        c.Request = c.Request.WithContext(ctx)
+        return next(c)
     }
+}
 
-    return ctx.JSON(user)
+// In the handler
+func Dashboard(c *router.Context) error {
+    user := c.Request.Context().Value("user").(*models.User)
+    return c.JSON(http.StatusOK, user)
 }
 ```
 
-## Response Writer Wrapper
+For request-scoped values that don't need to flow into downstream
+handlers, `c.Set(key, value)` / `c.Get(key)` is the lighter option —
+see [HTTP Router > Per-request storage](/docs/core/http-router#per-request-storage).
 
-Capture response details:
+## Common patterns
 
-```go
-type ResponseWriter struct {
-    http.ResponseWriter
-    status int
-    size   int
-}
+### Short-circuit
 
-func (rw *ResponseWriter) WriteHeader(status int) {
-    rw.status = status
-    rw.ResponseWriter.WriteHeader(status)
-}
-
-func (rw *ResponseWriter) Write(b []byte) (int, error) {
-    size, err := rw.ResponseWriter.Write(b)
-    rw.size += size
-    return size, err
-}
-```
-
-## Testing Middleware
+Return without calling `next` to stop the chain. Useful for
+auth/guest gates:
 
 ```go
-func TestAuthMiddleware(t *testing.T) {
-    handler := AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        w.WriteHeader(http.StatusOK)
-    }))
-
-    // Test without token
-    req := httptest.NewRequest("GET", "/", nil)
-    w := httptest.NewRecorder()
-    handler.ServeHTTP(w, req)
-
-    if w.Code != http.StatusUnauthorized {
-        t.Errorf("Expected 401, got %d", w.Code)
-    }
-
-    // Test with valid token
-    req.Header.Set("Authorization", "valid-token")
-    w = httptest.NewRecorder()
-    handler.ServeHTTP(w, req)
-
-    if w.Code != http.StatusOK {
-        t.Errorf("Expected 200, got %d", w.Code)
+func Guest(next router.HandlerFunc) router.HandlerFunc {
+    return func(c *router.Context) error {
+        if auth.FromContext(c).Check(c.Request) {
+            return c.Redirect(http.StatusSeeOther, "/dashboard")
+        }
+        return next(c)
     }
 }
 ```
 
-## Best Practices
+### Recover from panics
 
-1. **Order Matters**: Apply middleware in the correct order (recovery first, then logging, then auth)
-2. **Keep It Simple**: Each middleware should have a single responsibility
-3. **Use Context**: Pass data between middleware using context, not global variables
-4. **Handle Errors**: Always handle errors gracefully
-5. **Test Thoroughly**: Write tests for each middleware component
-6. **Avoid State**: Middleware should be stateless when possible
-7. **Document Dependencies**: Clearly document what each middleware expects and provides
+```go
+func Recovery(next router.HandlerFunc) router.HandlerFunc {
+    return func(c *router.Context) (err error) {
+        defer func() {
+            if r := recover(); r != nil {
+                c.Log().Error("panic recovered",
+                    "value", r,
+                    "stack", debug.Stack(),
+                )
+                err = fmt.Errorf("internal server error")
+            }
+        }()
+        return next(c)
+    }
+}
+```
 
-## Performance Considerations
+Register `Recovery` first in the global stack so it wraps everything.
 
-- Middleware adds overhead to each request
-- Keep middleware lightweight and fast
-- Avoid blocking operations in middleware
-- Consider caching for expensive operations
-- Profile your middleware stack under load
+### CORS
 
+```go
+func CORS(next router.HandlerFunc) router.HandlerFunc {
+    return func(c *router.Context) error {
+        c.Response.Header().Set("Access-Control-Allow-Origin", "*")
+        c.Response.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+        c.Response.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+        if c.Request.Method == http.MethodOptions {
+            c.Response.WriteHeader(http.StatusOK)
+            return nil
+        }
+        return next(c)
+    }
+}
+```
+
+## Testing middleware
+
+For unit tests, call the middleware directly with a stub next-handler:
+
+```go
+func TestAuthRedirectsGuests(t *testing.T) {
+    called := false
+    next := func(c *router.Context) error {
+        called = true
+        return nil
+    }
+
+    req := httptest.NewRequest(http.MethodGet, "/dashboard", nil)
+    rec := httptest.NewRecorder()
+    c := router.NewContext(rec, req)
+
+    if err := middleware.Auth(next)(c); err != nil {
+        t.Fatalf("unexpected error: %v", err)
+    }
+    if called {
+        t.Fatal("next handler should not run for unauthenticated request")
+    }
+    if rec.Code != http.StatusSeeOther {
+        t.Errorf("expected 303, got %d", rec.Code)
+    }
+}
+```
+
+For end-to-end tests through the full middleware chain, register the
+middleware on a fresh router and exercise it via `httptest`.
+
+## Best practices
+
+- Keep each middleware focused on a single concern.
+- Register `Recovery` first in the global stack so it wraps everything.
+- Prefer context values over package globals for per-request state.
+- For expensive setup (rate limiter, DB pool), build once in the outer
+  function and capture it in the closure — don't construct it inside
+  the inner handler on every request.

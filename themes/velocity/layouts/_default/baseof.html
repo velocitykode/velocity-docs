@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="{{ .Site.Language.Lang | default "en" }}" data-theme="dark">
+<html lang="{{ .Site.Language.Lang | default "en" }}" data-theme="dark" class="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,9 +7,16 @@
 
   <title>{{ block "title" . }}{{ .Title }} | {{ .Site.Title }}{{ end }}</title>
 
+  <!-- Theme initialization — FOUC prevention, runs before styles/paint.
+       Mirrors velocity-web /src/app/layout.tsx themeInitScript. -->
+  <script>
+    (function(){try{var s=localStorage.getItem('velocity-theme');var m=window.matchMedia('(prefers-color-scheme: light)').matches;var t=s||(m?'light':'dark');document.documentElement.dataset.theme=t;if(t==='dark'){document.documentElement.classList.add('dark');}else{document.documentElement.classList.remove('dark');}}catch(e){document.documentElement.dataset.theme='dark';document.documentElement.classList.add('dark');}})();
+  </script>
+
   <!-- Preload fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="{{ "images/velocity-icon-32.png" | relURL }}">
@@ -23,15 +30,6 @@
   {{ if $syntax }}
     <link rel="stylesheet" href="{{ $syntax.RelPermalink }}" integrity="{{ $syntax.Data.Integrity }}">
   {{ end }}
-
-  <!-- Theme initialization (prevent flash) -->
-  <script>
-    (function() {
-      const theme = localStorage.getItem('velocity-theme') ||
-        (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
-      document.documentElement.setAttribute('data-theme', theme);
-    })();
-  </script>
 
   <!-- Open Graph -->
   <meta property="og:title" content="{{ .Title }}">
@@ -50,8 +48,9 @@
   {{ block "head" . }}{{ end }}
 </head>
 <body{{ if .IsHome }} class="home-page"{{ end }}>
-  <!-- Grid background pattern (landing page only) -->
-  {{ if .IsHome }}<div class="grid-bg" aria-hidden="true"></div>{{ end }}
+  <!-- CRT chrome overlays (pointer-events: none) -->
+  <div class="scanlines" aria-hidden="true"></div>
+  <div class="noise" aria-hidden="true"></div>
 
   <!-- Navigation -->
   {{ partial "navbar.html" . }}

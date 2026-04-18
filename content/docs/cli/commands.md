@@ -1,281 +1,311 @@
 ---
-title: Commands
-description: Complete reference for Velocity CLI commands. Learn how to create projects, run development servers, generate code, and manage database migrations.
+title: vel Commands
+description: Complete reference for the per-project `vel` CLI — serve, build, migrations, queues, code generation, maintenance, and keys.
 weight: 2
-keywords: [velocity commands, vel serve, velocity new, go migrations, code generation, hot reload]
+keywords: [vel commands, velocity cli, migrations, code generation, hot reload]
 ---
 
-Complete reference for all Velocity CLI commands.
+`vel` is the per-project binary. It's created in your project root when
+you scaffold an app with `velocity new`. Run `./vel <command>` — or
+alias `vel` to `./vel` in your shell — from the project directory.
 
-## Global Commands (velocity)
+For the installer CLI (`velocity new`, `velocity self-update`, etc.),
+see [Installer Commands](/docs/cli/installer/).
 
-These commands are available globally after installing via Homebrew.
-
-### velocity new
-
-Create a new Velocity project with full scaffolding.
-
-```bash
-velocity new <project-name> [flags]
-```
-
-**Arguments:**
-- `project-name` - Name of the project directory to create
-
-**Flags:**
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--database` | `sqlite` | Database driver: `postgres`, `sqlite` |
-| `--cache` | `memory` | Cache driver: `redis`, `memory` |
-| `--api` | `false` | Create an API-only project (no frontend) |
-
-**Examples:**
-
-```bash
-# Create a basic project (SQLite by default)
-velocity new myapp
-
-# Create with PostgreSQL and Redis
-velocity new myapp --database postgres --cache redis
-
-# Create an API-only project
-velocity new myapi --api
-
-# API project with PostgreSQL
-velocity new myapi --api --database postgres
-```
-
-After creation, the CLI:
-1. Scaffolds the project
-2. Installs Go dependencies (and JS dependencies for full-stack projects)
-3. Runs database migrations
-4. Builds the `./vel` binary
-5. Starts development servers (Go on :4000, Vite on :5173 for full-stack)
-
-### API-Only Projects
-
-Use the `--api` flag to create a lightweight API server without frontend dependencies:
-
-```bash
-velocity new myapi --api
-```
-
-**What's different:**
-- No Vite, Tailwind, or React
-- No CSRF protection (stateless API)
-- JSON-only responses
-- API-focused middleware (returns 401 JSON instead of redirects)
-- Uses `AUTH_GUARD=api` by default
-
-**Template endpoints:**
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| GET | `/api/health` | No | Health check |
-| POST | `/api/users` | No | Create user |
-| GET | `/api/users` | Yes | List users |
-| GET | `/api/users/:id` | Yes | Get user |
-| GET | `/api/me` | Yes | Current user |
-
-**Project structure:**
-```
-myapi/
-├── routes/api.go           # API route definitions
-├── internal/handlers/      # JSON handlers
-├── internal/middleware/    # API middleware (auth returns JSON 401)
-└── internal/models/        # Database models
-```
-
----
-
-### velocity config
-
-Manage CLI configuration. See [Configuration](../configuration/) for details.
-
-```bash
-velocity config set <key> <value>
-velocity config get <key>
-velocity config list
-velocity config reset
-```
-
----
-
-### velocity self-update
-
-Update the velocity installer to the latest version.
-
-```bash
-velocity self-update
-```
-
----
-
-## Project Commands (vel)
-
-These commands run from within a Velocity project using `./vel` or `vel` (with shell function).
+## Server
 
 ### vel serve
 
-Start the development server with hot reload.
+Start the development server with live reload.
 
 ```bash
 vel serve [flags]
 ```
 
-**Flags:**
-| Flag | Short | Default | Description |
-|------|-------|---------|-------------|
-| `--port` | `-p` | `4000` | Port to run the server on |
-| `--env` | `-e` | `development` | Environment mode |
-| `--watch` | `-w` | `true` | Enable hot reload |
-| `--tags` | | | Build tags to pass to go build |
-
-**Examples:**
+| Flag        | Short | Default       | Description                               |
+| ----------- | ----- | ------------- | ----------------------------------------- |
+| `--port`    | `-p`  | `4000`        | HTTP port                                 |
+| `--env`     | `-e`  | `development` | Environment name (sets `APP_ENV`)         |
+| `--no-watch`|       | off           | Disable file-watching / auto-rebuild      |
+| `--tags`    |       | (none)        | Build tags passed to `go build`            |
 
 ```bash
-# Start with defaults (port 4000, hot reload enabled)
 vel serve
-
-# Custom port
 vel serve --port 3000
-
-# Production environment, no hot reload
-vel serve --env production --no-watch
+vel serve --env staging --no-watch
+vel serve --tags="integration"
 ```
 
-**What happens:**
-1. Starts Vite dev server (if `package.json` exists)
-2. Builds your Go application to `.vel/tmp/server`
-3. Watches all `.go` files for changes
-4. Automatically rebuilds and restarts on file changes
+On start:
 
----
+1. Vite dev server launches on `:5173` (full-stack projects only).
+2. The Go app compiles to `.vel/tmp/server`.
+3. `.go` files are watched; a change rebuilds and restarts.
 
 ### vel build
 
-Build the application for production deployment.
+Compile a production binary.
 
 ```bash
 vel build [flags]
 ```
 
-**Flags:**
-| Flag | Short | Default | Description |
-|------|-------|---------|-------------|
-| `--output` | `-o` | `./dist/app` | Output path for binary |
-| `--os` | | (current OS) | Target operating system |
-| `--arch` | | (current arch) | Target architecture |
-| `--tags` | | | Go build tags |
-
-**Examples:**
+| Flag        | Short | Default       | Description                     |
+| ----------- | ----- | ------------- | ------------------------------- |
+| `--output`  | `-o`  | `./dist/app`  | Output path                     |
+| `--os`      |       | (host)        | Target `GOOS`                   |
+| `--arch`    |       | (host)        | Target `GOARCH`                 |
+| `--tags`    |       | (none)        | Go build tags                   |
 
 ```bash
-# Default build
 vel build
-
-# Custom output path
 vel build --output ./bin/myapp
-
-# Cross-compile for Linux
 vel build --os linux --arch amd64
 ```
 
----
+## Database
 
 ### vel migrate
 
-Run all pending database migrations.
+Run all pending migrations.
 
 ```bash
-vel migrate
+vel migrate [--pretend]
 ```
 
-**Requirements:**
-- Must be run from project root
-- Database connection configured in `.env`
-
-**Example output:**
-
-```
-MIGRATE
-
-✓ 20240115000001_create_users_table
-✓ 20240115000002_create_posts_table
-
-Done
-```
-
----
+`--pretend` prints the SQL that would run without executing it — useful
+for reviewing migration output before committing.
 
 ### vel migrate:fresh
 
-Drop all database tables and re-run all migrations from scratch.
+Drop all tables, then run every migration from scratch.
 
 ```bash
 vel migrate:fresh
 ```
 
 {{< callout type="warning" >}}
-This command is destructive and will delete all data. Use only in development.
+Destructive — deletes all data. Development / testing only.
 {{< /callout >}}
 
----
+### vel migrate:rollback
 
-### vel make:handler
-
-Generate a new HTTP handler.
+Roll back the most recent batch of migrations.
 
 ```bash
-vel make:handler <name> [flags]
+vel migrate:rollback [--step N]
 ```
 
-**Arguments:**
-- `name` - Handler name (automatically converts to snake_case)
+| Flag     | Short | Default | Description                      |
+| -------- | ----- | ------- | -------------------------------- |
+| `--step` | `-s`  | `1`     | Number of batches to roll back   |
 
-**Flags:**
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--resource` | `false` | Generate CRUD methods |
-| `--api` | `false` | Generate API handler (JSON responses) |
+### vel migrate:status
 
-**Examples:**
+Show which migrations have run.
 
 ```bash
-# Basic handler
-vel make:handler User
-
-# Resource handler with CRUD methods
-vel make:handler Post --resource
-
-# API handler
-vel make:handler Product --api --resource
+vel migrate:status
 ```
 
-**Generated file:** `internal/handlers/<name>.go`
+### vel db:wipe
 
----
+Drop every table in the current database without running migrations.
+
+```bash
+vel db:wipe
+```
+
+{{< callout type="warning" >}}
+Destructive. No confirmation prompt. Use only when you know the
+database is disposable.
+{{< /callout >}}
+
+## Queue and Scheduler
+
+### vel queue:work
+
+Start a worker that processes queued jobs.
+
+```bash
+vel queue:work [--queue NAME] [--tries N] [--timeout S]
+```
+
+| Flag        | Short | Default      | Description                                |
+| ----------- | ----- | ------------ | ------------------------------------------ |
+| `--queue`   | `-q`  | `default`    | Queue to consume from                      |
+| `--tries`   |       | (driver)     | Max attempts per job before marking failed |
+| `--timeout` |       | (driver)     | Per-job timeout in seconds                 |
+
+```bash
+vel queue:work
+vel queue:work --queue emails --tries 3 --timeout 60
+```
+
+### vel schedule:work
+
+Run the scheduler loop — picks up scheduled jobs defined via
+`v.Schedule(...)` and dispatches them when due.
+
+```bash
+vel schedule:work
+```
+
+Typically run under a process supervisor (systemd, Docker, etc.) rather
+than manually.
+
+## Cache
+
+### vel cache:clear
+
+Flush the configured cache store.
+
+```bash
+vel cache:clear
+```
+
+## Maintenance Mode
+
+### vel down
+
+Put the app into maintenance mode. All requests return 503 except
+those bearing the bypass secret.
+
+```bash
+vel down [--secret TOKEN] [--retry N]
+```
+
+| Flag       | Default | Description                                            |
+| ---------- | ------- | ------------------------------------------------------ |
+| `--secret` | (none)  | Token clients can use at `?__maintenance=TOKEN` to bypass |
+| `--retry`  | (none)  | Value for the `Retry-After` response header (seconds)  |
+
+```bash
+vel down --secret "abc123" --retry 60
+```
+
+### vel up
+
+Exit maintenance mode.
+
+```bash
+vel up
+```
+
+## Keys
 
 ### vel key:generate
 
-Generate a new 32-byte encryption key for your application.
+Generate a fresh 32-byte encryption key and write it to `.env` under
+`CRYPTO_KEY` (falls back to `APP_KEY` if that's what the project uses).
 
 ```bash
-vel key:generate [flags]
-```
-
-**Flags:**
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--show` | `false` | Only display the key, don't update .env |
-
-**Examples:**
-
-```bash
-# Generate and save to .env
 vel key:generate
-
-# Just display the key
-vel key:generate --show
 ```
 
-The key is saved to the `CRYPTO_KEY` variable in your `.env` file.
+## Routes
+
+### vel route:list
+
+Print every registered route with method, path, name, and middleware.
+
+```bash
+vel route:list
+```
+
+Rebuilds the bootstrap lifecycle internally before printing — the
+output always reflects the current `v.Routes(...)` definition.
+
+## Code Generation
+
+All `make:*` commands scaffold a file into the conventional location
+for that type. Names are converted to the right case for the artifact
+(snake_case for migration files, PascalCase for types).
+
+### vel make:handler
+
+```bash
+vel make:handler <name> [--resource] [--api]
+```
+
+| Flag         | Short | Default | Description                                      |
+| ------------ | ----- | ------- | ------------------------------------------------ |
+| `--resource` | `-r`  | off     | Scaffold CRUD methods (Index/Show/Store/Update/Destroy) |
+| `--api`      |       | off     | JSON responses instead of view rendering         |
+
+Output: `internal/handlers/<name>.go`.
+
+```bash
+vel make:handler User
+vel make:handler Post --resource
+vel make:handler Admin/Dashboard
+vel make:handler Product --api --resource
+```
+
+### vel make:model
+
+```bash
+vel make:model <name> [--uuid] [--soft-deletes] [--migration]
+```
+
+| Flag              | Short | Default | Description                          |
+| ----------------- | ----- | ------- | ------------------------------------ |
+| `--uuid`          |       | off     | Use UUID primary key                 |
+| `--soft-deletes`  |       | off     | Add deleted_at column and scope      |
+| `--migration`     | `-m`  | off     | Also scaffold the migration          |
+
+Output: `internal/models/<name>.go`.
+
+### vel make:migration
+
+```bash
+vel make:migration <name> [--create TABLE] [--table TABLE] [--uuid] [--soft-deletes]
+```
+
+| Flag             | Accepts             | Description                                         |
+| ---------------- | ------------------- | --------------------------------------------------- |
+| `--create`       | `=VALUE` or space   | Generate a "create" migration for the given table   |
+| `--table`        | `=VALUE` or space   | Generate an "alter" migration for the given table   |
+| `--uuid`         | flag                | Use UUID primary key in the create template        |
+| `--soft-deletes` | flag                | Include deleted_at in the create template          |
+
+Output: `database/migrations/<timestamp>_<name>.go`.
+
+```bash
+vel make:migration create_posts --create=posts
+vel make:migration add_slug_to_posts --table=posts
+```
+
+### Other make commands
+
+All take a name argument and scaffold a file into the conventional
+directory.
+
+| Command                | Output path                          |
+| ---------------------- | ------------------------------------ |
+| `vel make:middleware`  | `internal/middleware/<name>.go`      |
+| `vel make:event`       | `internal/events/<name>.go`          |
+| `vel make:listener`    | `internal/listeners/<name>.go`       |
+| `vel make:job`         | `internal/jobs/<name>.go`            |
+| `vel make:mail`        | `internal/mail/<name>.go`            |
+| `vel make:notification`| `internal/notifications/<name>.go`   |
+| `vel make:resource`    | `internal/resources/<name>.go`       |
+| `vel make:policy`      | `internal/policies/<name>.go`        |
+| `vel make:provider`    | `internal/providers/<name>.go`       |
+| `vel make:command`     | `internal/commands/<name>.go`        |
+
+```bash
+vel make:middleware RateLimit
+vel make:listener SendWelcomeEmail
+vel make:policy PostPolicy
+```
+
+## Help
+
+```bash
+vel help
+vel --help
+vel -h
+```
+
+Prints a grouped list of every command.
