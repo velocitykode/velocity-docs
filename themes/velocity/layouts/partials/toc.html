@@ -4,5 +4,19 @@
   <nav>
     {{ .TableOfContents }}
   </nav>
+
+  <!-- Scroll to top - pinned at the bottom of the sticky TOC. -->
+  <button
+    type="button"
+    id="scroll-to-top"
+    class="scroll-to-top"
+    aria-label="Scroll to top"
+    hidden
+  >
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+      <path d="M12 19V5M5 12l7-7 7 7" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <span class="scroll-to-top-label">top</span>
+  </button>
 </aside>
 {{ end }}

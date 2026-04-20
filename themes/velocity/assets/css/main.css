@@ -829,16 +829,6 @@ hr {
   font-family: var(--font-mono);
 }
 
-/* Flex column only on desktop - the mobile media query (max-width:900px)
-   above sets display:none on .docs-sidebar, and a base `display:flex`
-   would override it due to source order, keeping the sidebar visible on
-   phones. Scope the flex column to the breakpoint that actually uses it. */
-@media (min-width: 901px) {
-  .docs-sidebar {
-    display: flex;
-    flex-direction: column;
-  }
-}
 
 .sidebar-section { margin-bottom: var(--space-xl); }
 
@@ -1063,6 +1053,16 @@ hr {
   padding: var(--space-xl) var(--space-lg);
   border-left: 1px dashed var(--term-border);
   font-family: var(--font-mono);
+}
+
+/* Flex column only where the TOC is actually rendered (>1200px). The
+   earlier mobile rule hides .docs-toc on narrow viewports via the
+   grid-template; don't let display:flex override that cascade. */
+@media (min-width: 1201px) {
+  .docs-toc {
+    display: flex;
+    flex-direction: column;
+  }
 }
 
 .toc-title {
