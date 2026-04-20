@@ -218,6 +218,22 @@
     });
   }
 
+  // Bring the currently-active left-sidebar link into view on load. If
+  // the active entry is far down the nav list and the sidebar's
+  // internal scroll is at the top, the user can't see where they are.
+  function initSidebarScrollToActive() {
+    const sidebar = document.querySelector('.docs-sidebar');
+    const active = sidebar?.querySelector('.sidebar-link.active');
+    if (!sidebar || !active) return;
+
+    // Manual offset (not scrollIntoView) so we only move the sidebar's
+    // internal scroll, not the window - and so we can place the active
+    // link in the upper third for context.
+    const activeTop = active.offsetTop;
+    const targetTop = activeTop - sidebar.clientHeight / 3;
+    sidebar.scrollTop = Math.max(0, targetTop);
+  }
+
   // Scroll to top FAB - visible only when the page has scrolled past a
   // threshold and when there's genuinely something to scroll back to.
   function initScrollToTop() {
@@ -260,5 +276,6 @@
     initSmoothScroll();
     initFileTree();
     initScrollToTop();
+    initSidebarScrollToActive();
   });
 })();
