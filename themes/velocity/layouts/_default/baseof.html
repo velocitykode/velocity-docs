@@ -66,6 +66,12 @@
   <!-- Search Modal -->
   {{ partial "search-modal.html" . }}
 
+  <!-- Fuzzy search (loaded before search.js so window.Fuse is ready) -->
+  <script
+    src="https://cdn.jsdelivr.net/npm/fuse.js@7.1.0/dist/fuse.min.js"
+    defer
+  ></script>
+
   <!-- JavaScript -->
   {{ $theme := resources.Get "js/theme.js" | fingerprint }}
   {{ $search := resources.Get "js/search.js" | fingerprint }}

@@ -1,6 +1,7 @@
 /**
  * Search functionality
- * Uses FlexSearch for fast client-side search
+ * Uses Fuse.js for fuzzy matching with typo tolerance.
+ * Falls back to a substring filter if Fuse fails to load.
  */
 (function() {
   const modal = document.getElementById('search-modal');
@@ -42,6 +43,34 @@
     renderResults([]);
   }
 
+  // Wait for Fuse.js to appear on window (CDN is deferred).
+  function waitForFuse(timeoutMs = 2000) {
+    if (typeof window.Fuse === 'function') return Promise.resolve(window.Fuse);
+    return new Promise((resolve) => {
+      const start = Date.now();
+      const tick = () => {
+        if (typeof window.Fuse === 'function') return resolve(window.Fuse);
+        if (Date.now() - start > timeoutMs) return resolve(null);
+        setTimeout(tick, 40);
+      };
+      tick();
+    });
+  }
+
+  // Substring fallback when Fuse isn't available.
+  function fallbackSearch(data) {
+    return {
+      search: (query) => {
+        const q = query.toLowerCase();
+        return data.filter(item =>
+          item.title.toLowerCase().includes(q) ||
+          (item.section && item.section.toLowerCase().includes(q)) ||
+          (item.content && item.content.toLowerCase().includes(q))
+        ).slice(0, 10);
+      },
+    };
+  }
+
   // Load search index
   async function loadSearchIndex() {
     if (searchIndex) return;
@@ -50,16 +79,27 @@
       const response = await fetch('/index.json');
       searchData = await response.json();
 
-      // Simple search implementation (replace with FlexSearch for production)
-      searchIndex = {
-        search: (query) => {
-          const q = query.toLowerCase();
-          return searchData.filter(item =>
-            item.title.toLowerCase().includes(q) ||
-            (item.content && item.content.toLowerCase().includes(q))
-          ).slice(0, 10);
-        }
-      };
+      const Fuse = await waitForFuse();
+      if (Fuse) {
+        // threshold 0 = exact, 1 = match anything. 0.35 tolerates
+        // 1–2 character typos without returning unrelated pages.
+        const fuse = new Fuse(searchData, {
+          keys: [
+            { name: 'title', weight: 0.6 },
+            { name: 'section', weight: 0.2 },
+            { name: 'content', weight: 0.2 },
+          ],
+          threshold: 0.35,
+          distance: 200,
+          ignoreLocation: true,
+          minMatchCharLength: 2,
+        });
+        searchIndex = {
+          search: (query) => fuse.search(query, { limit: 10 }).map(r => r.item),
+        };
+      } else {
+        searchIndex = fallbackSearch(searchData);
+      }
     } catch (e) {
       console.error('Failed to load search index:', e);
     }
