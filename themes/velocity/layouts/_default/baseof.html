@@ -18,8 +18,12 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
 
-  <!-- Favicon - v_ text mark (SVG scales to any DPI) -->
-  <link rel="icon" type="image/svg+xml" href="{{ "favicon.svg" | relURL }}">
+  <!-- Favicon - the docs are served from velocity.velocitykode.com
+       through velocity-web's Next proxy. /favicon.svg isn't rewritten,
+       so point at velocity-web's own dynamic icon routes (which ARE
+       reachable at the origin root). Same v_ text mark either way. -->
+  <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <link rel="apple-touch-icon" href="/apple-icon">
 
   <!-- CSS -->
   {{ $css := resources.Get "css/main.css" | fingerprint }}
