@@ -126,23 +126,44 @@
     const toc = document.querySelector('.docs-toc');
     if (!toc) return;
 
-    const links = toc.querySelectorAll('.toc-link');
-    const headings = Array.from(links).map(link => {
-      const id = link.getAttribute('href')?.replace('#', '');
-      return document.getElementById(id);
-    }).filter(Boolean);
+    // Hugo renders {{ .TableOfContents }} as a nav>ul tree of plain <a>.
+    // Also match a .toc-link class in case custom TOCs use it.
+    const links = Array.from(toc.querySelectorAll('nav a, .toc-link'));
+    const linkByHeading = new Map();
+    links.forEach(link => {
+      const id = (link.getAttribute('href') || '').replace(/^#/, '');
+      const heading = id ? document.getElementById(id) : null;
+      if (heading) linkByHeading.set(heading, link);
+    });
+    if (!linkByHeading.size) return;
 
+    const setActive = (heading) => {
+      links.forEach(l => l.classList.remove('active'));
+      linkByHeading.get(heading)?.classList.add('active');
+    };
+
+    // Read navbar height from CSS so it tracks the actual var.
+    const navH = parseInt(
+      getComputedStyle(document.documentElement).getPropertyValue('--navbar-height'),
+      10,
+    ) || 80;
+
+    // rootMargin shrinks the observer viewport:
+    //   top = navbar + small buffer (so a heading right below the navbar counts)
+    //   bottom = shrink so only the upper portion of the viewport activates entries
     const observer = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          links.forEach(link => link.classList.remove('active'));
-          const activeLink = toc.querySelector(`a[href="#${entry.target.id}"]`);
-          activeLink?.classList.add('active');
-        }
-      });
-    }, { rootMargin: '-20% 0% -35% 0%' });
+      // Of the currently intersecting headings pick the topmost one so the
+      // active link tracks where the reader actually is.
+      const hit = entries
+        .filter(e => e.isIntersecting)
+        .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+      if (hit) setActive(hit.target);
+    }, {
+      rootMargin: `-${navH + 16}px 0px -65% 0px`,
+      threshold: 0,
+    });
 
-    headings.forEach(heading => observer.observe(heading));
+    linkByHeading.forEach((_, heading) => observer.observe(heading));
   }
 
   // Smooth scroll for anchor links
@@ -150,13 +171,23 @@
     document.querySelectorAll('a[href^="#"]').forEach(anchor => {
       anchor.addEventListener('click', (e) => {
         const targetId = anchor.getAttribute('href')?.slice(1);
-        const target = document.getElementById(targetId);
+        const target = targetId ? document.getElementById(targetId) : null;
+        if (!target) return;
 
-        if (target) {
-          e.preventDefault();
-          target.scrollIntoView({ behavior: 'smooth' });
-          history.pushState(null, '', `#${targetId}`);
+        e.preventDefault();
+
+        // If this is a TOC link, mark it active straight away - the user
+        // shouldn't have to wait for the IntersectionObserver to settle.
+        const toc = anchor.closest('.docs-toc');
+        if (toc) {
+          toc.querySelectorAll('nav a, .toc-link').forEach(l =>
+            l.classList.remove('active'),
+          );
+          anchor.classList.add('active');
         }
+
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        history.pushState(null, '', `#${targetId}`);
       });
     });
   }

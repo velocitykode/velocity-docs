@@ -1681,6 +1681,14 @@ hr {
   .search-btn { display: inline-flex; }
 }
 
+/* Offset anchor-scrolled headings below the fixed navbar so clicking a
+   TOC link (or anchor) lands the heading in the visible content area
+   rather than hidden under the navbar. */
+.docs-content :is(h1, h2, h3, h4, h5, h6)[id],
+.docs-content [id] {
+  scroll-margin-top: calc(var(--navbar-height) + 1rem);
+}
+
 /* ─── Scroll to top - pinned at the sidebar bottom ───────────────────────── */
 .scroll-to-top {
   position: sticky;
