@@ -187,6 +187,38 @@
     });
   }
 
+  // Scroll to top FAB - visible only when the page has scrolled past a
+  // threshold and when there's genuinely something to scroll back to.
+  function initScrollToTop() {
+    const btn = document.getElementById('scroll-to-top');
+    if (!btn) return;
+
+    const THRESHOLD = 400;
+    let raf = 0;
+
+    const update = () => {
+      raf = 0;
+      const scrollable = (document.documentElement.scrollHeight - window.innerHeight) > THRESHOLD;
+      const show = scrollable && window.scrollY > THRESHOLD;
+      btn.hidden = !show;
+      btn.classList.toggle('visible', show);
+    };
+
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(update);
+    };
+
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll, { passive: true });
+
+    btn.addEventListener('click', () => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+
+    update();
+  }
+
   // Initialize on DOM ready
   document.addEventListener('DOMContentLoaded', () => {
     initCopyButtons();
@@ -196,5 +228,6 @@
     initScrollSpy();
     initSmoothScroll();
     initFileTree();
+    initScrollToTop();
   });
 })();
