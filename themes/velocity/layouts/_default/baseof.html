@@ -70,19 +70,6 @@
   <!-- Search Modal -->
   {{ partial "search-modal.html" . }}
 
-  <!-- Scroll to top FAB -->
-  <button
-    type="button"
-    id="scroll-to-top"
-    class="scroll-to-top"
-    aria-label="Scroll to top"
-    hidden
-  >
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-      <path d="M12 19V5M5 12l7-7 7 7" stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>
-  </button>
-
   <!-- Fuzzy search (loaded before search.js so window.Fuse is ready) -->
   <script
     src="https://cdn.jsdelivr.net/npm/fuse.js@7.1.0/dist/fuse.min.js"
