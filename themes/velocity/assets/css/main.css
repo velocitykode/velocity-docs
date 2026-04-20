@@ -823,12 +823,21 @@ hr {
   align-self: start;
   height: calc(100vh - var(--navbar-height));
   overflow-y: auto;
-  display: flex;
-  flex-direction: column;
   padding: var(--space-xl) var(--space-lg);
   border-right: 1px dashed var(--term-border);
   background: var(--term-bg);
   font-family: var(--font-mono);
+}
+
+/* Flex column only on desktop - the mobile media query (max-width:900px)
+   above sets display:none on .docs-sidebar, and a base `display:flex`
+   would override it due to source order, keeping the sidebar visible on
+   phones. Scope the flex column to the breakpoint that actually uses it. */
+@media (min-width: 901px) {
+  .docs-sidebar {
+    display: flex;
+    flex-direction: column;
+  }
 }
 
 .sidebar-section { margin-bottom: var(--space-xl); }
