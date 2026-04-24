@@ -1,4 +1,4 @@
-baseURL = 'https://velocity.velocitykode.com/'
+baseURL = 'https://vel.build/'
 languageCode = 'en-us'
 title = 'Velocity - Go Web Framework'
 
