@@ -186,7 +186,7 @@
           anchor.classList.add('active');
         }
 
-        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        target.scrollIntoView({ block: 'start' });
         history.pushState(null, '', `#${targetId}`);
       });
     });
@@ -236,9 +236,13 @@
 
   // Scroll to top FAB - visible only when the page has scrolled past a
   // threshold and when there's genuinely something to scroll back to.
+  // Manages two buttons: the desktop one inside the right TOC sidebar and the
+  // mobile floating one. CSS picks which is actually visible per viewport.
   function initScrollToTop() {
-    const btn = document.getElementById('scroll-to-top');
-    if (!btn) return;
+    const btns = Array.from(
+      document.querySelectorAll('#scroll-to-top, #scroll-to-top-mobile'),
+    );
+    if (!btns.length) return;
 
     const THRESHOLD = 400;
     let raf = 0;
@@ -247,8 +251,13 @@
       raf = 0;
       const scrollable = (document.documentElement.scrollHeight - window.innerHeight) > THRESHOLD;
       const show = scrollable && window.scrollY > THRESHOLD;
-      btn.hidden = !show;
-      btn.classList.toggle('visible', show);
+      btns.forEach(btn => {
+        // Only toggle the [hidden] attribute on the desktop button. The mobile
+        // FAB uses opacity/pointer-events via the .visible class, and setting
+        // [hidden] would defeat its `display: flex` rule via the UA stylesheet.
+        if (btn.id === 'scroll-to-top') btn.hidden = !show;
+        btn.classList.toggle('visible', show);
+      });
     };
 
     const onScroll = () => {
@@ -259,8 +268,10 @@
     window.addEventListener('scroll', onScroll, { passive: true });
     window.addEventListener('resize', onScroll, { passive: true });
 
-    btn.addEventListener('click', () => {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+    btns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
     });
 
     update();

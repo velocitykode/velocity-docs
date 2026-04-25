@@ -206,7 +206,6 @@ html, body { overflow-x: clip; max-width: 100vw; }
 
 html {
   font-size: 16px;
-  scroll-behavior: smooth;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background: var(--term-bg);
@@ -910,13 +909,6 @@ hr {
   color: var(--term-bright);
   font-weight: 600;
 }
-.docs-content h1::before {
-  content: '# ';
-  color: var(--term-accent);
-  font-family: var(--font-mono);
-  font-weight: 400;
-}
-
 .docs-content h2 {
   margin-top: var(--space-2xl);
   margin-bottom: var(--space-md);
@@ -924,25 +916,22 @@ hr {
   border-bottom: 1px dashed var(--term-border);
   color: var(--term-bright);
 }
-.docs-content h2::before {
-  content: '## ';
-  color: var(--term-accent);
-  font-family: var(--font-mono);
-  font-weight: 400;
-  opacity: 0.7;
-}
 
 .docs-content h3 {
   margin-top: var(--space-xl);
   margin-bottom: var(--space-md);
   color: var(--term-bright);
 }
-.docs-content h3::before {
-  content: '### ';
-  color: var(--term-accent);
-  font-family: var(--font-mono);
-  font-weight: 400;
-  opacity: 0.6;
+
+/* Mobile-only: single '#' prefix on every heading (h1–h6). All depths get
+   the same single '#' regardless of level, per spec. */
+@media (max-width: 1200px) {
+  .docs-content :is(h1, h2, h3, h4, h5, h6)::before {
+    content: '# ';
+    color: var(--term-accent);
+    font-family: var(--font-mono);
+    font-weight: 400;
+  }
 }
 
 .docs-content h4 {
@@ -1818,3 +1807,91 @@ hr {
 .pillar-icon svg { width: 24px; height: 24px; }
 .pillar-title { font-size: 1.125rem; font-weight: 600; color: var(--term-bright); margin-bottom: 0.5rem; font-family: var(--font-mono); }
 .pillar-desc { color: var(--term-text); font-size: 0.9375rem; line-height: 1.6; }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   MOBILE TOC
+   Shown only when the right sidebar TOC is hidden (≤1200px). Mirrors the
+   "# heading" reference layout: '#' prefix in the existing accent color,
+   indented by depth, always fully visible (no toggle).
+   ───────────────────────────────────────────────────────────────────────────── */
+.docs-toc-mobile { display: none; }
+
+@media (max-width: 1200px) {
+  .docs-toc-mobile {
+    display: block;
+    margin: 0 0 var(--space-xl);
+    padding: var(--space-md) 0;
+    font-family: var(--font-mono);
+  }
+  .docs-toc-mobile nav > ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .docs-toc-mobile ul ul {
+    list-style: none;
+    padding-left: var(--space-lg);
+    margin: 0;
+  }
+  .docs-toc-mobile li { margin: 0.35rem 0; }
+  /* Override the global `.docs-content ul li::before { content: '·' }` so the
+     mobile TOC entries get only the '#' prefix on the link, not a '·' dot in
+     the list-item gutter. Selector specificity must match the global rule. */
+  .docs-toc-mobile ul li::before { content: none; }
+  .docs-toc-mobile a {
+    display: inline-block;
+    color: var(--term-text);
+    text-decoration: none;
+    font-size: 0.9375rem;
+    line-height: 1.5;
+    transition: color var(--transition-fast);
+  }
+  .docs-toc-mobile a::before {
+    content: '#';
+    color: var(--term-accent);
+    font-weight: 700;
+    margin-right: 0.5rem;
+  }
+  .docs-toc-mobile a:hover { color: var(--term-accent); }
+}
+
+/* Floating scroll-to-top button for mobile (the desktop one lives inside the
+   right sidebar TOC, which is hidden ≤1200px). Toggled by initScrollToTop() in
+   main.js - same handler manages both. */
+.scroll-to-top-mobile { display: none; }
+@media (max-width: 1200px) {
+  .scroll-to-top-mobile {
+    display: flex;
+    position: fixed;
+    bottom: 5rem;
+    right: 1.25rem;
+    z-index: 50;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: var(--term-elevated);
+    border: 1px solid var(--term-border-strong);
+    color: var(--term-text);
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity var(--transition-fast), transform var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+    pointer-events: none;
+  }
+  .scroll-to-top-mobile.visible {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+  }
+  .scroll-to-top-mobile svg { width: 18px; height: 18px; }
+  .scroll-to-top-mobile:hover {
+    color: var(--term-accent);
+    border-color: var(--term-accent);
+  }
+  .scroll-to-top-mobile:focus-visible {
+    outline: 2px solid var(--term-accent);
+    outline-offset: 2px;
+  }
+}

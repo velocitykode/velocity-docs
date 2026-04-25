@@ -1,0 +1,10 @@
+{{/*
+  Mobile-only TOC shown above the article body when the right sidebar TOC is
+  hidden by CSS (≤1200px). The id="TableOfContents" attribute is stripped
+  here so it doesn't collide with the right-sidebar copy further down the page.
+*/}}
+{{ if .TableOfContents }}
+<div class="docs-toc-mobile" aria-label="On this page">
+  {{ .TableOfContents | replaceRE `id="TableOfContents"` "" | safeHTML }}
+</div>
+{{ end }}
