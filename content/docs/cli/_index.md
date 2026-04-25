@@ -92,10 +92,3 @@ Then you can simply run:
 vel serve
 vel migrate
 ```
-
-## In This Section
-
-- **[Installation](installation/)** - Install the Velocity CLI
-- **[Installer Commands](installer/)** - `velocity new`, `config`, `self-update`
-- **[vel Commands](commands/)** - Complete per-project command reference
-- **[Configuration](configuration/)** - `velocity config` defaults in depth
