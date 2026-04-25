@@ -923,9 +923,9 @@ hr {
   color: var(--term-bright);
 }
 
-/* Mobile-only: single '#' prefix on every heading (h1–h6). All depths get
-   the same single '#' regardless of level, per spec. */
-@media (max-width: 1200px) {
+/* Phone-only: single '#' prefix on every heading (h1–h6). Tablets and
+   desktop render headings clean, like the right-sidebar-TOC variant. */
+@media (max-width: 640px) {
   .docs-content :is(h1, h2, h3, h4, h5, h6)::before {
     content: '# ';
     color: var(--term-accent);
@@ -1262,33 +1262,80 @@ hr {
    TABS (shortcode)
    ───────────────────────────────────────────────────────────────────────────── */
 .tabs { margin: var(--space-lg) 0; }
+
+/* Tab strip - horizontal scroll on overflow so long lists don't wrap or
+   break the layout on narrow viewports. */
 .tabs-list {
   display: flex;
   gap: 0;
-  border-bottom: 1px dashed var(--term-border);
-  margin: 0;
-  padding: 0;
+  margin: 0 0 0 calc(var(--space-md) * -1);
+  padding: 0 var(--space-md);
   list-style: none;
+  border-bottom: 1px dashed var(--term-border);
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
 }
+.tabs-list::-webkit-scrollbar { display: none; }
+
+/* Suppress the global `.docs-content ul li::before { content: '·' }` and
+   item margin so the tab strip reads as a clean toolbar, not a bullet list. */
+.tabs-list li { margin: 0; padding: 0; }
+.tabs-list li::before { content: none; }
+
 .tab-trigger {
-  padding: var(--space-sm) var(--space-md);
+  display: inline-block;
+  padding: 0.625rem var(--space-md);
   font-family: var(--font-mono);
   font-size: 0.8125rem;
+  line-height: 1.2;
   color: var(--term-dim);
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  white-space: nowrap;
+  transition: color var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
-.tab-trigger:hover { color: var(--term-text); }
+.tab-trigger:hover {
+  color: var(--term-text);
+  background: color-mix(in srgb, var(--term-accent) 6%, transparent);
+}
+.tab-trigger:focus-visible {
+  outline: 2px solid var(--term-accent);
+  outline-offset: -2px;
+}
 .tab-trigger.active {
   color: var(--term-accent);
   border-bottom-color: var(--term-accent);
 }
-.tab-panel { display: none; padding-top: var(--space-md); }
+
+/* Panel sits close to the strip - kill the first child's top margin
+   (browser default on <pre>, .code-block-simple, etc.) so the underline
+   reads as the boundary rather than fighting a chunk of empty space. */
+.tab-panel { display: none; padding-top: var(--space-sm); }
 .tab-panel.active { display: block; }
+.tab-panel > :first-child { margin-top: 0; }
+.tab-panel > :last-child { margin-bottom: 0; }
+/* The wrapper provides its own frame; the inner chroma <pre> doesn't need
+   browser-default vertical margins fighting it. */
+.code-block-simple > .highlight > pre,
+.code-block-simple > pre { margin: 0; }
+
+/* Phones - slightly larger tap targets, tighter gutter. */
+@media (max-width: 640px) {
+  .tab-trigger {
+    padding: 0.75rem var(--space-sm);
+    font-size: 0.8125rem;
+  }
+  .tabs-list {
+    margin-left: calc(var(--space-sm) * -1);
+    padding: 0 var(--space-sm);
+  }
+}
 
 /* ─────────────────────────────────────────────────────────────────────────────
    TERMINAL SHORTCODE - window chrome w/ dots
@@ -1418,8 +1465,50 @@ hr {
   padding-top: var(--space-lg);
   border-top: 1px dashed var(--term-border);
 }
+/* Desktop: meta wrapper is layout-transparent so the existing flex-column on the
+   link continues to govern label/title stacking. */
+.docs-pager-meta { display: contents; }
+
 @media (max-width: 640px) {
-  .docs-pager { grid-template-columns: 1fr; }
+  .docs-pager {
+    grid-template-columns: 1fr;
+    gap: var(--space-sm);
+  }
+  /* Mobile: row layout with a chevron at the leading (prev) or trailing (next)
+     edge - kills the empty-half look full-width cards get on phones. */
+  .docs-pager-link {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-sm) var(--space-md);
+    min-height: 60px;
+  }
+  .docs-pager-prev,
+  .docs-pager-next { align-items: center; text-align: left; }
+  .docs-pager-next { flex-direction: row-reverse; text-align: right; }
+  .docs-pager-link::before {
+    font-family: var(--font-mono);
+    font-size: 1.25rem;
+    line-height: 1;
+    color: var(--term-accent);
+    flex-shrink: 0;
+  }
+  .docs-pager-prev::before { content: '<'; }
+  .docs-pager-next::before { content: '>'; }
+  .docs-pager-prev .docs-pager-label::before,
+  .docs-pager-next .docs-pager-label::after { content: none; }
+  .docs-pager-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 0;
+    flex: 1;
+  }
+  .docs-pager-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
 .docs-pager-link {
@@ -1809,10 +1898,11 @@ hr {
 .pillar-desc { color: var(--term-text); font-size: 0.9375rem; line-height: 1.6; }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   MOBILE TOC
-   Shown only when the right sidebar TOC is hidden (≤1200px). Mirrors the
-   "# heading" reference layout: '#' prefix in the existing accent color,
-   indented by depth, always fully visible (no toggle).
+   TOP-OF-ARTICLE TOC
+   Shown when the right-sidebar TOC is hidden (≤1200px). Same '#' reference
+   layout on both phones and tablets - the hash style is the visual identity
+   of this TOC. Heading-level hashes inside the article body are phone-only
+   (see the .docs-content :is(h1..h6)::before rule).
    ───────────────────────────────────────────────────────────────────────────── */
 .docs-toc-mobile { display: none; }
 
@@ -1834,14 +1924,14 @@ hr {
     margin: 0;
   }
   .docs-toc-mobile li { margin: 0.35rem 0; }
-  /* Override the global `.docs-content ul li::before { content: '·' }` so the
-     mobile TOC entries get only the '#' prefix on the link, not a '·' dot in
-     the list-item gutter. Selector specificity must match the global rule. */
+  /* Override the global `.docs-content ul li::before { content: '·' }` so TOC
+     entries get only the '#' prefix on the link, not a '·' dot in the gutter. */
   .docs-toc-mobile ul li::before { content: none; }
   .docs-toc-mobile a {
     display: inline-block;
     color: var(--term-text);
     text-decoration: none;
+    border-bottom: none;
     font-size: 0.9375rem;
     line-height: 1.5;
     transition: color var(--transition-fast);
@@ -1852,7 +1942,11 @@ hr {
     font-weight: 700;
     margin-right: 0.5rem;
   }
-  .docs-toc-mobile a:hover { color: var(--term-accent); }
+  .docs-toc-mobile a:hover {
+    color: var(--term-accent);
+    border-bottom: none;
+    text-shadow: none;
+  }
 }
 
 /* Floating scroll-to-top button for mobile (the desktop one lives inside the
@@ -1863,11 +1957,11 @@ hr {
   .scroll-to-top-mobile {
     display: flex;
     position: fixed;
-    bottom: 5rem;
+    bottom: 1.25rem;
     right: 1.25rem;
     z-index: 50;
-    width: 44px;
-    height: 44px;
+    width: 52px;
+    height: 52px;
     border-radius: 50%;
     background: var(--term-elevated);
     border: 1px solid var(--term-border-strong);
@@ -1879,13 +1973,15 @@ hr {
     transform: translateY(8px);
     transition: opacity var(--transition-fast), transform var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
     pointer-events: none;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
   }
   .scroll-to-top-mobile.visible {
     opacity: 1;
     transform: translateY(0);
     pointer-events: auto;
   }
-  .scroll-to-top-mobile svg { width: 18px; height: 18px; }
+  .scroll-to-top-mobile svg { width: 20px; height: 20px; }
   .scroll-to-top-mobile:hover {
     color: var(--term-accent);
     border-color: var(--term-accent);

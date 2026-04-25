@@ -36,16 +36,20 @@
     <nav class="docs-pager" aria-label="Page navigation">
       {{ with $prev }}
       <a href="{{ .Permalink }}" class="docs-pager-link docs-pager-prev">
-        <span class="docs-pager-label">Previous</span>
-        <span class="docs-pager-title">{{ if eq .Permalink $section.Permalink }}overview{{ else }}{{ .Title }}{{ end }}</span>
+        <span class="docs-pager-meta">
+          <span class="docs-pager-label">Previous</span>
+          <span class="docs-pager-title">{{ if eq .Permalink $section.Permalink }}overview{{ else }}{{ .Title }}{{ end }}</span>
+        </span>
       </a>
       {{ else }}
       <span></span>
       {{ end }}
       {{ with $next }}
       <a href="{{ .Permalink }}" class="docs-pager-link docs-pager-next">
-        <span class="docs-pager-label">Next</span>
-        <span class="docs-pager-title">{{ if eq .Permalink $section.Permalink }}overview{{ else }}{{ .Title }}{{ end }}</span>
+        <span class="docs-pager-meta">
+          <span class="docs-pager-label">Next</span>
+          <span class="docs-pager-title">{{ if eq .Permalink $section.Permalink }}overview{{ else }}{{ .Title }}{{ end }}</span>
+        </span>
       </a>
       {{ end }}
     </nav>
