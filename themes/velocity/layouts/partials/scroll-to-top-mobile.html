@@ -1,0 +1,16 @@
+{{/*
+  Floating scroll-to-top button for mobile/tablet (≤1200px). The desktop
+  equivalent lives inside partials/toc.html (sticky at the bottom of the right
+  TOC sidebar). main.js initScrollToTop() drives both via the shared
+  .visible class; CSS picks which is actually shown per viewport.
+*/}}
+<button
+  type="button"
+  id="scroll-to-top-mobile"
+  class="scroll-to-top-mobile"
+  aria-label="Scroll to top"
+>
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+    <path d="M12 19V5M5 12l7-7 7 7" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+</button>
