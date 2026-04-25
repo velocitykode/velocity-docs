@@ -17,8 +17,17 @@
 
   <!-- Main row -->
   <div class="navbar-inner">
-    <!-- Logo - text mark: velocity_ with phosphor cursor -->
-    <a href="https://vel.build/" class="navbar-logo" aria-label="Velocity Home">
+    <!-- Logo - text mark: velocity_ with phosphor cursor.
+         On /docs/* the logo stays inside the docs site (/docs/) so users
+         don't get bounced to the marketing landing mid-read. Off-docs
+         (rare: only the Hugo-standalone home) it points at vel.build. -->
+    {{ $logoHref := "https://vel.build/" }}
+    {{ $logoAria := "Velocity Home" }}
+    {{ if hasPrefix .RelPermalink "/docs" }}
+      {{ $logoHref = "/docs/" | relURL }}
+      {{ $logoAria = "Documentation Home" }}
+    {{ end }}
+    <a href="{{ $logoHref }}" class="navbar-logo" aria-label="{{ $logoAria }}">
       <span class="logo-mark">velocity<span class="logo-cursor">_</span></span>
     </a>
 
