@@ -85,9 +85,9 @@
 .highlight .lntable { border-collapse: collapse; }
 .highlight .lntable td { padding: 0; vertical-align: top; }
 
-/* ─── Chroma token classes - DARK (default phosphor palette) ─────────────── */
+/* ─── Chroma token classes - GitHub Dark (default) ─────────────────────── */
 
-/* Keywords - magenta */
+/* Keywords / operators - red */
 .highlight .k,    /* Keyword */
 .highlight .kc,   /* Constant */
 .highlight .kd,   /* Declaration */
@@ -95,82 +95,82 @@
 .highlight .kp,   /* Pseudo */
 .highlight .kr,   /* Reserved */
 .highlight .kt,   /* Type */
-.highlight .ow {  /* Operator.Word */
-  color: var(--term-magenta);
+.highlight .ow,   /* Operator.Word */
+.highlight .o,    /* Operator */
+.highlight .cp {  /* Preprocessor */
+  color: #ff7b72;
 }
 
 /* Names */
-.highlight .n  { color: var(--term-text); }
-.highlight .na { color: var(--term-cyan); }                /* Attribute */
-.highlight .nb { color: var(--term-cyan); }                /* Builtin */
-.highlight .bp { color: var(--term-cyan); }                /* Builtin pseudo */
-.highlight .nc { color: var(--term-amber); }               /* Class */
-.highlight .nd { color: var(--term-cyan); }                /* Decorator */
-.highlight .ne { color: var(--term-red); }                 /* Exception */
-.highlight .nf { color: var(--term-cyan); }                /* Function */
-.highlight .fm { color: var(--term-cyan); }                /* Function magic */
-.highlight .py { color: var(--term-text); }                /* Property */
-.highlight .ni { color: var(--term-accent); }              /* Entity */
-.highlight .nl { color: var(--term-amber); }               /* Label */
-.highlight .nn { color: var(--term-amber); }               /* Namespace */
-.highlight .nt { color: var(--term-magenta); }             /* Tag */
-.highlight .nv { color: var(--term-text); }                /* Variable */
-.highlight .vc { color: var(--term-text); }
-.highlight .vg { color: var(--term-text); }
-.highlight .vi { color: var(--term-text); }
+.highlight .n  { color: #e6edf3; }
+.highlight .na { color: #79c0ff; }                         /* Attribute */
+.highlight .nb { color: #79c0ff; }                         /* Builtin */
+.highlight .bp { color: #79c0ff; }                         /* Builtin pseudo */
+.highlight .nc { color: #f0883e; font-weight: 600; }       /* Class */
+.highlight .nd { color: #d2a8ff; }                         /* Decorator */
+.highlight .ne { color: #d2a8ff; }                         /* Exception */
+.highlight .nf { color: #d2a8ff; }                         /* Function */
+.highlight .fm { color: #d2a8ff; }                         /* Function magic */
+.highlight .py { color: #e6edf3; }                         /* Property */
+.highlight .ni { color: #8b949e; }                         /* Entity */
+.highlight .nl { color: #ffa657; }                         /* Label */
+.highlight .nn { color: #e6edf3; }                         /* Namespace */
+.highlight .nt { color: #7ee787; }                         /* Tag */
+.highlight .nv { color: #ffa657; }                         /* Variable */
+.highlight .vc { color: #ffa657; }
+.highlight .vg { color: #ffa657; }
+.highlight .vi { color: #ffa657; }
 
-/* Strings - phosphor green */
+/* Strings - pale blue */
 .highlight .s,
 .highlight .sa, .highlight .sb, .highlight .sc, .highlight .dl,
 .highlight .sd, .highlight .s2, .highlight .se, .highlight .sh,
 .highlight .si, .highlight .sx, .highlight .sr, .highlight .s1,
-.highlight .ss { color: var(--term-accent); }
+.highlight .ss { color: #a5d6ff; }
 
-/* Numbers - amber */
+/* Numbers - blue */
 .highlight .m,
 .highlight .mb, .highlight .mf, .highlight .mh, .highlight .mi,
-.highlight .il, .highlight .mo { color: var(--term-amber); }
-
-/* Operators */
-.highlight .o { color: var(--term-magenta); }
+.highlight .il, .highlight .mo { color: #79c0ff; }
 
 /* Punctuation */
-.highlight .p { color: var(--term-dim); }
+.highlight .p { color: #e6edf3; }
 
 /* Comments - muted italic */
 .highlight .c, .highlight .ch, .highlight .cm,
-.highlight .c1, .highlight .cs, .highlight .cp, .highlight .cpf {
-  color: var(--term-muted);
+.highlight .c1, .highlight .cs, .highlight .cpf {
+  color: #8b949e;
   font-style: italic;
 }
 
 /* Generic / diff */
-.highlight .gd { color: var(--term-red); background: rgba(255, 110, 110, 0.08); }
-.highlight .gi { color: var(--term-accent); background: var(--term-accent-08); }
+.highlight .gd { color: #ffdcd7; background: rgba(248, 81, 73, 0.15); }
+.highlight .gi { color: #aff5b4; background: rgba(46, 160, 67, 0.15); }
 .highlight .ge { font-style: italic; }
-.highlight .gh { color: var(--term-accent); font-weight: 600; }
-.highlight .go { color: var(--term-dim); }
-.highlight .gp { color: var(--term-accent-70); }
-.highlight .gs { font-weight: 600; color: var(--term-bright); }
-.highlight .gu { color: var(--term-accent); font-weight: 600; }
-.highlight .gt { color: var(--term-red); }
+.highlight .gh { color: #79c0ff; font-weight: 600; }
+.highlight .go { color: #8b949e; }
+.highlight .gp { color: #8b949e; }
+.highlight .gs { font-weight: 600; color: #e6edf3; }
+.highlight .gu { color: #79c0ff; font-weight: 600; }
+.highlight .gt { color: #ff7b72; }
+.highlight .gr { color: #ffa198; }
 
 /* Errors */
 .highlight .err {
-  color: var(--term-red);
-  background: rgba(255, 110, 110, 0.08);
+  color: #f85149;
+  background: rgba(248, 81, 73, 0.1);
 }
 
 /* Highlighted line */
-.highlight .hl { background: var(--term-accent-08); display: block; }
+.highlight .hl { background: rgba(187, 128, 9, 0.15); display: block; }
 
-/* ─── Light theme - recolored AA-friendly variants ───────────────────────── */
+/* ─── Light theme - GitHub Light overrides ──────────────────────────────── */
 [data-theme="light"] .highlight {
   background: var(--term-deep);
   border-color: var(--term-border);
 }
 [data-theme="light"] .highlight pre,
-[data-theme="light"] .highlight code { color: var(--term-text); }
+[data-theme="light"] .highlight code { color: #24292f; }
 
 [data-theme="light"] .highlight .k,
 [data-theme="light"] .highlight .kc,
@@ -180,8 +180,27 @@
 [data-theme="light"] .highlight .kr,
 [data-theme="light"] .highlight .kt,
 [data-theme="light"] .highlight .ow,
-[data-theme="light"] .highlight .nt,
-[data-theme="light"] .highlight .o { color: var(--term-magenta); }
+[data-theme="light"] .highlight .o,
+[data-theme="light"] .highlight .cp { color: #cf222e; }
+
+[data-theme="light"] .highlight .n  { color: #24292f; }
+[data-theme="light"] .highlight .na,
+[data-theme="light"] .highlight .nb,
+[data-theme="light"] .highlight .bp { color: #0550ae; }
+[data-theme="light"] .highlight .nc { color: #953800; font-weight: 600; }
+[data-theme="light"] .highlight .nd,
+[data-theme="light"] .highlight .ne,
+[data-theme="light"] .highlight .nf,
+[data-theme="light"] .highlight .fm { color: #8250df; }
+[data-theme="light"] .highlight .py { color: #24292f; }
+[data-theme="light"] .highlight .ni { color: #6e7781; }
+[data-theme="light"] .highlight .nl,
+[data-theme="light"] .highlight .nv,
+[data-theme="light"] .highlight .vc,
+[data-theme="light"] .highlight .vg,
+[data-theme="light"] .highlight .vi { color: #953800; }
+[data-theme="light"] .highlight .nn { color: #24292f; }
+[data-theme="light"] .highlight .nt { color: #116329; }
 
 [data-theme="light"] .highlight .s,
 [data-theme="light"] .highlight .sa, [data-theme="light"] .highlight .sb,
@@ -190,37 +209,34 @@
 [data-theme="light"] .highlight .se, [data-theme="light"] .highlight .sh,
 [data-theme="light"] .highlight .si, [data-theme="light"] .highlight .sx,
 [data-theme="light"] .highlight .sr, [data-theme="light"] .highlight .s1,
-[data-theme="light"] .highlight .ss { color: var(--term-accent); }
+[data-theme="light"] .highlight .ss { color: #0a3069; }
 
-[data-theme="light"] .highlight .nf,
-[data-theme="light"] .highlight .nb,
-[data-theme="light"] .highlight .nd,
-[data-theme="light"] .highlight .na,
-[data-theme="light"] .highlight .bp,
-[data-theme="light"] .highlight .fm { color: var(--term-cyan); }
-
-[data-theme="light"] .highlight .nc,
-[data-theme="light"] .highlight .nn,
-[data-theme="light"] .highlight .nl,
 [data-theme="light"] .highlight .m,
-[data-theme="light"] .highlight .mb,
-[data-theme="light"] .highlight .mf,
-[data-theme="light"] .highlight .mh,
-[data-theme="light"] .highlight .mi,
-[data-theme="light"] .highlight .il,
-[data-theme="light"] .highlight .mo { color: var(--term-amber); }
+[data-theme="light"] .highlight .mb, [data-theme="light"] .highlight .mf,
+[data-theme="light"] .highlight .mh, [data-theme="light"] .highlight .mi,
+[data-theme="light"] .highlight .il, [data-theme="light"] .highlight .mo { color: #0550ae; }
+
+[data-theme="light"] .highlight .p { color: #24292f; }
 
 [data-theme="light"] .highlight .c,
 [data-theme="light"] .highlight .ch,
 [data-theme="light"] .highlight .cm,
 [data-theme="light"] .highlight .c1,
 [data-theme="light"] .highlight .cs,
-[data-theme="light"] .highlight .cp,
-[data-theme="light"] .highlight .cpf { color: var(--term-muted); font-style: italic; }
+[data-theme="light"] .highlight .cpf { color: #6e7781; font-style: italic; }
 
-[data-theme="light"] .highlight .gd { color: var(--term-red); background: rgba(184, 50, 50, 0.06); }
-[data-theme="light"] .highlight .gi { color: var(--term-accent); background: var(--term-accent-08); }
-[data-theme="light"] .highlight .err { color: var(--term-red); background: rgba(184, 50, 50, 0.06); }
+[data-theme="light"] .highlight .gd { color: #82071e; background: #ffebe9; }
+[data-theme="light"] .highlight .gi { color: #116329; background: #dafbe1; }
+[data-theme="light"] .highlight .ge { font-style: italic; }
+[data-theme="light"] .highlight .gh { color: #0550ae; font-weight: 600; }
+[data-theme="light"] .highlight .go { color: #6e7781; }
+[data-theme="light"] .highlight .gp { color: #6e7781; }
+[data-theme="light"] .highlight .gs { font-weight: 600; color: #24292f; }
+[data-theme="light"] .highlight .gu { color: #0550ae; font-weight: 600; }
+[data-theme="light"] .highlight .gt { color: #82071e; }
+[data-theme="light"] .highlight .gr { color: #82071e; }
+[data-theme="light"] .highlight .err { color: #82071e; background: rgba(130, 7, 30, 0.06); }
+[data-theme="light"] .highlight .hl { background: rgba(255, 223, 93, 0.4); }
 
 /* Generic copy button (mirror of .code-copy-btn for older highlight markup) */
 .highlight .copy-button {
