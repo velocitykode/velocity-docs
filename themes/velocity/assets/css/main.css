@@ -392,14 +392,13 @@ hr {
   border-bottom: 1px solid var(--term-border);
 }
 
-/* Top status-line strip */
+/* Top status-line strip - full-bleed bar, content padded inside */
 .navbar-status {
   display: flex;
   align-items: center;
   justify-content: space-between;
   height: var(--status-height);
-  max-width: var(--max-width-nav);
-  margin: 0 auto;
+  width: 100%;
   padding: 0 var(--space-md);
   border-bottom: 1px solid var(--term-border);
   background: var(--term-panel);
@@ -408,7 +407,11 @@ hr {
   text-transform: uppercase;
   letter-spacing: 0.18em;
   color: var(--term-muted);
+  gap: var(--space-md);
+  overflow: hidden;
 }
+
+.navbar-status-group { white-space: nowrap; }
 
 @media (min-width: 640px) {
   .navbar-status { padding: 0 var(--space-lg); }
