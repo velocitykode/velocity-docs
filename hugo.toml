@@ -36,7 +36,10 @@ enableRobotsTXT = true
 [params]
   # SEO
   description = "Velocity is a full-stack Go web framework with unified API, driver-based architecture, and zero configuration lock-in. Build faster, ship sooner."
-  images = ["images/velocity-og.png"]
+  # Use vel.build's Next-rendered OG image. The relative `images/velocity-og.png`
+  # resolved against baseURL=https://vel.build/ to a path that 404s on the
+  # rewritten origin and the file did not exist in static/.
+  images = ["https://vel.build/opengraph-image"]
 
   # Favicon
   favicon = "images/velocity-icon-32.png"
