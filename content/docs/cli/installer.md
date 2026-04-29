@@ -37,7 +37,7 @@ velocity new myapp --ssr
 ### What `new` does
 
 1. Fails fast if the destination path already exists.
-2. Clones the appropriate starter template (`velocity-template` or
+2. Clones the appropriate starter template (`velocity-template-react` or
    `velocity-template-api`).
 3. Rewrites the Go module name to match the project.
 4. Installs Go dependencies - plus npm dependencies on full-stack
