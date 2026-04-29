@@ -221,7 +221,7 @@ full `.env` with random keys; the most commonly edited values:
 APP_NAME=MyApp
 APP_ENV=development
 APP_URL=http://localhost:4000
-PORT=4000
+APP_PORT=4000
 
 # Logging
 LOG_DRIVER=console      # console, file
