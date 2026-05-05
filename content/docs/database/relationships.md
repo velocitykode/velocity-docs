@@ -206,7 +206,42 @@ Errors emitted by `parseRelationTag` (in `orm/relation.go`):
 
 Grep these strings if you hit a runtime error; the prefix `orm:` is consistent across the package.
 
-> The dash in the runtime message `expected "type,foreignKey,localKey"` is a Unicode em-dash. The hyphen above is a docs rendering convenience.
+## Behavior Details
+
+These are observable runtime behaviors of the relation loader that are easy to miss by reading the API alone.
+
+### Case-insensitive name matching
+
+`findRelationField` tries an exact match first, then falls back to lowercase. Both work:
+
+```go
+users, _ := User{}.With("Posts").Get()  // exact (preferred)
+users, _ := User{}.With("posts").Get()  // case-insensitive fallback
+```
+
+### Numeric key normalization
+
+Parent and child keys are normalized to `int64` before comparison. Mixing `uint`, `uint32`, `int64`, etc., across the foreign / local key columns still matches correctly. String keys (UUIDs) compare as-is.
+
+### Zero-key rows are skipped
+
+Parents whose collected key value is `0` or `""` are dropped from the IN query. Children whose group key is zero are not assigned. This avoids accidental fan-out across all uninitialized rows when seed data contains placeholders.
+
+### Embedded base-model fields are visible as columns
+
+The field walker recurses into anonymous embedded structs (skipping `time.Time`). This is why `id` resolves on a model that embeds `orm.Model[T]` instead of declaring `ID` directly.
+
+### `IsExisting` is set on loaded children
+
+Each loaded related row has its `IsExisting` flag set to `true` on the embedded base model. Calling `Save()` on a loaded child performs an UPDATE rather than an INSERT. Useful when mutating a relation in place.
+
+### `hasOne` returns the first match if multiple rows exist
+
+`assignSingle` takes the first row from the matching group. If two child rows share the same foreign key value, the second is silently discarded. Add a uniqueness constraint on the foreign key column to enforce one-to-one at the database level.
+
+### One query per preload, not per parent
+
+Each `.With("X")` adds one preload. The loader issues a single `SELECT ... WHERE <col> IN (?, ?, ...)` per preload regardless of parent count, then groups results client-side. Two preloads on a 1000-row primary query produce three SQL round trips total (one primary + two preload), not 2001.
 
 ## Best Practices
 
