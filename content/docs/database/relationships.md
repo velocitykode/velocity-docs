@@ -1,367 +1,253 @@
 ---
 title: Relationships
-description: Define hasOne, hasMany, belongsTo, and manyToMany relationships with eager loading in Velocity ORM.
+description: Define hasOne, hasMany, and belongsTo relationships with eager loading in Velocity ORM.
 weight: 30
 ---
 
-Velocity ORM supports all common relationship types with eager loading and query constraints.
+Velocity ORM supports three relation types: `hasOne`, `hasMany`, and `belongsTo`. Relations are declared via a struct tag and loaded with `.With()`.
 
 ## Relationship Types
 
-| Type | Description | Example |
-|------|-------------|---------|
-| `hasOne` | One-to-one | User has one Profile |
-| `hasMany` | One-to-many | User has many Posts |
-| `belongsTo` | Inverse one-to-one/many | Post belongs to User |
-| `belongsToMany` | Many-to-many | Post has many Tags |
+| Type | Cardinality | Tag goes on | Example |
+|------|-------------|-------------|---------|
+| `hasOne` | One-to-one | Parent | User has one Profile |
+| `hasMany` | One-to-many | Parent | User has many Posts |
+| `belongsTo` | Inverse of hasOne / hasMany | Child | Post belongs to User |
 
-## Defining Relationships
+## Tag Syntax
 
-### Has One
+Every relation tag uses **comma-separated** values inside a single `relation:` key:
+
+```
+orm:"relation:<type>,<foreignKey>,<localKey>"
+```
+
+- `<type>`: one of `hasOne`, `hasMany`, `belongsTo` (case-sensitive).
+- `<foreignKey>`: the column on the **child** table that holds the link.
+- `<localKey>`: the column on the **parent** table being referenced (almost always `id`).
+
+All three parts are required. There are no convention-based defaults: the parser will not infer key names from the field name.
+
+{{< callout type="warning" title="Use commas, not semicolons" >}}
+The outer `orm:"..."` tag uses `;` to separate top-level directives (`column:foo;type:bigint;not_null`). The `relation:` directive value uses `,` internally. Mixing them causes the parser to reject the tag.
+{{< /callout >}}
+
+## Has One
+
+Tag goes on the parent's pointer field. Foreign key lives on the child table.
 
 ```go
 type User struct {
     orm.Model[User]
     Name    string   `orm:"column:name;type:varchar(255)"`
-    Profile *Profile `orm:"relation:hasOne"`
+    Profile *Profile `orm:"relation:hasOne,user_id,id"`
 }
 
 type Profile struct {
     orm.Model[Profile]
     UserID uint   `orm:"column:user_id;type:bigint;not_null"`
     Bio    string `orm:"column:bio;type:text"`
-    User   *User  `orm:"relation:belongsTo"`
+    User   *User  `orm:"relation:belongsTo,user_id,id"`
 }
 ```
 
-### Has Many
+Load:
+
+```go
+users, err := User{}.With("Profile").Get()
+for _, u := range users {
+    if u.Profile != nil {
+        fmt.Println(u.Name, u.Profile.Bio)
+    }
+}
+```
+
+## Has Many
+
+Tag goes on the parent's slice field. Foreign key lives on each child row.
 
 ```go
 type User struct {
     orm.Model[User]
     Name  string `orm:"column:name;type:varchar(255)"`
-    Posts []Post `orm:"relation:hasMany"`
+    Posts []Post `orm:"relation:hasMany,user_id,id"`
 }
 
 type Post struct {
     orm.Model[Post]
     UserID uint   `orm:"column:user_id;type:bigint;not_null"`
     Title  string `orm:"column:title;type:varchar(255)"`
-    User   *User  `orm:"relation:belongsTo"`
+    User   *User  `orm:"relation:belongsTo,user_id,id"`
 }
 ```
 
-### Belongs To
+Load:
+
+```go
+users, err := User{}.With("Posts").Get()
+for _, u := range users {
+    fmt.Printf("%s has %d posts\n", u.Name, len(u.Posts))
+}
+```
+
+`[]*Post` is also accepted. The element type drives whether each loaded row is allocated as a value or pointer.
+
+## Belongs To
+
+Tag goes on the child's pointer-to-parent field. Foreign key lives on the same struct (the child).
 
 ```go
 type Comment struct {
     orm.Model[Comment]
     PostID  uint   `orm:"column:post_id;type:bigint;not_null"`
-    UserID  uint   `orm:"column:user_id;type:bigint;not_null"`
     Content string `orm:"column:content;type:text"`
-    Post    *Post  `orm:"relation:belongsTo"`
-    User    *User  `orm:"relation:belongsTo"`
+    Post    *Post  `orm:"relation:belongsTo,post_id,id"`
 }
 ```
 
-### Belongs To Many (Many-to-Many)
+Load:
 
 ```go
-type Post struct {
-    orm.Model[Post]
-    Title string `orm:"column:title;type:varchar(255)"`
-    Tags  []Tag  `orm:"relation:belongsToMany;join_table:post_tags"`
-}
-
-type Tag struct {
-    orm.Model[Tag]
-    Name  string `orm:"column:name;type:varchar(100)"`
-    Posts []Post `orm:"relation:belongsToMany;join_table:post_tags"`
-}
-```
-
-Pivot table migration:
-
-```go
-orm.Schema.Create("post_tags", func(table *orm.Table) {
-    table.ForeignID("post_id").Constrained().OnDelete("CASCADE")
-    table.ForeignID("tag_id").Constrained().OnDelete("CASCADE")
-    table.Primary("post_id", "tag_id")
-})
-```
-
-## Eager Loading
-
-### Basic Eager Loading
-
-```go
-// Load single relationship
-users, err := User{}.With("Posts").Get()
-
-// Load multiple relationships
-users, err := User{}.With("Profile", "Posts").Get()
-
-// Access loaded relationship
-for _, user := range users {
-    fmt.Printf("%s has %d posts\n", user.Name, len(user.Posts))
-}
-```
-
-### Nested Eager Loading
-
-```go
-// Load nested relationships with dot notation
-users, err := User{}.With("Posts.Comments").Get()
-
-// Multiple nested
-users, err := User{}.With("Posts.Comments", "Posts.Tags", "Profile").Get()
-
-// Access nested data
-for _, user := range users {
-    for _, post := range user.Posts {
-        fmt.Printf("Post: %s has %d comments\n", post.Title, len(post.Comments))
+comments, err := Comment{}.With("Post").Get()
+for _, c := range comments {
+    if c.Post != nil {
+        fmt.Println(c.Post.Title)
     }
 }
 ```
 
-### Constrained Eager Loading
+The same shape applies to any inverse relation: `Post.User`, `Profile.User`, etc.
+
+## Eager Loading
+
+`.With(name...)` queues relations to load after the primary query. Pass field names exactly as declared on the struct (case-insensitive match is also accepted, but exact is preferred for clarity).
 
 ```go
-// Filter related records
-users, err := User{}.
-    With("Posts", func(q *orm.Query[Post]) {
-        q.Where("published = ?", true).
-          OrderBy("created_at", "DESC").
-          Limit(5)
-    }).Get()
+// One relation
+users, _ := User{}.With("Posts").Get()
 
-// Multiple constraints
-users, err := User{}.
-    With("Posts", func(q *orm.Query[Post]) {
-        q.Where("published = ?", true)
-    }).
-    With("Profile", func(q *orm.Query[Profile]) {
-        q.Select("id", "user_id", "bio")
-    }).Get()
+// Multiple relations
+users, _ := User{}.With("Profile", "Posts").Get()
 ```
 
-## Querying Relationships
-
-### Has
-
-Query models that have related records:
-
-```go
-// Users who have at least one post
-users, err := User{}.Has("Posts").Get()
-
-// Users who have more than 5 posts
-users, err := User{}.Has("Posts", ">", 5).Get()
-
-// Users who have between 1 and 10 posts
-users, err := User{}.Has("Posts", ">=", 1).Has("Posts", "<=", 10).Get()
-```
-
-### Where Has
-
-Query with relationship constraints:
-
-```go
-// Users who have published posts
-users, err := User{}.WhereHas("Posts", func(q *orm.Query[Post]) {
-    q.Where("published = ?", true)
-}).Get()
-
-// Users who have posts with comments
-users, err := User{}.WhereHas("Posts", func(q *orm.Query[Post]) {
-    q.Has("Comments")
-}).Get()
-
-// Users who have posts tagged with "golang"
-users, err := User{}.WhereHas("Posts", func(q *orm.Query[Post]) {
-    q.WhereHas("Tags", func(tq *orm.Query[Tag]) {
-        tq.Where("name = ?", "golang")
-    })
-}).Get()
-```
-
-### Doesnt Have
-
-Query models without related records:
-
-```go
-// Users with no posts
-users, err := User{}.DoesntHave("Posts").Get()
-
-// Users without published posts
-users, err := User{}.WhereDoesntHave("Posts", func(q *orm.Query[Post]) {
-    q.Where("published = ?", true)
-}).Get()
-```
-
-## Creating Related Records
-
-### Save Related
-
-```go
-user, _ := User{}.Find(1)
-
-// Create related post
-post := Post{Title: "New Post", Body: "Content"}
-user.Posts().Save(&post)
-
-// Create multiple
-posts := []Post{
-    {Title: "Post 1", Body: "Content 1"},
-    {Title: "Post 2", Body: "Content 2"},
-}
-user.Posts().SaveMany(posts)
-```
-
-### Create Related
-
-```go
-user, _ := User{}.Find(1)
-
-// Create and return
-post, err := user.Posts().Create(map[string]any{
-    "title": "New Post",
-    "body":  "Content",
-})
-```
-
-### Associate (Belongs To)
-
-```go
-post, _ := Post{}.Find(1)
-user, _ := User{}.Find(5)
-
-// Set the user for this post
-post.User().Associate(user)
-post.Save()
-
-// Dissociate
-post.User().Dissociate()
-post.Save()
-```
-
-### Attach/Detach (Many-to-Many)
-
-```go
-post, _ := Post{}.Find(1)
-
-// Attach tags
-post.Tags().Attach([]uint{1, 2, 3})
-
-// Attach with pivot data
-post.Tags().Attach(map[uint]map[string]any{
-    1: {"order": 1},
-    2: {"order": 2},
-})
-
-// Detach specific tags
-post.Tags().Detach([]uint{2, 3})
-
-// Detach all
-post.Tags().Detach()
-
-// Sync (attach missing, detach removed)
-post.Tags().Sync([]uint{1, 4, 5})
-```
-
-## Updating Related Records
-
-```go
-user, _ := User{}.Find(1)
-
-// Update all related posts
-user.Posts().Update(map[string]any{
-    "published": false,
-})
-
-// Update with conditions
-user.Posts().Where("created_at < ?", lastMonth).Update(map[string]any{
-    "archived": true,
-})
-```
-
-## Deleting Related Records
-
-```go
-user, _ := User{}.Find(1)
-
-// Delete all posts
-user.Posts().Delete()
-
-// Delete with conditions
-user.Posts().Where("published = ?", false).Delete()
-
-// Delete parent with relationships
-user.DeleteWith("Posts", "Profile")
-```
-
-## Counting Related Records
-
-```go
-user, _ := User{}.Find(1)
-
-// Count related
-postCount := user.Posts().Count()
-
-// Count with conditions
-publishedCount := user.Posts().Where("published = ?", true).Count()
-
-// Eager load counts
-users, _ := User{}.WithCount("Posts", "Comments").Get()
-for _, user := range users {
-    fmt.Printf("%s: %d posts\n", user.Name, user.PostsCount)
-}
-```
+Each preload runs as a single `SELECT ... WHERE <queryColumn> IN (?, ?, ...)` against the related table, then results are grouped back onto their parent rows. Soft-deleted children are filtered automatically when the related model embeds `orm.SoftDeleteModel`.
 
 ## Custom Foreign Keys
+
+Use any column name; the parser does not require `<parent>_id` form. Both keys are passed verbatim to SQL.
 
 ```go
 type Post struct {
     orm.Model[Post]
     AuthorID uint  `orm:"column:author_id;type:bigint;not_null"`
-    Author   *User `orm:"relation:belongsTo;foreign_key:author_id;owner_key:id"`
+    Author   *User `orm:"relation:belongsTo,author_id,id"`
 }
 
 type User struct {
     orm.Model[User]
     Name  string `orm:"column:name;type:varchar(255)"`
-    Posts []Post `orm:"relation:hasMany;foreign_key:author_id;local_key:id"`
+    Posts []Post `orm:"relation:hasMany,author_id,id"`
 }
 ```
 
-## Polymorphic Relationships
+Composite keys are not supported.
+
+## Common Pitfalls
+
+### 1. Bare relation type with no keys
 
 ```go
-type Comment struct {
-    orm.Model[Comment]
-    CommentableID   uint   `orm:"column:commentable_id;type:bigint"`
-    CommentableType string `orm:"column:commentable_type;type:varchar(255)"`
-    Content         string `orm:"column:content;type:text"`
-}
-
-type Post struct {
-    orm.Model[Post]
-    Title    string    `orm:"column:title;type:varchar(255)"`
-    Comments []Comment `orm:"relation:morphMany;morph:commentable"`
-}
-
-type Video struct {
-    orm.Model[Video]
-    Title    string    `orm:"column:title;type:varchar(255)"`
-    Comments []Comment `orm:"relation:morphMany;morph:commentable"`
-}
+// WRONG: parser rejects with "relation tag has empty key names".
+Posts []Post `orm:"relation:hasMany"`
 ```
+
+Both keys are required. There is no inferred default.
+
+### 2. Semicolons inside `relation:`
+
+```go
+// WRONG: parser sees a single value "hasMany;foreign_key:user_id;..."
+// which has only one comma-separated part instead of three.
+Posts []Post `orm:"relation:hasMany;foreign_key:user_id;local_key:id"`
+```
+
+Use commas for the three parts inside `relation:`. Use semicolons only between top-level directives like `column:`, `type:`, `not_null`.
+
+### 3. Tag on the wrong side of the relation
+
+The parser does not validate which side the tag lives on. Putting a `belongsTo` tag on the parent or a `hasMany` tag on the child compiles fine but loads zero rows because the `IN` query will never match. Always verify:
+
+- `belongsTo`: child struct, points at one parent.
+- `hasMany` / `hasOne`: parent struct, points at one or many children.
+
+### 4. Wrong relation type name
+
+```go
+// WRONG: "BelongsTo" capitalized; parser expects "belongsTo".
+*User `orm:"relation:BelongsTo,user_id,id"`
+```
+
+Type names are case-sensitive: `hasOne`, `hasMany`, `belongsTo` (camelCase).
+
+### 5. Unsupported types
+
+The parser currently accepts only the three types above. `belongsToMany`, `morphOne`, `morphMany`, and other Eloquent-style relations are not implemented.
+
+## Error Reference
+
+Errors emitted by `parseRelationTag` (in `orm/relation.go`):
+
+| Error | Cause |
+|-------|-------|
+| `orm: invalid relation tag "<value>" - expected "type,foreignKey,localKey"` | Wrong number of comma-separated parts. Most often caused by using `;` inside `relation:` or omitting one of the keys. |
+| `orm: unknown relation type "<value>"` | First part is not `hasOne`, `hasMany`, or `belongsTo`. |
+| `orm: relation tag "<value>" has empty key names` | Foreign or local key is blank, e.g. `relation:hasMany,,id`. |
+| `orm: relation "<name>" not found on <model>` | `.With("X")` references a struct field that does not exist or does not carry a `relation:` tag. |
+| `orm: invalid foreign key in relation tag` / `orm: invalid local key` | Key name fails identifier validation (non-alphanumeric, starts with a digit, etc.). |
+
+Grep these strings if you hit a runtime error; the prefix `orm:` is consistent across the package.
+
+## Behavior Details
+
+These are observable runtime behaviors of the relation loader that are easy to miss by reading the API alone.
+
+### Case-insensitive name matching
+
+`findRelationField` tries an exact match first, then falls back to lowercase. Both work:
+
+```go
+users, _ := User{}.With("Posts").Get()  // exact (preferred)
+users, _ := User{}.With("posts").Get()  // case-insensitive fallback
+```
+
+### Numeric key normalization
+
+Parent and child keys are normalized to `int64` before comparison. Mixing `uint`, `uint32`, `int64`, etc., across the foreign / local key columns still matches correctly. String keys (UUIDs) compare as-is.
+
+### Zero-key rows are skipped
+
+Parents whose collected key value is `0` or `""` are dropped from the IN query. Children whose group key is zero are not assigned. This avoids accidental fan-out across all uninitialized rows when seed data contains placeholders.
+
+### Embedded base-model fields are visible as columns
+
+The field walker recurses into anonymous embedded structs (skipping `time.Time`). This is why `id` resolves on a model that embeds `orm.Model[T]` instead of declaring `ID` directly.
+
+### `IsExisting` is set on loaded children
+
+Each loaded related row has its `IsExisting` flag set to `true` on the embedded base model. Calling `Save()` on a loaded child performs an UPDATE rather than an INSERT. Useful when mutating a relation in place.
+
+### `hasOne` returns the first match if multiple rows exist
+
+`assignSingle` takes the first row from the matching group. If two child rows share the same foreign key value, the second is silently discarded. Add a uniqueness constraint on the foreign key column to enforce one-to-one at the database level.
+
+### One query per preload, not per parent
+
+Each `.With("X")` adds one preload. The loader issues a single `SELECT ... WHERE <col> IN (?, ?, ...)` per preload regardless of parent count, then groups results client-side. Two preloads on a 1000-row primary query produce three SQL round trips total (one primary + two preload), not 2001.
 
 ## Best Practices
 
-1. **Always use eager loading** - Use `With()` to prevent N+1 queries
-2. **Constrain eager loads** - Only load what you need with query constraints
-3. **Index foreign keys** - Ensure all foreign key columns are indexed
-4. **Use cascading deletes** - Set up ON DELETE CASCADE in migrations
-5. **Avoid deep nesting** - Limit nested eager loading to 2-3 levels
-6. **Count efficiently** - Use `WithCount()` instead of loading and counting
+1. **Always eager-load.** `.With(...)` prevents N+1 queries on lists.
+2. **Index foreign keys.** Every `<x>_id` column should have a database index; add it in the migration.
+3. **Match key types.** Foreign and local key columns must be comparable (both `bigint`, both string UUIDs, etc.). Mixed types silently return zero matches.
+4. **Soft-delete propagation.** Children with `orm.SoftDeleteModel` are filtered automatically; children without it are not.
+5. **Verify by loading once.** After declaring a new relation, run a `.With("X").Get()` against seed data and assert non-empty results before relying on it in handlers.
