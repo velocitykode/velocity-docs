@@ -13,9 +13,21 @@ theme = "velocity"
 
 enableRobotsTXT = true
 
-# Enable JSON output for search index
+# Enable JSON output for search index, plus llms.txt + llms-full.txt for LLM ingestion
 [outputs]
-  home = ["HTML", "RSS", "JSON"]
+  home = ["HTML", "RSS", "JSON", "LlmsTxt", "LlmsFullTxt"]
+
+[outputFormats]
+  [outputFormats.LlmsTxt]
+    mediaType = "text/plain"
+    baseName = "llms"
+    isPlainText = true
+    notAlternative = true
+  [outputFormats.LlmsFullTxt]
+    mediaType = "text/plain"
+    baseName = "llms-full"
+    isPlainText = true
+    notAlternative = true
 
 [markup]
   [markup.goldmark.renderer]

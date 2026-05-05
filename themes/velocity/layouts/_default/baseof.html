@@ -49,6 +49,9 @@
   <meta name="twitter:title" content="{{ .Title }}">
   <meta name="twitter:description" content="{{ with .Description }}{{ . }}{{ else }}{{ .Site.Params.description }}{{ end }}">
 
+  <link rel="alternate" type="text/plain" title="llms.txt" href="{{ "llms.txt" | absURL }}">
+  <link rel="alternate" type="text/plain" title="llms-full.txt" href="{{ "llms-full.txt" | absURL }}">
+
   {{ block "head" . }}{{ end }}
 </head>
 <body{{ if .IsHome }} class="home-page"{{ end }}>

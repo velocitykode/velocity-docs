@@ -1,0 +1,36 @@
+{{- /*
+  llms-full.txt - concatenated full corpus for one-shot LLM ingestion.
+  Strips Hugo shortcode wrappers (callout, terminal, tabs, tab, version-badge,
+  file-tree, feature-card) but keeps inner content. Pages emitted in section
+  weight order, then page weight order within each section.
+*/ -}}
+# Velocity Documentation
+
+> {{ .Site.Params.description }}
+
+Source repository: https://github.com/velocitykode/velocity
+Live docs: {{ .Site.BaseURL }}docs/
+Lean index: {{ "llms.txt" | absURL }}
+
+{{- $sectionOrder := slice "getting-started" "cli" "core" "frontend" "database" "realtime" "advanced" }}
+{{- range $sectionOrder }}
+{{- $section := $.Site.GetPage (printf "/docs/%s" .) }}
+{{- if $section }}
+{{- range $section.Pages.ByWeight }}
+{{- if not .IsSection }}
+
+================================================================================
+# {{ .Title }}
+
+Source: {{ .Permalink }}
+Section: {{ $section.Title }}
+{{ with .Description }}Summary: {{ . }}{{ end }}
+
+{{ $content := .RawContent -}}
+{{- $content = replaceRE `\{\{<\s*/?[^>]*>\s*\}\}` "" $content -}}
+{{- $content = replaceRE `\{\{%\s*/?[^%]*%\s*\}\}` "" $content -}}
+{{ $content }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
