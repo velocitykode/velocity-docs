@@ -1,0 +1,29 @@
+{{- /*
+  llms.txt - lean index per https://llmstxt.org/
+  Lists every /docs/ page grouped by section, ordered by section weight,
+  pages within a section ordered by their own weight.
+*/ -}}
+# Velocity
+
+> {{ .Site.Params.description }}
+
+Velocity is a Go web framework. Source: https://github.com/velocitykode/velocity. Full documentation corpus available at {{ "llms-full.txt" | absURL }}.
+
+{{- $sectionOrder := slice "getting-started" "cli" "core" "frontend" "database" "realtime" "advanced" }}
+{{- range $sectionOrder }}
+{{- $section := $.Site.GetPage (printf "/docs/%s" .) }}
+{{- if $section }}
+
+## {{ $section.Title }}
+
+{{ with $section.Description }}> {{ . }}
+
+{{ end -}}
+- [{{ $section.Title }} (overview)]({{ $section.Permalink }}): section landing page.
+{{- range $section.Pages.ByWeight }}
+{{- if not .IsSection }}
+- [{{ .Title }}]({{ .Permalink }}): {{ .Description }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
