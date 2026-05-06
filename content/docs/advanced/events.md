@@ -116,6 +116,58 @@ func (h *OrderHandler) Place(ctx *router.Context, order *Order) error {
 
 {{< /tabs >}}
 
+## Transactional dispatch buffer
+
+Domain events that announce state changes (`OrderPlaced`, `UserRegistered`, `InvoicePaid`) should fire if-and-only-if the database transaction that produced the change actually commits. Dispatching them inside the transaction risks listeners reacting to writes that get rolled back; dispatching them after `Transaction` returns leaks transaction boundaries into every caller. The events package and `orm.Manager.Transaction` cooperate to give you commit-only semantics with no callback signature changes.
+
+### How it fits together
+
+Three pieces wire up the buffer:
+
+1. `events.PrepareBuffer(ctx)` attaches a mutable holder to `ctx`. The returned `ctx` is the one you must thread into the transaction.
+2. `orm.Manager.Transaction(ctx, fn)` installs a per-transaction `*events.BufferedDispatcher` into that holder for the lifetime of the call. Any `events.Buffer(ctx)` lookup inside `fn` (or any descendant call that received the same `ctx`) finds the buffer.
+3. On successful `tx.Commit()` the buffer is flushed; on `fn` returning an error, the deferred panic recovery, or a commit failure, the buffer is dropped and no events fire.
+
+`Manager.SetTxEventBus(bus)` wires the kind-aware sink the buffer drains into. The framework calls it during boot so `DispatchAsync`, `DispatchAfter`, and `Until` recorded inside the transaction route back through the matching method on the underlying dispatcher when the buffer flushes, so `ShouldQueue`, the recorded delay, and the until-first-non-nil contract all survive the buffer boundary. Without a tx event bus, the buffer falls back to the legacy untyped sink set by `SetEventDispatcher` and every kind collapses onto `Dispatch`.
+
+### Recipe: emit `OrderPlaced` only on tx commit
+
+```go
+func (h *OrderHandler) Place(ctx *router.Context) error {
+    // Prepare the buffer holder on the request ctx ONCE, before
+    // entering the transaction. The returned ctx must be the one
+    // passed to Transaction.
+    reqCtx := events.PrepareBuffer(ctx.Request.Context())
+
+    return h.db.Transaction(reqCtx, func(tx *sql.Tx) error {
+        order, err := insertOrder(tx, ctx.FormValue("sku"))
+        if err != nil {
+            return err // buffer dropped, OrderPlaced never fires
+        }
+
+        // Recorded into the per-tx buffer; fires on commit.
+        return events.Buffer(reqCtx).Dispatch(OrderPlaced{
+            OrderID: order.ID,
+            Total:   order.Total,
+        })
+    })
+}
+```
+
+If `insertOrder` returns an error, `Transaction` rolls back and calls `Drop` on the buffer; `OrderPlaced` never reaches a listener. If the commit itself fails, the buffer is dropped for the same reason. Listeners on `order.placed` only ever observe orders that actually exist in the database.
+
+### Nested transactions and savepoints
+
+A nested `Transaction` call on the same prepared `ctx` reuses the outermost buffer with savepoint semantics. The inner scope captures a baseline at the parent's current event count, so an inner rollback truncates only events emitted past that checkpoint while the outer scope retains everything recorded before the nesting. Inner `Flush` is a no-op, so forwarding stays owned by the outermost commit and the entire transaction tree fires (or doesn't) atomically.
+
+### Partial failure and retry
+
+`FlushFunc` receives a `BufferedEvent` per recorded entry: `Event()` returns the user payload, `Kind()` returns the `DispatchKind` (`KindDispatch`, `KindDispatchNow`, `KindDispatchAsync`, `KindDispatchAfter`, `KindUntil`), and `Delay()` returns the requested delay for `KindDispatchAfter` (zero otherwise). If the flush callback returns an error for entry N, the failing entry plus every entry after it are swapped back into the buffer and the buffer is left in a non-flushed state. Calling `Flush` again resumes from the failed event; entries 0..N-1 are not redelivered. Re-entrant `Flush` invocations from inside a `FlushFunc` are silent no-ops so the outer drain retains control.
+
+{{< callout type="warning" title="Use the prepared ctx everywhere" >}}
+`events.Buffer(ctx)` returns a fresh standalone buffer when `ctx` carries no holder, and events recorded on a standalone buffer are silently discarded on flush (no underlying dispatcher is wired). Always thread the `ctx` returned by `PrepareBuffer` through to the call site that records events. A derived ctx without the holder will buffer into the void.
+{{< /callout >}}
+
 ## Event Definition
 
 ### Using Structs

@@ -399,5 +399,7 @@ func (u *User) Deleted() {
 ## Related
 
 - [Queries](/docs/database/queries/) - read-side counterpart: Where / First / Get / pagination patterns
+- [Global Query Scopes](/docs/database/scopes/) - the primitive behind soft-delete, also useful for multi-tenant `team_id` filters and draft visibility
+- [Transactional Outbox](/docs/database/outbox/) - commit queue jobs and events atomically with the write that triggered them
 - [Relationships](/docs/database/relationships/) - HasMany / BelongsTo wiring used by Save and lifecycle hooks
 - [Migrations](/docs/database/migrations/) - schema and indexes that back the models you create and update

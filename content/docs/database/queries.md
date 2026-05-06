@@ -313,4 +313,6 @@ User{}.OrderBy("created_at", "DESC").Get() // created_at should be indexed
 
 - [CRUD](/docs/database/crud/) - create, update, delete, and lifecycle hooks for the same models you query here
 - [Relationships](/docs/database/relationships/) - HasMany / BelongsTo helpers and `With(...)` eager loading
+- [Global Query Scopes](/docs/database/scopes/) - register predicates that run on every `Get` / `Count` / `Pluck` / `Update`, with per-query opt-out for admin work
+- [Transactional Outbox](/docs/database/outbox/) - atomically commit queue jobs and events alongside writes
 - [Migrations](/docs/database/migrations/) - schema definitions and indexes that back efficient queries

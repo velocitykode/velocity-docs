@@ -118,6 +118,301 @@ for _, c := range comments {
 
 The same shape applies to any inverse relation: `Post.User`, `Profile.User`, etc.
 
+## Many-to-Many
+
+Many-to-many is declared with the `manyToMany:` tag and a pivot table that holds the two foreign keys. Both ends of the relation get a slice field; the pivot rows are managed through accessor helpers, never through plain `Save()`.
+
+### Tag syntax
+
+```
+orm:"manyToMany:<pivot_table>,<localFK>,<relatedFK>"
+```
+
+- `<pivot_table>`: name of the join table (e.g. `team_members`).
+- `<localFK>`: column on the pivot pointing at the **declaring** struct's `id`.
+- `<relatedFK>`: column on the pivot pointing at the **other** struct's `id`.
+
+All three parts are required. The two ends of the same relation use the **same pivot table**, but swap the order of `localFK` and `relatedFK` so each side's "local" is the column referencing itself.
+
+```go
+type User struct {
+    orm.Model[User]
+    Name  string `orm:"column:name;type:varchar(255)"`
+    Roles []Role `orm:"manyToMany:user_roles,user_id,role_id"`
+}
+
+type Role struct {
+    orm.Model[Role]
+    Name  string `orm:"column:name;type:varchar(64)"`
+    Users []User `orm:"manyToMany:user_roles,role_id,user_id"`
+}
+```
+
+The pivot table itself does not need a Go struct. It only has to exist in the database with at least the two FK columns; any extra columns become "pivot extras" (see below).
+
+### Eager loading
+
+`.With("Roles")` works the same as for `hasMany`. The loader issues two SQL queries total per preload regardless of parent count:
+
+1. One `SELECT ... FROM <pivot> WHERE <localFK> IN (?, ?, ...)` to fetch all linkage rows.
+2. One `SELECT * FROM <related_table> WHERE id IN (?, ?, ...)` to fetch the related models.
+
+Results are grouped client-side onto each parent's slice field. The pivot table's column list is probed once (`SELECT * FROM <pivot> WHERE 1=0`) and cached in a `sync.Map` keyed by `(driver, table)`, so subsequent loads of the same relation skip the schema lookup.
+
+```go
+users, _ := User{}.With("Roles").Get()
+for _, u := range users {
+    fmt.Printf("%s has %d roles\n", u.Name, len(u.Roles))
+}
+```
+
+### Mutating pivot rows: Attach, Detach, Sync
+
+Use `orm.M2M(parent, "RelationName")` to obtain an `*M2MAccessor`, then call `Attach`, `Detach`, or `Sync`. Each method runs inside a single transaction.
+
+```go
+acc, err := orm.M2M(&user, "Roles")
+if err != nil {
+    return err
+}
+
+// Add links. Duplicates and existing rows are skipped.
+err = acc.Attach(ctx, adminRole.ID, editorRole.ID)
+
+// Remove specific links.
+err = acc.Detach(ctx, editorRole.ID)
+
+// Detach-all when called with no ids.
+err = acc.Detach(ctx)
+
+// Replace the entire set: missing rows are inserted, extras deleted.
+err = acc.Sync(ctx, adminRole.ID, viewerRole.ID)
+```
+
+The parent must have a non-zero `id` before constructing the accessor; `M2M` returns `"parent has no id - save it first"` if you call it on an unsaved struct.
+
+### Pivot extras via `LoadManyToManyWithPivot`
+
+When the pivot table carries extra columns (timestamps, role flags, sort order, etc.), `LoadManyToManyWithPivot[T, R]` returns the related rows paired with a `map[string]any` of every non-FK pivot column for that linkage:
+
+```go
+type PivotResult[T any] struct {
+    Related T
+    Pivot   map[string]any
+}
+```
+
+```go
+results, err := orm.LoadManyToManyWithPivot[User, Role](&user, "Roles")
+if err != nil {
+    return err
+}
+for _, r := range results {
+    assignedAt, _ := r.Pivot["assigned_at"].(time.Time)
+    fmt.Printf("%s, assigned %s\n", r.Related.Name, assignedAt)
+}
+```
+
+The first type parameter is the parent type, the second is the related type. The function fails fast with a clear error if `R` does not match the related type discovered from the tag.
+
+{{< callout type="tip" title="Recipe: Users with role tags via pivot" >}}
+The pivot table here carries an extra `assigned_at` timestamp on every row. The relation declarations stay clean (no mention of the extra column), and the extra surfaces only when you ask for it via `LoadManyToManyWithPivot`.
+
+```go
+// Schema (illustrative migration)
+// CREATE TABLE user_roles (
+//   user_id     BIGINT NOT NULL,
+//   role_id     BIGINT NOT NULL,
+//   assigned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+//   PRIMARY KEY (user_id, role_id)
+// );
+
+type User struct {
+    orm.Model[User]
+    Name  string `orm:"column:name;type:varchar(255)"`
+    Roles []Role `orm:"manyToMany:user_roles,user_id,role_id"`
+}
+
+type Role struct {
+    orm.Model[Role]
+    Name string `orm:"column:name;type:varchar(64)"`
+}
+
+// Assign a few roles to a user.
+acc, _ := orm.M2M(&user, "Roles")
+_ = acc.Sync(ctx, adminRole.ID, editorRole.ID)
+
+// Render the roles with their assignment timestamp.
+results, _ := orm.LoadManyToManyWithPivot[User, Role](&user, "Roles")
+for _, r := range results {
+    when, _ := r.Pivot["assigned_at"].(time.Time)
+    fmt.Printf("%s (since %s)\n", r.Related.Name, when.Format(time.RFC3339))
+}
+```
+{{< /callout >}}
+
+## Polymorphic Relations
+
+A polymorphic relation lets a single field point at one of several different parent tables. For example, a `Comment` that can hang off either a `Post` or a `Video`. The discriminator (which table the row lives in) is stored as a string in a "type" column alongside the foreign-key id.
+
+### Tag syntax
+
+```
+orm:"polymorphic:<type_col>,<id_col>"
+```
+
+- `<type_col>`: column on the **child** table holding the type-name string (e.g. `commentable_type`).
+- `<id_col>`: column on the **child** table holding the foreign key id (e.g. `commentable_id`).
+
+The polymorphic field's Go type **must** be `orm.Morph` (struct value, not pointer or slice). The two scalar columns themselves still need to be declared on the struct so they round-trip through SQL.
+
+```go
+type Comment struct {
+    orm.Model[Comment]
+    Body            string     `orm:"column:body;type:text"`
+    CommentableType string     `orm:"column:commentable_type;type:varchar(64);not_null"`
+    CommentableID   uint       `orm:"column:commentable_id;type:bigint;not_null"`
+    Commentable     orm.Morph  `orm:"polymorphic:commentable_type,commentable_id"`
+}
+```
+
+### The `Morph` value
+
+```go
+type Morph struct {
+    TypeName string  // discriminator stored in the type column
+    ID       any     // foreign key value
+    Resolved any     // populated by eager-load or Resolve (typically *T)
+}
+```
+
+`Morph.IsZero()` reports whether the morph carries any type/id information. Useful when rendering a list and skipping rows that point nowhere.
+
+### Registering morph types
+
+Each possible target type must be registered once at startup so the loader can map a type-name string to a Go type:
+
+```go
+func init() {
+    orm.RegisterMorph("post",  reflect.TypeOf(Post{}))
+    orm.RegisterMorph("video", reflect.TypeOf(Video{}))
+}
+```
+
+A common pattern is to register from a service provider's `Boot`. Re-registering the same name overwrites the previous binding, which is convenient for swapping implementations in tests.
+
+`LookupMorph(name)` returns the registered type and a boolean. `ResetMorphRegistry()` clears every binding (test-only).
+
+### Eager loading
+
+`.With("Commentable")` groups parents by the value in the type column, then issues one `SELECT ... WHERE id IN (...)` per distinct type. For `N` parents spread across `K` distinct types, the loader issues `K` SQL round trips for that preload, not `N`.
+
+```go
+comments, _ := Comment{}.With("Commentable").Get()
+for _, c := range comments {
+    switch v := c.Commentable.Resolved.(type) {
+    case *Post:
+        fmt.Println("on post:", v.Title)
+    case *Video:
+        fmt.Println("on video:", v.URL)
+    }
+}
+```
+
+`Resolved` is set to a `*T` for the registered type. Type-switch on it to branch.
+
+### Single-row resolution
+
+When you have a `Comment` in hand and want to load its target without going through the eager-load path, call `Resolve` on the field's `Morph`:
+
+```go
+target, err := comment.Commentable.Resolve(ctx)
+if err != nil {
+    return err
+}
+post := target.(*Post)
+```
+
+`Resolve` returns a clear error for unknown type-names, an empty `TypeName`, a zero `ID`, or `ErrRecordNotFound` when the target row does not exist.
+
+### Strict vs non-strict mode
+
+The eager-load path and `Morph.Resolve` differ on what happens when a row's `TypeName` is not in the registry:
+
+- **`Morph.Resolve` always errors** on an unknown type. Single-row callers have direct access to the failure and can branch on it.
+- **Eager-load defaults to non-strict**: rows of an unknown type are skipped, and a warning is written to `os.Stderr`. The unresolved rows simply have `Resolved == nil`. This way, deploying a new morph type before every caller has been updated to register it does **not** crash list views. The new rows render as "unknown" instead of taking the page down.
+
+Toggle the mode at startup or in tests:
+
+```go
+orm.SetMorphStrict(true)   // unknown types fail the entire eager-load batch
+orm.SetMorphStrict(false)  // skip + warn (default)
+b := orm.MorphStrict()     // read current setting
+```
+
+The warning destination is configurable. Pass `nil` to silence warnings entirely, or a buffer to capture them in tests:
+
+```go
+var buf bytes.Buffer
+prev := orm.SetMorphWarnWriter(&buf)
+defer orm.SetMorphWarnWriter(prev) // restore
+```
+
+`SetMorphWarnWriter` returns the previous writer so test cleanup can restore it.
+
+{{< callout type="info" title="Why non-strict by default?" >}}
+A polymorphic schema usually grows by addition: a new morph target gets added to the database before every service that lists those rows is rebuilt with the matching `RegisterMorph` call. If eager-load were strict by default, that ordering would crash any list view containing even one row of the new type. Non-strict mode degrades gracefully: affected rows show up with `Resolved == nil` and the rest of the list renders normally. Use `SetMorphStrict(true)` in tests and in jobs where silent skipping would hide a real bug.
+{{< /callout >}}
+
+{{< callout type="tip" title="Recipe: Comments on Posts and Videos via polymorphic morph" >}}
+```go
+type Post struct {
+    orm.Model[Post]
+    Title string `orm:"column:title;type:varchar(255)"`
+}
+
+type Video struct {
+    orm.Model[Video]
+    URL string `orm:"column:url;type:varchar(512)"`
+}
+
+type Comment struct {
+    orm.Model[Comment]
+    Body            string    `orm:"column:body;type:text"`
+    CommentableType string    `orm:"column:commentable_type;type:varchar(64);not_null"`
+    CommentableID   uint      `orm:"column:commentable_id;type:bigint;not_null"`
+    Commentable     orm.Morph `orm:"polymorphic:commentable_type,commentable_id"`
+}
+
+// Register the targets once at startup.
+func init() {
+    orm.RegisterMorph("post",  reflect.TypeOf(Post{}))
+    orm.RegisterMorph("video", reflect.TypeOf(Video{}))
+}
+
+// Create a comment against a post.
+c := Comment{
+    Body:            "great read",
+    CommentableType: "post",
+    CommentableID:   post.ID,
+}
+_ = c.Save()
+
+// Eager-load a feed of comments. One IN query per distinct target type.
+comments, _ := Comment{}.With("Commentable").Get()
+for _, c := range comments {
+    switch v := c.Commentable.Resolved.(type) {
+    case *Post:
+        fmt.Println("post:", v.Title)
+    case *Video:
+        fmt.Println("video:", v.URL)
+    case nil:
+        // Non-strict mode: type was not registered; row was skipped with a warning.
+    }
+}
+```
+{{< /callout >}}
+
 ## Eager Loading
 
 `.With(name...)` queues relations to load after the primary query. Pass field names exactly as declared on the struct (case-insensitive match is also accepted, but exact is preferred for clarity).
@@ -189,9 +484,9 @@ The parser does not validate which side the tag lives on. Putting a `belongsTo` 
 
 Type names are case-sensitive: `hasOne`, `hasMany`, `belongsTo` (camelCase).
 
-### 5. Unsupported types
+### 5. Unsupported tag forms inside `relation:`
 
-The parser currently accepts only the three types above. `belongsToMany`, `morphOne`, `morphMany`, and other Eloquent-style relations are not implemented.
+The `relation:` directive itself accepts only `hasOne`, `hasMany`, and `belongsTo`. Many-to-many uses the separate `manyToMany:` tag and polymorphic uses `polymorphic:` (see the dedicated sections above). `morphOne` / `morphMany` style tags are not implemented; the polymorphic field is always a single `orm.Morph` value.
 
 ## Error Reference
 
