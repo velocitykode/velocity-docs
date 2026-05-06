@@ -20,65 +20,67 @@ CRYPTO_CIPHER=AES-256-CBC
 # Auth settings
 AUTH_GUARD=web
 AUTH_MODEL=User
+HASH_BCRYPT_COST=10
 
 # Session settings
-SESSION_DRIVER=cookie
 SESSION_NAME=velocity_session
 SESSION_LIFETIME=120
 SESSION_PATH=/
-SESSION_SECURE=false
+SESSION_SECURE=true
 SESSION_HTTP_ONLY=true
 SESSION_SAME_SITE=lax
 ```
 
 ### Initialization
 
-Initialize the auth system in your app initialization:
+When you boot the app via `velocity.New()`, the framework reads `AUTH_GUARD`, `HASH_BCRYPT_COST`, and the `SESSION_*` variables, builds an `auth.Manager`, registers an ORM-backed user provider, and wires a `SessionGuard` against the encrypted-cookie store. No manual wiring is required for the common case.
+
+If you need to construct the manager yourself (custom guard, embedded use, tests), the underlying API is:
 
 ```go
 package main
 
 import (
-    "os"
+    "database/sql"
+    "net/http"
 
     "github.com/velocitykode/velocity/auth"
     "github.com/velocitykode/velocity/auth/drivers/guards"
     "github.com/velocitykode/velocity/crypto"
 )
 
-func initAuth() error {
-    // Initialize crypto (required for session encryption)
-    cryptoKey := os.Getenv("CRYPTO_KEY")
-    if cryptoKey != "" {
-        crypto.Init(crypto.Config{
-            Key:    cryptoKey,
-            Cipher: os.Getenv("CRYPTO_CIPHER"),
-        })
-    }
+func buildAuth(db *sql.DB, enc crypto.Encryptor) (*auth.Manager, error) {
+    manager := auth.NewManager()
 
-    // Get auth manager
-    manager, err := auth.GetManager()
+    // Provider: ORM-backed user lookup against the "users" table.
+    provider := auth.NewORMUserProvider(db, "User", manager.GetHasher())
+    manager.RegisterProvider("users", provider)
+
+    // Guard: encrypted-cookie session store.
+    sessionGuard, err := guards.NewSessionGuard(provider, auth.SessionConfig{
+        Name:     "velocity_session",
+        Lifetime: 120,
+        Path:     "/",
+        Secure:   true,
+        HttpOnly: true,
+        SameSite: http.SameSiteLaxMode,
+    }, enc)
     if err != nil {
-        return err
+        return nil, err
     }
+    manager.RegisterGuard("web", sessionGuard)
+    manager.SetDefaultGuard("web")
 
-    // Create session guard with ORM user provider
-    sessionConfig := auth.NewSessionConfigFromEnv()
-    provider := auth.NewORMUserProvider("user")
-    sessionGuard, err := guards.NewSessionGuard(provider, sessionConfig)
-    if err != nil {
-        return err
-    }
-
-    // Register guard with name from AUTH_GUARD env
-    guardName := os.Getenv("AUTH_GUARD")
-    if guardName == "" {
-        guardName = "web"
-    }
-    manager.RegisterGuard(guardName, sessionGuard)
-
-    return nil
+    return manager, nil
 }
+```
+
+Inside a handler you reach the manager through `auth.FromContext(ctx)`:
+
+```go
+import "github.com/velocitykode/velocity/auth"
+
+m := auth.FromContext(ctx) // *auth.Manager, or nil if auth is not configured
 ```
 
 ### User Model Requirements
@@ -143,7 +145,8 @@ func (c *AuthHandler) Login(ctx *router.Context) error {
         "password": formData.Password,
     }
 
-    success, _ := auth.Attempt(ctx.Response, ctx.Request, credentials, formData.Remember)
+    m := auth.FromContext(ctx)
+    success, _ := m.Attempt(ctx.Response, ctx.Request, credentials, formData.Remember)
 
     if success {
         view.Location(ctx.Response, ctx.Request, "/dashboard")
@@ -163,17 +166,22 @@ func (c *AuthHandler) Login(ctx *router.Context) error {
 ### Login Attempts
 
 ```go
-// Basic login attempt
+m := auth.FromContext(ctx)
+
 credentials := map[string]interface{}{
     "email":    "user@example.com",
     "password": "secret123",
 }
 
-success, user := auth.Attempt(ctx.Response, ctx.Request, credentials, false)
+success, err := m.Attempt(ctx.Response, ctx.Request, credentials, false)
+if err != nil {
+    // err is auth.ErrLoginThrottled when the configured throttler rejected
+    // the attempt before credentials were even checked.
+    return err
+}
 if success {
-    // User is now logged in
-    userID := user.GetAuthIdentifier()
-    log.Info("User logged in", "user_id", userID)
+    user := m.User(ctx.Request)
+    log.Info("User logged in", "user_id", user.GetAuthIdentifier())
 }
 ```
 
@@ -181,9 +189,10 @@ if success {
 
 ```go
 // Login with "remember me" for extended sessions
-success, user := auth.Attempt(ctx.Response, ctx.Request, credentials, true)
+m := auth.FromContext(ctx)
+success, _ := m.Attempt(ctx.Response, ctx.Request, credentials, true)
 if success {
-    // User session will persist longer
+    user := m.User(ctx.Request)
     log.Info("User logged in with remember me", "user_id", user.GetAuthIdentifier())
 }
 ```
@@ -191,16 +200,15 @@ if success {
 ### Checking Authentication Status
 
 ```go
-// Check if user is authenticated
-if auth.Check(ctx.Request) {
-    // User is logged in
-    user := auth.User(ctx.Request)
+m := auth.FromContext(ctx)
+
+if m.Check(ctx.Request) {
+    user := m.User(ctx.Request)
     if user != nil {
         log.Info("Authenticated user", "user_id", user.GetAuthIdentifier())
     }
 } else {
-    // User is not authenticated
-    return ctx.Redirect("/login", http.StatusFound)
+    return ctx.Redirect(http.StatusFound, "/login")
 }
 ```
 
@@ -208,7 +216,10 @@ if auth.Check(ctx.Request) {
 
 ```go
 func LogoutHandler(ctx *router.Context) error {
-    auth.Logout(ctx.Response, ctx.Request)
+    m := auth.FromContext(ctx)
+    if err := m.Logout(ctx.Response, ctx.Request); err != nil {
+        return err
+    }
     view.Location(ctx.Response, ctx.Request, "/login")
     return nil
 }
@@ -216,15 +227,18 @@ func LogoutHandler(ctx *router.Context) error {
 
 ## Password Hashing
 
+Password hashing lives on the manager so the bcrypt cost configured in `HASH_BCRYPT_COST` is honored uniformly.
+
 ### Hash Passwords
 
 ```go
-// Hash a password for storage
+m := auth.FromContext(ctx)
+
 password := "user_password_123"
-hashedPassword, err := auth.Hash(password)
+hashedPassword, err := m.Hash(password)
 if err != nil {
     log.Error("Failed to hash password", "error", err)
-    return
+    return err
 }
 
 // Store hashedPassword in database
@@ -234,18 +248,16 @@ user.Password = hashedPassword
 ### Verify Passwords
 
 ```go
-// Verify a password against its hash
-providedPassword := "user_password_123"
-storedHash := user.Password
+m := auth.FromContext(ctx)
 
-if auth.CheckPassword(providedPassword, storedHash) {
-    // Password is correct
+if m.Verify(providedPassword, user.Password) {
     log.Info("Password verification successful")
 } else {
-    // Password is incorrect
     log.Warn("Password verification failed")
 }
 ```
+
+If you need a hasher outside a request (a CLI seeder, for example), construct one directly with `auth.NewBcryptHasher(cost)` and call `Hash` / `Verify` on it. The minimum cost is clamped to 10 with a warning.
 
 ## User Interface
 
@@ -262,14 +274,20 @@ type User struct {
 }
 
 // GetAuthIdentifier returns the user's unique identifier
-func (u User) GetAuthIdentifier() interface{} {
+func (u *User) GetAuthIdentifier() interface{} {
     return u.ID
 }
 
 // GetAuthPassword returns the user's hashed password
-func (u User) GetAuthPassword() string {
+func (u *User) GetAuthPassword() string {
     return u.Password
 }
+
+// GetRememberToken returns the remember token
+func (u *User) GetRememberToken() string { return "" }
+
+// SetRememberToken sets the remember token
+func (u *User) SetRememberToken(token string) {}
 ```
 
 ### Custom User Providers
@@ -280,17 +298,17 @@ type CustomUserProvider struct {
     db *sql.DB
 }
 
-func (p *CustomUserProvider) RetrieveById(id interface{}) (auth.Authenticatable, error) {
+func (p *CustomUserProvider) FindByID(id interface{}) (auth.Authenticatable, error) {
     var user User
     err := p.db.QueryRow("SELECT id, email, password, name FROM users WHERE id = ?", id).
         Scan(&user.ID, &user.Email, &user.Password, &user.Name)
     if err != nil {
         return nil, err
     }
-    return user, nil
+    return &user, nil
 }
 
-func (p *CustomUserProvider) RetrieveByCredentials(credentials map[string]interface{}) (auth.Authenticatable, error) {
+func (p *CustomUserProvider) FindByCredentials(credentials map[string]interface{}) (auth.Authenticatable, error) {
     email := credentials["email"].(string)
     var user User
     err := p.db.QueryRow("SELECT id, email, password, name FROM users WHERE email = ?", email).
@@ -298,7 +316,18 @@ func (p *CustomUserProvider) RetrieveByCredentials(credentials map[string]interf
     if err != nil {
         return nil, err
     }
-    return user, nil
+    return &user, nil
+}
+
+func (p *CustomUserProvider) ValidateCredentials(user auth.Authenticatable, credentials map[string]interface{}) bool {
+    password, _ := credentials["password"].(string)
+    return auth.NewBcryptHasher(10).Verify(password, user.GetAuthPassword())
+}
+
+func (p *CustomUserProvider) UpdateRememberToken(user auth.Authenticatable, token string) error {
+    user.SetRememberToken(token)
+    _, err := p.db.Exec("UPDATE users SET remember_token = ? WHERE id = ?", token, user.GetAuthIdentifier())
+    return err
 }
 ```
 
@@ -306,48 +335,23 @@ func (p *CustomUserProvider) RetrieveByCredentials(credentials map[string]interf
 
 ### Auth Middleware
 
-Protect routes with authentication middleware:
+Use `auth.AuthMiddleware` to require authentication on a route. It returns 401 JSON for API requests and redirects to `/login?redirect=...` for HTML requests.
 
 ```go
-func AuthMiddleware(next router.HandlerFunc) router.HandlerFunc {
-    return func(ctx *router.Context) error {
-        if !auth.Check(ctx.Request) {
-            // Redirect to login if not authenticated
-            redirectURL := url.QueryEscape(ctx.Request.URL.String())
-            view.Location(ctx.Response, ctx.Request, "/login?redirect="+redirectURL)
-            return nil
-        }
+import "github.com/velocitykode/velocity/auth"
 
-        // User is authenticated, continue
-        return next(ctx)
-    }
-}
-
-// Apply to routes
-r.Get("/dashboard", AuthMiddleware(dashboardHandler.Index))
+r.Get("/dashboard", dashboardHandler.Index, auth.AuthMiddleware(manager))
 ```
+
+For role- or ability-based gates, the package also exposes `auth.RequireRole`, `auth.RequireAnyRole`, `auth.RequireAllRoles`, and `auth.AuthorizeMiddleware`. All of them deny with 401 when the request is unauthenticated and 403 when the policy fails.
 
 ### Guest Middleware
 
-Restrict access for already authenticated users:
+`auth.GuestMiddleware` blocks already-authenticated users from login/register pages. Pass a redirect path with `auth.GuestMiddlewareWithRedirect`.
 
 ```go
-func GuestMiddleware(next router.HandlerFunc) router.HandlerFunc {
-    return func(ctx *router.Context) error {
-        if auth.Check(ctx.Request) {
-            // User is already authenticated, redirect to dashboard
-            view.Location(ctx.Response, ctx.Request, "/dashboard")
-            return nil
-        }
-
-        // User is not authenticated, continue
-        return next(ctx)
-    }
-}
-
-// Apply to login/register routes
-r.Get("/login", GuestMiddleware(authHandler.ShowLoginForm))
-r.Get("/register", GuestMiddleware(authHandler.ShowRegisterForm))
+r.Get("/login",    authHandler.ShowLoginForm,    auth.GuestMiddlewareWithRedirect(manager, "/dashboard"))
+r.Get("/register", authHandler.ShowRegisterForm, auth.GuestMiddlewareWithRedirect(manager, "/dashboard"))
 ```
 
 ## Session Management
@@ -358,40 +362,73 @@ Configure sessions in your `.env` file:
 
 ```env
 # Session settings
-SESSION_DRIVER=cookie          # Options: cookie, file, redis
-SESSION_LIFETIME=120           # Minutes
-SESSION_SECURE=false          # HTTPS only
+SESSION_NAME=velocity_session
+SESSION_LIFETIME=120          # Minutes
+SESSION_PATH=/
+SESSION_DOMAIN=
+SESSION_SECURE=true           # HTTPS only
 SESSION_HTTP_ONLY=true        # No JavaScript access
 SESSION_SAME_SITE=lax         # CSRF protection
-
-# Cookie settings
-COOKIE_NAME=velocity_session
-COOKIE_DOMAIN=localhost
-COOKIE_PATH=/
 ```
 
-### Custom Session Handling
+### Session Backends
+
+Cookie-encrypted sessions are the default, but they are not the only option. The framework defines a `SessionStore` interface so you can swap in a server-side store (for example a Redis- or DB-backed implementation) without changing handler code. The interface lives in `auth/session.go`:
 
 ```go
-// Get session data
-sessionData, err := auth.GetSession(ctx.Request, "user_preferences")
-if err == nil {
-    preferences := sessionData.(map[string]interface{})
-    // Use preferences
+// auth.Session is the value handed to handlers.
+type Session interface {
+    ID() string
+    Get(key string) interface{}
+    Put(key string, value interface{})
+    Has(key string) bool
+    Remove(key string)
+    Clear()
+    Regenerate() error
+    Invalidate() error
+    Flash(key string, value interface{})
+    GetFlash(key string) interface{}
+    Save(w http.ResponseWriter) error
 }
 
-// Set session data
-auth.SetSession(ctx.Response, ctx.Request, "user_preferences", map[string]interface{}{
-    "theme": "dark",
-    "language": "en",
-})
-
-// Remove session data
-auth.ForgetSession(ctx.Response, ctx.Request, "user_preferences")
-
-// Regenerate session ID (security best practice)
-auth.RegenerateSession(ctx.Response, ctx.Request)
+// auth.SessionStore is what backends implement.
+type SessionStore interface {
+    Create(id string) (Session, error)
+    Get(r *http.Request, id string) (Session, error)
+    Save(w http.ResponseWriter, session Session) error
+    Destroy(id string) error
+    GarbageCollect(maxLifetime time.Duration) error
+}
 ```
+
+The shipped implementation is `auth/drivers/session.CookieStore` (encrypted cookies, with `auth.SessionConfig` controlling cookie attributes). To plug in a custom backend, implement `SessionStore`, construct a `SessionGuard` against it, and register that guard with the manager. `SessionGuard` accepts whichever store it is given because it talks to the interface, not the cookie struct directly.
+
+For ad-hoc reads you can also call `auth.GetSessionFromRequest(r, store, cookieName)` to resolve a session from a request when you have a store reference outside of guard code.
+
+`auth.SessionConfig.Validate(env)` enforces safe defaults: `HttpOnly` must be true unless `AllowJSAccess` is explicitly set, `Secure` must be true outside `testing`/`development`, `SameSite` must be non-zero, and `SameSite=None` requires `Secure=true`. Failing this returns `auth.ErrInsecureSessionConfig`, so bootstrap code can fail fast in production and log-then-continue in dev.
+
+### LoginThrottler
+
+`SessionGuard.Attempt` (and `JWTGuard.Attempt`) consult a `contract.LoginThrottler` before checking credentials. The interface is the seam for credential-stuffing defense:
+
+```go
+// contract.LoginThrottler
+type LoginThrottler interface {
+    Allow(r *http.Request, key string) bool
+    RecordFailure(r *http.Request, key string)
+    RecordSuccess(r *http.Request, key string)
+}
+```
+
+Contract:
+
+- `Allow(r, key)` runs before the credential check. Returning `false` short-circuits the attempt with `auth.ErrLoginThrottled`.
+- `RecordFailure(r, key)` runs when credential validation fails.
+- `RecordSuccess(r, key)` runs after a successful login; a good implementation clears the failure counter for that key.
+
+The default throttler is `auth.NoopLoginThrottler{}`, which permits every attempt. Install a real one with `guard.SetLoginThrottler(yourThrottler)` (passing `nil` reverts to the no-op).
+
+The framework also exposes `auth.ThrottleKey(r, credentials)`, which derives the rate-limit key as `"<identifier>|<ip>"`. The `identifier` is the first non-empty value among `email`, `username`, `name`, `login` in the credentials map, falling back to IP-only when no identifier is present. Use it so a custom guard wrapper produces keys consistent with the built-in guards.
 
 ## Registration & User Creation
 
@@ -399,6 +436,8 @@ auth.RegenerateSession(ctx.Response, ctx.Request)
 
 ```go
 func RegisterHandler(ctx *router.Context) error {
+    m := auth.FromContext(ctx)
+
     // Get form data
     name := ctx.Request.FormValue("name")
     email := ctx.Request.FormValue("email")
@@ -418,7 +457,7 @@ func RegisterHandler(ctx *router.Context) error {
     }
 
     // Hash password
-    hashedPassword, err := auth.Hash(password)
+    hashedPassword, err := m.Hash(password)
     if err != nil {
         return ctx.Error("Internal Server Error", http.StatusInternalServerError)
     }
@@ -442,7 +481,7 @@ func RegisterHandler(ctx *router.Context) error {
         "password": password, // Use original password for login
     }
 
-    success, _ := auth.Attempt(ctx.Response, ctx.Request, credentials, false)
+    success, _ := m.Attempt(ctx.Response, ctx.Request, credentials, false)
     if success {
         view.Location(ctx.Response, ctx.Request, "/dashboard")
     } else {
@@ -485,63 +524,40 @@ func validatePassword(password string) []string {
 
 ### Rate Limiting
 
-```go
-func LoginRateLimitMiddleware(next router.HandlerFunc) router.HandlerFunc {
-    limiter := make(map[string]*rate.Limiter)
-    mu := sync.RWMutex{}
-
-    return func(ctx *router.Context) error {
-        ip := ctx.Request.RemoteAddr
-
-        mu.RLock()
-        l, exists := limiter[ip]
-        mu.RUnlock()
-
-        if !exists {
-            mu.Lock()
-            limiter[ip] = rate.NewLimiter(1, 3) // 3 attempts per minute
-            l = limiter[ip]
-            mu.Unlock()
-        }
-
-        if !l.Allow() {
-            return ctx.Error("Too many login attempts", http.StatusTooManyRequests)
-        }
-
-        return next(ctx)
-    }
-}
-```
+Per-attempt throttling lives in the `LoginThrottler` seam (see above). For coarser route-level limits, for example capping requests to `/login` regardless of credentials, reach for `middleware.RateLimitByKey` from `core/middleware`, which composes cleanly with `auth.AuthMiddleware`.
 
 ## Testing Authentication
 
 ```go
 func TestAuthentication(t *testing.T) {
+    hasher := auth.NewBcryptHasher(10)
+
     // Test password hashing
     password := "test123"
-    hash, err := auth.Hash(password)
+    hash, err := hasher.Hash(password)
     assert.NoError(t, err)
-    assert.True(t, auth.CheckPassword(password, hash))
-    assert.False(t, auth.CheckPassword("wrong", hash))
+    assert.True(t, hasher.Verify(password, hash))
+    assert.False(t, hasher.Verify("wrong", hash))
 
-    // Test authentication attempt
-    user := &models.User{
-        Email: "test@example.com",
-        Password: hash,
-    }
+    // Test authentication attempt against an in-memory manager.
+    manager := auth.NewManager()
+    manager.SetHasher(hasher)
+    // ... register a fake provider + guard, then:
 
     credentials := map[string]interface{}{
-        "email": "test@example.com",
+        "email":    "test@example.com",
         "password": "test123",
     }
 
-    // Mock request/response
     req := httptest.NewRequest("POST", "/login", nil)
     rec := httptest.NewRecorder()
 
-    success, authUser := auth.Attempt(rec, req, credentials, false)
+    success, err := manager.Attempt(rec, req, credentials, false)
+    assert.NoError(t, err)
     assert.True(t, success)
-    assert.Equal(t, user.Email, authUser.(*models.User).Email)
+
+    user := manager.User(req)
+    assert.Equal(t, "test@example.com", user.(*models.User).Email)
 }
 ```
 
@@ -555,3 +571,46 @@ func TestAuthentication(t *testing.T) {
 6. **Remember Me**: Use secure tokens for persistent sessions
 7. **Logout Everywhere**: Provide ability to logout from all devices
 
+## Recipe: Throttle login attempts by email + IP
+
+**When:** You want to slow down credential-stuffing without locking out an entire office NAT or letting an attacker spray a single IP across thousands of accounts.
+
+**Code:**
+
+```go
+// myapp/auth/throttler.go
+type EmailIPThrottler struct {
+    cache cache.Store // any cache.Store; Redis-backed in prod
+}
+
+func (t *EmailIPThrottler) Allow(r *http.Request, key string) bool {
+    n, _ := t.cache.Get("login:fail:" + key).(int)
+    return n < 5
+}
+
+func (t *EmailIPThrottler) RecordFailure(r *http.Request, key string) {
+    n, _ := t.cache.Get("login:fail:" + key).(int)
+    t.cache.Put("login:fail:"+key, n+1, 15*time.Minute)
+}
+
+func (t *EmailIPThrottler) RecordSuccess(r *http.Request, key string) {
+    t.cache.Forget("login:fail:" + key)
+}
+
+// during bootstrap, after building the SessionGuard:
+sessionGuard.SetLoginThrottler(&EmailIPThrottler{cache: cacheStore})
+```
+
+**Why this shape:** The framework hands you the composite key for free via `auth.ThrottleKey(r, credentials)`, which produces `"<email>|<ip>"`. Keying on the composite means a single attacker IP cannot exhaust attempts for an unrelated user, and a shared IP (NAT, corporate egress) does not collectively lock out everyone behind it. The 5/15-minute window is a starting point: tune to your traffic. Keying on email-only invites enumeration; IP-only invites NAT lockout; the composite is the load-bearing detail. `RecordSuccess` clearing the counter is what lets a legitimate user recover after a typo storm.
+
+**See also:**
+
+- [`core/middleware`]({{< relref "/docs/core/middleware" >}}) for `RateLimitByKey` (route-level, complements per-attempt throttling)
+- [`core/cache`]({{< relref "/docs/core/cache" >}}) for the `Store` interface used above
+- [`core/csrf`]({{< relref "/docs/core/csrf" >}}) for the other half of session-based form defense
+
+## Related
+
+- [`core/csrf`]({{< relref "/docs/core/csrf" >}}) for CSRF protection on session-based forms
+- [`core/cache`]({{< relref "/docs/core/cache" >}}) for the `cache.Store` interface used by Redis-backed throttlers and (eventually) Redis-backed session stores
+- [`core/middleware`]({{< relref "/docs/core/middleware" >}}) for `RateLimitByKey`, the route-level rate limiter that composes with `auth.AuthMiddleware`

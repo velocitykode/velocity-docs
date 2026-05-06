@@ -65,10 +65,23 @@ func (n *OrderShipped) ToDatabase(_ any) *notification.DatabaseMessage {
 
 ## Defining a notifiable
 
+A notifiable is anything that implements `Notifiable.NotificationRoute(channel string) string`. The channel driver calls this once per send to learn where to deliver. Each built-in channel interprets the returned string differently:
+
+| Channel | What `NotificationRoute` should return | Used by |
+|---|---|---|
+| `"mail"` | RFC 5322 email address | `MailChannel` falls back to this when `MailMessage.To()` is empty |
+| `"database"` | Stable identifier (string) for the row's `notifiable_id` column | `DatabaseChannel` writes this verbatim into `notifications.notifiable_id` |
+| `"broadcast"` | A user identifier; the channel prefixes it with `private-` (e.g. `42` becomes `private-42`) when `BroadcastMessage.On(...)` is empty | `BroadcastChannel` |
+| `"slack"` | A full Slack incoming-webhook URL | `SlackChannel` POSTs the rendered payload here; URLs that resolve to private/internal addresses are rejected |
+| custom | Whatever your channel needs (push token, phone number, etc.) | Your channel implementation |
+
+Return `""` for any channel the notifiable does not support; the channel will surface "no route" as a delivery error rather than silently dropping the send.
+
 ```go
 type User struct {
-    ID    int
-    Email string
+    ID              int
+    Email           string
+    SlackWebhookURL string
 }
 
 func (u *User) NotificationRoute(channel string) string {
@@ -77,12 +90,16 @@ func (u *User) NotificationRoute(channel string) string {
         return u.Email
     case "database":
         return strconv.Itoa(u.ID)
+    case "broadcast":
+        return strconv.Itoa(u.ID)
     case "slack":
         return u.SlackWebhookURL
     }
     return ""
 }
 ```
+
+The same notifiable can serve every channel; `Via()` decides which routes are actually consulted on a given send.
 
 ## Sending
 
@@ -107,27 +124,74 @@ mgr.SendMany(ctx, []any{user1, user2, user3}, notif)
 `SendMany` accumulates errors - one failed recipient doesn't prevent
 the others from receiving the notification.
 
+## Recipe: Send the same notification on mail, slack, and database
+
+**When:** A single domain event (a new signup, a paid invoice, a shipped order) needs to land in the user's inbox, post to a team Slack channel, and persist to the in-app inbox at the same time, without writing the dispatch logic three times.
+
+**Code:**
+```go
+type SignupReceived struct {
+    User *User
+}
+
+func (n *SignupReceived) Via(_ any) []string {
+    return []string{"mail", "slack", "database"}
+}
+
+func (n *SignupReceived) ToMail(_ any) *notification.MailMessage {
+    return notification.NewMailMessage().
+        Subject("Welcome to Acme").
+        Greeting("Hi " + n.User.Name).
+        Line("Thanks for signing up.").
+        Action("Open dashboard", "https://acme.app/dashboard")
+}
+
+func (n *SignupReceived) ToSlack(_ any) *notification.SlackMessage {
+    return notification.NewSlackMessage().
+        Content("New signup: " + n.User.Email).
+        AsUser("Signups Bot").
+        WithIcon(":wave:")
+}
+
+func (n *SignupReceived) ToDatabase(_ any) *notification.DatabaseMessage {
+    return notification.NewDatabaseMessage("signup.received").
+        Set("user_id", n.User.ID).
+        Set("email", n.User.Email)
+}
+
+// elsewhere
+mgr.Send(ctx, n.User, &SignupReceived{User: n.User})
+```
+
+**Why this shape:** `Via()` is the routing decision and lives on the notification, not the notifiable, because the same `User` can receive different notifications over different channel sets. The manager iterates `Via()` in order and calls each channel's `Send`; one channel failing returns an error but does not short-circuit the remaining channels, so a flaky Slack webhook will not block the database row from being written. Each `To*` method must match the channel listed in `Via()`, since channels assert the notification implements their channel-specific interface (e.g. `SlackChannel` requires `SlackNotification`) and return an error otherwise. Routes for each channel come from the notifiable's `NotificationRoute(channel)`; for the recipe above, `User.NotificationRoute("slack")` must return a webhook URL and `NotificationRoute("database")` must return a stable id.
+
+**See also:** [`mail`](/docs/advanced/mail/), [`broadcast`](/docs/realtime/broadcast/), [`events`](/docs/advanced/events/) (listen to `notification.sent` / `notification.failed`).
+
 ## Channels
 
-The package ships four built-in channels. Register the ones you need:
+The package ships four built-in channels. Blank-import `allchannels`
+to register all of them at once via their `init()` side effects:
 
 ```go
-import "github.com/velocitykode/velocity/notification/allchannels"
-
-allchannels.Register()  // registers mail, database, broadcast, slack
+import _ "github.com/velocitykode/velocity/notification/allchannels"
 ```
 
-Or cherry-pick:
+This pulls in mail, database, broadcast, and slack.
+
+Or cherry-pick by importing only the channel packages you want. Each
+channel's `init()` calls `RegisterChannel` exactly once, so importing
+`notification/channels` is enough; calling `RegisterChannel` for an
+already-registered name panics.
 
 ```go
-notification.RegisterChannel("mail", func() (notification.Channel, error) {
-    return channels.NewMailChannel(), nil
-})
+import _ "github.com/velocitykode/velocity/notification/channels"
 ```
 
-After registration, `mgr.Channel("mail")` returns the driver; the
-manager uses this internally when a notification lists `"mail"` in
-`Via()`.
+After registration, `mgr.Channel("mail")` lazily instantiates the
+driver and returns it; the manager uses this internally when a
+notification lists `"mail"` in `Via()`. Use `mgr.SetChannel(name, ch)`
+to inject a pre-configured channel instance (e.g. a `*MailChannel`
+with `SetMailer(...)` already called).
 
 ### Mail channel
 
@@ -242,3 +306,9 @@ notification.RegisterChannel("push", func() (notification.Channel, error) {
 
 From then on, any notification listing `"push"` in `Via()` goes through
 your channel.
+
+## Related
+
+- [Events](/docs/advanced/events/) - emit a domain event and let a listener fan out the notification
+- [Queue](/docs/advanced/queue/) - dispatch notifications through queue jobs so request handlers stay snappy
+- [Mail](/docs/advanced/mail/) - the underlying transport for the email channel

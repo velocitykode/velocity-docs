@@ -4,12 +4,12 @@ description: Store and retrieve data with Velocity's multi-driver cache system s
 weight: 40
 ---
 
-Velocity provides a unified caching interface supporting multiple drivers. The cache system auto-initializes from your environment configuration and provides a simple API for storing and retrieving data.
+Velocity provides a unified caching interface supporting multiple drivers. The framework reads `CACHE_DRIVER` and the related env vars at boot and constructs a `*cache.Manager` for you, exposed as `app.Cache` (and `ctx.Cache()` from any handler).
 
 ## Quick Start
 
 {{% callout type="info" %}}
-**Zero Configuration**: The cache package automatically initializes from your `.env` file. No setup required!
+**No global cache.** All cache operations are methods on `*cache.Manager`. Reach for `app.Cache` outside of requests, `ctx.Cache()` inside a handler. The package-level helpers are limited to `cache.NewManager`, `cache.RememberT`, and `cache.RememberTWithContext`.
 {{% /callout %}}
 
 {{< tabs items="Basic Usage,Remember Pattern,Bulk Operations" >}}
@@ -18,24 +18,25 @@ Velocity provides a unified caching interface supporting multiple drivers. The c
 ```go
 import (
     "time"
-    "github.com/velocitykode/velocity/cache"
+    "github.com/velocitykode/velocity/router"
 )
 
-func main() {
+func handler(ctx *router.Context) error {
     // Store a value with TTL
-    cache.Put("user:123", userData, 1*time.Hour)
+    ctx.Cache().Put("user:123", userData, 1*time.Hour)
 
     // Retrieve a value
     var user User
-    if val, found := cache.Get("user:123"); found {
+    if val, found := ctx.Cache().Get("user:123"); found {
         user = val.(User)
     }
 
     // Store permanently
-    cache.Forever("app_version", "1.0.0")
+    ctx.Cache().Forever("app_version", "1.0.0")
 
     // Remove a value
-    cache.Forget("user:123")
+    ctx.Cache().Forget("user:123")
+    return nil
 }
 ```
 {{< /tab >}}
@@ -44,19 +45,17 @@ func main() {
 ```go
 import (
     "time"
-    "github.com/velocitykode/velocity/cache"
+    "github.com/velocitykode/velocity/router"
 )
 
-func getUser(userID int) (*User, error) {
+func getUser(ctx *router.Context, userID int) (*User, error) {
     key := fmt.Sprintf("user:%d", userID)
 
-    // Get from cache or compute and store
-    result, err := cache.Remember(key, 15*time.Minute, func() interface{} {
-        // Expensive database query
-        user, _ := fetchUserFromDB(userID)
-        return user
+    // Get from cache or compute and store. Use RememberE so a transient
+    // DB error is propagated instead of being baked into the cache slot.
+    result, err := ctx.Cache().RememberE(key, 15*time.Minute, func() (interface{}, error) {
+        return fetchUserFromDB(userID)
     })
-
     if err != nil {
         return nil, err
     }
@@ -70,21 +69,21 @@ func getUser(userID int) (*User, error) {
 ```go
 import (
     "time"
-    "github.com/velocitykode/velocity/cache"
+    "github.com/velocitykode/velocity/velocity"
 )
 
-func bulkOperations() {
+func bulkOperations(app *velocity.App) {
     // Store multiple values
     items := map[string]interface{}{
         "key1": "value1",
         "key2": "value2",
         "key3": "value3",
     }
-    cache.PutMany(items, 30*time.Minute)
+    app.Cache.PutMany(items, 30*time.Minute)
 
     // Retrieve multiple values
     keys := []string{"key1", "key2", "key3"}
-    results := cache.Many(keys)
+    results := app.Cache.Many(keys)
 
     for key, value := range results {
         fmt.Printf("%s: %v\n", key, value)
@@ -94,6 +93,85 @@ func bulkOperations() {
 {{< /tab >}}
 
 {{< /tabs >}}
+
+## Decision matrix
+
+Pick the `Remember*` variant that matches your error and context needs. Default to `RememberE` for any callback that touches the network or a database.
+
+| Situation | Helper |
+|---|---|
+| Memoize idempotent fetch; tolerate framework eating callback errors | `Remember` |
+| Memoize and propagate callback errors (no cache poison on err) | `RememberE` |
+| Same, with ctx propagation through the cache backend | `RememberEWithContext` |
+| Typed return (skip the `interface{}` assert) | `RememberT[T]` |
+| Forever cache until explicit `Forget` | `RememberForever` |
+
+{{< callout type="warning" >}}
+`Remember` swallows the error you discard inside the callback. If `fetchUserFromDB` fails, you cache the zero value for the full TTL and every subsequent caller gets garbage back. Use `RememberE` whenever the callback can fail.
+{{< /callout >}}
+
+## Callback error path
+
+`Remember` takes a `func() interface{}` callback, so the only way to handle a callback failure is to swallow it with `_`, which writes a zero value into the cache and pins it for the full TTL. That is rarely what you want.
+
+`RememberE` takes a `func() (interface{}, error)`. When the callback returns a non-nil error, the cache slot is left untouched and the error is propagated to the caller. The next request retries from scratch.
+
+```go
+import "time"
+
+// WRONG: transient DB hiccup poisons the cache for 15 minutes.
+result, err := app.Cache.Remember(key, 15*time.Minute, func() interface{} {
+    user, _ := fetchUserFromDB(userID) // err discarded
+    return user
+})
+
+// RIGHT: error propagates, slot is not written, next call retries.
+result, err := app.Cache.RememberE(key, 15*time.Minute, func() (interface{}, error) {
+    return fetchUserFromDB(userID)
+})
+if err != nil {
+    return nil, err
+}
+return result.(*User), nil
+```
+
+`RememberForeverE` is the equivalent error-aware variant of `RememberForever`.
+
+## Context propagation
+
+Stores that talk to a remote backend (Redis) implement the `ContextStore` interface. The manager threads `context.Context` through to the driver when available so a slow Redis lookup is cancelled with the request.
+
+```go
+// ContextStore is satisfied by the Redis driver. Memory and file drivers
+// fall back to the plain Store methods automatically.
+type ContextStore interface {
+    Store
+    GetCtx(ctx context.Context, key string) (interface{}, bool)
+    PutCtx(ctx context.Context, key string, value interface{}, ttl time.Duration) error
+    ForeverCtx(ctx context.Context, key string, value interface{}) error
+    ForgetCtx(ctx context.Context, key string) error
+    FlushCtx(ctx context.Context) error
+    HasCtx(ctx context.Context, key string) bool
+    IncrementCtx(ctx context.Context, key string, value int64) (int64, error)
+    DecrementCtx(ctx context.Context, key string, value int64) (int64, error)
+    ManyCtx(ctx context.Context, keys []string) map[string]interface{}
+    PutManyCtx(ctx context.Context, items map[string]interface{}, ttl time.Duration) error
+}
+```
+
+Every `Manager` operation has a `*WithContext` counterpart: `GetWithContext`, `PutWithContext`, `ForeverWithContext`, `ForgetWithContext`, `RememberWithContext`, `RememberEWithContext`, `RememberForeverWithContext`, `RememberForeverEWithContext`. Use them from any handler that already has a `ctx`.
+
+```go
+func handler(ctx *router.Context) error {
+    val, err := ctx.Cache().RememberEWithContext(ctx.Context(), "regions", 5*time.Minute, func() (interface{}, error) {
+        return upstream.FetchRegions(ctx.Context())
+    })
+    if err != nil {
+        return err
+    }
+    return ctx.JSON(200, val)
+}
+```
 
 ## Configuration
 
@@ -177,20 +255,17 @@ REDIS_DATABASE=0
 Store a value in the cache with a TTL:
 
 ```go
-import (
-    "time"
-    "github.com/velocitykode/velocity/cache"
-)
+import "time"
 
 // Store string
-cache.Put("username", "john_doe", 1*time.Hour)
+app.Cache.Put("username", "john_doe", 1*time.Hour)
 
 // Store struct
 user := User{ID: 123, Name: "John Doe"}
-cache.Put("user:123", user, 30*time.Minute)
+app.Cache.Put("user:123", user, 30*time.Minute)
 
 // Store with longer TTL
-cache.Put("config", configData, 24*time.Hour)
+app.Cache.Put("config", configData, 24*time.Hour)
 ```
 
 #### Get
@@ -199,14 +274,14 @@ Retrieve a value from the cache:
 
 ```go
 // Get value
-value, found := cache.Get("username")
+value, found := app.Cache.Get("username")
 if found {
     username := value.(string)
     fmt.Println("Username:", username)
 }
 
 // Get string value directly
-username, found := cache.GetString("username")
+username, found := app.Cache.GetString("username")
 if found {
     fmt.Println("Username:", username)
 }
@@ -218,8 +293,8 @@ Store a value permanently (no expiration):
 
 ```go
 // Store without expiration
-cache.Forever("app_name", "Velocity")
-cache.Forever("build_number", "1234")
+app.Cache.Forever("app_name", "Velocity")
+app.Cache.Forever("build_number", "1234")
 ```
 
 #### Forget
@@ -228,10 +303,10 @@ Remove a value from the cache:
 
 ```go
 // Remove single key
-cache.Forget("user:123")
+app.Cache.Forget("user:123")
 
 // Check if removed
-if !cache.Has("user:123") {
+if !app.Cache.Has("user:123") {
     fmt.Println("User cache cleared")
 }
 ```
@@ -242,56 +317,101 @@ Clear all values from the cache:
 
 ```go
 // Clear entire cache
-cache.Flush()
+app.Cache.Flush()
 ```
 
 ### Advanced Operations
 
 #### Remember
 
-Get from cache or compute and store:
+Get from cache or compute and store. The callback signature is `func() interface{}`, so any error inside the callback must be discarded. Prefer `RememberE` whenever the callback can fail.
 
 ```go
-import (
-    "time"
-    "github.com/velocitykode/velocity/cache"
-)
+import "time"
 
-func getExpensiveData(id int) (*Data, error) {
+// Use only when the callback cannot return a meaningful error.
+result, err := app.Cache.Remember("config:flags", 15*time.Minute, func() interface{} {
+    return staticFlags()
+})
+```
+
+#### RememberE
+
+Error-aware variant of `Remember`. The callback returns `(interface{}, error)`; on a non-nil error the cache slot is NOT written and the error is propagated. This prevents transient upstream failures from pinning a zero value for the full TTL.
+
+```go
+func getExpensiveData(app *velocity.App, id int) (*Data, error) {
     key := fmt.Sprintf("data:%d", id)
 
-    result, err := cache.Remember(key, 15*time.Minute, func() interface{} {
-        // This callback is only executed if cache miss
-        data, _ := queryDatabase(id)
-        return data
+    result, err := app.Cache.RememberE(key, 15*time.Minute, func() (interface{}, error) {
+        return queryDatabase(id)
     })
-
     if err != nil {
         return nil, err
     }
-
     return result.(*Data), nil
 }
 ```
+
+#### RememberEWithContext
+
+`RememberE` with a `context.Context`. The ctx threads through to the underlying driver via `ContextStore` so a slow Redis lookup is cancelled with the request. Memory and file drivers ignore the ctx transparently.
+
+```go
+func getRegions(app *velocity.App, ctx context.Context) ([]Region, error) {
+    val, err := app.Cache.RememberEWithContext(ctx, "regions", 5*time.Minute, func() (interface{}, error) {
+        return upstream.FetchRegions(ctx)
+    })
+    if err != nil {
+        return nil, err
+    }
+    return val.([]Region), nil
+}
+```
+
+#### RememberT
+
+Typed-generic shim over `RememberE` that returns `T` directly, skipping the `interface{}` assertion at the call site. The first argument is anything that satisfies `RememberEable` (the cache `*Manager` does).
+
+```go
+import "github.com/velocitykode/velocity/cache"
+
+region, err := cache.RememberT[Region](app.Cache, "regions:eu", 5*time.Minute, func() (Region, error) {
+    return upstream.FetchRegion("eu")
+})
+if err != nil {
+    return err
+}
+// region is Region, no cast needed.
+```
+
+`RememberTWithContext[T]` is the ctx-aware counterpart, taking any `RememberEContextable` (the cache `*Manager` again):
+
+```go
+region, err := cache.RememberTWithContext[Region](app.Cache, ctx, "regions:eu", 5*time.Minute, func() (Region, error) {
+    return upstream.FetchRegion(ctx, "eu")
+})
+```
+
+On a type mismatch (cache slot holds a different type than `T`), the function returns the zero `T` and an error so callers can detect corruption.
 
 #### RememberForever
 
 Get from cache or compute and store permanently:
 
 ```go
-func getAppConfig() (*Config, error) {
-    result, err := cache.RememberForever("app_config", func() interface{} {
-        // Load configuration from file or database
+func getAppConfig(app *velocity.App) (*Config, error) {
+    result, err := app.Cache.RememberForever("app_config", func() interface{} {
         return loadConfig()
     })
-
     if err != nil {
         return nil, err
     }
-
     return result.(*Config), nil
 }
 ```
+
+`RememberForeverE` is the error-aware variant; `RememberForeverWithContext` and `RememberForeverEWithContext` add ctx propagation.
 
 #### Increment / Decrement
 
@@ -299,19 +419,19 @@ Atomic increment or decrement of numeric values:
 
 ```go
 // Increment counter
-newValue, err := cache.Increment("page_views", 1)
+newValue, err := app.Cache.Increment("page_views", 1)
 if err != nil {
     log.Error("Failed to increment", "error", err)
 }
 
 // Increment by custom amount
-cache.Increment("total_sales", 150)
+app.Cache.Increment("total_sales", 150)
 
 // Decrement counter
-cache.Decrement("items_remaining", 1)
+app.Cache.Decrement("items_remaining", 1)
 
 // Decrement by custom amount
-cache.Decrement("stock_level", 10)
+app.Cache.Decrement("stock_level", 10)
 ```
 
 #### Has
@@ -319,7 +439,7 @@ cache.Decrement("stock_level", 10)
 Check if a key exists in the cache:
 
 ```go
-if cache.Has("user:123") {
+if app.Cache.Has("user:123") {
     fmt.Println("User is cached")
 } else {
     fmt.Println("User not in cache")
@@ -333,12 +453,9 @@ if cache.Has("user:123") {
 Store multiple values at once:
 
 ```go
-import (
-    "time"
-    "github.com/velocitykode/velocity/cache"
-)
+import "time"
 
-func cacheUserData(users []User) {
+func cacheUserData(app *velocity.App, users []User) {
     items := make(map[string]interface{})
 
     for _, user := range users {
@@ -347,7 +464,7 @@ func cacheUserData(users []User) {
     }
 
     // Store all users with 1 hour TTL
-    cache.PutMany(items, 1*time.Hour)
+    app.Cache.PutMany(items, 1*time.Hour)
 }
 ```
 
@@ -356,14 +473,14 @@ func cacheUserData(users []User) {
 Retrieve multiple values at once:
 
 ```go
-func getUserBatch(userIDs []int) map[string]interface{} {
+func getUserBatch(app *velocity.App, userIDs []int) map[string]interface{} {
     keys := make([]string, len(userIDs))
     for i, id := range userIDs {
         keys[i] = fmt.Sprintf("user:%d", id)
     }
 
     // Get all users at once
-    results := cache.Many(keys)
+    results := app.Cache.Many(keys)
 
     return results
 }
@@ -386,11 +503,9 @@ CACHE_STORES=session:memory,api:redis
 ### Using Named Stores
 
 ```go
-import "github.com/velocitykode/velocity/cache"
-
-func useMultipleStores() {
-    // Get named store
-    sessionStore, err := cache.GetStore("session")
+func useMultipleStores(app *velocity.App) {
+    // Get named store off the manager
+    sessionStore, err := app.Cache.Store("session")
     if err != nil {
         log.Error("Failed to get session store", "error", err)
         return
@@ -406,26 +521,21 @@ func useMultipleStores() {
 
 ### Manager for Advanced Usage
 
-For complex applications, use the Manager directly:
+The framework constructs a `*cache.Manager` during `velocity.New()` and exposes it as `app.Cache`. Reach for it directly when you need named stores or distributed locks:
 
 ```go
-import (
-    "github.com/velocitykode/velocity/cache"
-)
-
-func setupCaching() {
-    // Get cache manager
-    manager := cache.GetManager()
-
-    // Get specific store
-    apiCache, _ := manager.Store("api")
-    sessionCache, _ := manager.Store("session")
+func setupCaching(app *velocity.App) {
+    // Get specific stores from the manager
+    apiCache, _ := app.Cache.Store("api")
+    sessionCache, _ := app.Cache.Store("session")
 
     // Use different stores for different purposes
     apiCache.Put("api:users", users, 5*time.Minute)
     sessionCache.Put("session:123", sessionData, 30*time.Minute)
 }
 ```
+
+If you ever need a manager outside the framework lifecycle (tests, scripts), build one yourself with `cache.NewManager(&cache.Config{...})`. That is the only package-level constructor.
 
 ## Usage Patterns
 
@@ -434,22 +544,19 @@ func setupCaching() {
 Reduce database queries by caching user profiles:
 
 ```go
-func getUserProfile(userID int) (*User, error) {
+func getUserProfile(ctx *router.Context, userID int) (*User, error) {
     key := fmt.Sprintf("user:profile:%d", userID)
 
-    result, err := cache.Remember(key, 1*time.Hour, func() interface{} {
-        user, _ := db.QueryUser(userID)
-        return user
+    result, err := ctx.Cache().RememberE(key, 1*time.Hour, func() (interface{}, error) {
+        return db.QueryUser(userID)
     })
-
     if err != nil {
         return nil, err
     }
-
     return result.(*User), nil
 }
 
-func updateUserProfile(userID int, updates map[string]interface{}) error {
+func updateUserProfile(ctx *router.Context, userID int, updates map[string]interface{}) error {
     // Update database
     if err := db.UpdateUser(userID, updates); err != nil {
         return err
@@ -457,7 +564,7 @@ func updateUserProfile(userID int, updates map[string]interface{}) error {
 
     // Invalidate cache
     key := fmt.Sprintf("user:profile:%d", userID)
-    cache.Forget(key)
+    ctx.Cache().Forget(key)
 
     return nil
 }
@@ -468,19 +575,15 @@ func updateUserProfile(userID int, updates map[string]interface{}) error {
 Cache expensive API responses:
 
 ```go
-func fetchWeatherData(city string) (*Weather, error) {
+func fetchWeatherData(ctx *router.Context, city string) (*Weather, error) {
     key := fmt.Sprintf("weather:%s", city)
 
-    result, err := cache.Remember(key, 15*time.Minute, func() interface{} {
-        // Expensive API call
-        weather, _ := callWeatherAPI(city)
-        return weather
+    result, err := ctx.Cache().RememberE(key, 15*time.Minute, func() (interface{}, error) {
+        return callWeatherAPI(city)
     })
-
     if err != nil {
         return nil, err
     }
-
     return result.(*Weather), nil
 }
 ```
@@ -490,18 +593,18 @@ func fetchWeatherData(city string) (*Weather, error) {
 Implement rate limiting with cache counters:
 
 ```go
-func checkRateLimit(userID int) (bool, error) {
+func checkRateLimit(ctx *router.Context, userID int) (bool, error) {
     key := fmt.Sprintf("rate_limit:user:%d", userID)
 
     // Increment request counter
-    count, err := cache.Increment(key, 1)
+    count, err := ctx.Cache().Increment(key, 1)
     if err != nil {
         return false, err
     }
 
     // Set expiration on first request
     if count == 1 {
-        cache.Put(key, count, 1*time.Minute)
+        ctx.Cache().Put(key, count, 1*time.Minute)
     }
 
     // Check if over limit (e.g., 60 requests per minute)
@@ -518,15 +621,15 @@ func checkRateLimit(userID int) (bool, error) {
 Use cache for session data:
 
 ```go
-func storeSession(sessionID string, data map[string]interface{}) error {
+func storeSession(ctx *router.Context, sessionID string, data map[string]interface{}) error {
     key := fmt.Sprintf("session:%s", sessionID)
-    return cache.Put(key, data, 30*time.Minute)
+    return ctx.Cache().Put(key, data, 30*time.Minute)
 }
 
-func getSession(sessionID string) (map[string]interface{}, error) {
+func getSession(ctx *router.Context, sessionID string) (map[string]interface{}, error) {
     key := fmt.Sprintf("session:%s", sessionID)
 
-    val, found := cache.Get(key)
+    val, found := ctx.Cache().Get(key)
     if !found {
         return nil, fmt.Errorf("session not found")
     }
@@ -534,9 +637,9 @@ func getSession(sessionID string) (map[string]interface{}, error) {
     return val.(map[string]interface{}), nil
 }
 
-func destroySession(sessionID string) error {
+func destroySession(ctx *router.Context, sessionID string) error {
     key := fmt.Sprintf("session:%s", sessionID)
-    return cache.Forget(key)
+    return ctx.Cache().Forget(key)
 }
 ```
 
@@ -545,23 +648,20 @@ func destroySession(sessionID string) error {
 Cache database query results:
 
 ```go
-func getPopularPosts() ([]Post, error) {
+func getPopularPosts(ctx *router.Context) ([]Post, error) {
     key := "posts:popular"
 
-    result, err := cache.Remember(key, 10*time.Minute, func() interface{} {
-        posts, _ := db.Query(`
+    result, err := ctx.Cache().RememberE(key, 10*time.Minute, func() (interface{}, error) {
+        return db.Query(`
             SELECT * FROM posts
             WHERE published = true
             ORDER BY views DESC
             LIMIT 10
         `)
-        return posts
     })
-
     if err != nil {
         return nil, err
     }
-
     return result.([]Post), nil
 }
 ```
@@ -572,22 +672,29 @@ Use the memory driver for testing:
 
 ```go
 func TestCaching(t *testing.T) {
-    // Memory driver is automatically used
-    // Clear cache before each test
-    cache.Flush()
+    // Build a manager directly for tests; no .env required.
+    mgr := cache.NewManager(&cache.Config{
+        Default: "default",
+        Stores: map[string]cache.StoreConfig{
+            "default": {Driver: cache.DriverMemory},
+        },
+    })
+
+    // Clear cache before the assertions
+    mgr.Flush()
 
     // Test cache operations
-    cache.Put("test_key", "test_value", 1*time.Minute)
+    mgr.Put("test_key", "test_value", 1*time.Minute)
 
-    val, found := cache.Get("test_key")
+    val, found := mgr.Get("test_key")
     assert.True(t, found)
     assert.Equal(t, "test_value", val.(string))
 
     // Test expiration
-    cache.Put("expire_key", "value", 1*time.Millisecond)
+    mgr.Put("expire_key", "value", 1*time.Millisecond)
     time.Sleep(2 * time.Millisecond)
 
-    _, found = cache.Get("expire_key")
+    _, found = mgr.Get("expire_key")
     assert.False(t, found)
 }
 ```
@@ -627,7 +734,6 @@ func TestCaching(t *testing.T) {
 ```go
 import (
     "time"
-    "github.com/velocitykode/velocity/cache"
     "github.com/velocitykode/velocity/router"
 )
 
@@ -638,7 +744,7 @@ func (c *ProductHandler) Show(ctx *router.Context) error {
     key := fmt.Sprintf("product:%s", productID)
 
     // Try to get from cache
-    if val, found := cache.Get(key); found {
+    if val, found := ctx.Cache().Get(key); found {
         return ctx.JSON(200, val)
     }
 
@@ -649,7 +755,7 @@ func (c *ProductHandler) Show(ctx *router.Context) error {
     }
 
     // Store in cache for 1 hour
-    cache.Put(key, product, 1*time.Hour)
+    ctx.Cache().Put(key, product, 1*time.Hour)
 
     return ctx.JSON(200, product)
 }
@@ -663,8 +769,14 @@ func (c *ProductHandler) Update(ctx *router.Context) error {
     }
 
     // Invalidate cache
-    cache.Forget(fmt.Sprintf("product:%s", productID))
+    ctx.Cache().Forget(fmt.Sprintf("product:%s", productID))
 
     return ctx.JSON(200, map[string]string{"status": "updated"})
 }
 ```
+
+## Related
+
+- [Notifications](/docs/advanced/notifications/) for outbound delivery channels that frequently sit behind a cache.
+- [Queue](/docs/advanced/queue/) when work is too long for fire-and-forget caching and needs durable retries.
+- [CSRF](/docs/core/csrf/) which leans on the cache manager for token storage in distributed deployments.

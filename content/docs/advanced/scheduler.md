@@ -6,6 +6,18 @@ weight: 50
 
 Velocity provides a task scheduler for running recurring jobs with an expressive, fluent API.
 
+## Decision matrix
+
+Pick the registration helper that matches the closure shape and naming you need:
+
+| Situation | Helper |
+|---|---|
+| Closure has no error to report; OK with panic-only `OnFailure` | `Call(fn).Daily()` |
+| Closure returns an error you want `OnFailure` to see | `CallE(fn).Daily().OnFailure(handler)` |
+| Need a custom job name (not the auto-derived closure name) | `Named(name, fn)` / `NamedE(name, fn)` |
+| Run scheduler alongside HTTP serve | `app.WithSchedulerInProcess()` |
+| Run scheduler in separate process | `vel schedule:work` CLI |
+
 ## Quick Start
 
 {{< tabs items="Basic Scheduling,Daily Tasks,Complex Schedules" >}}
@@ -302,6 +314,24 @@ s.Call(func() {
     })
 ```
 
+{{< callout type="warning" title="Call vs CallE for OnFailure" >}}
+Closures registered via `Call` only reach `OnFailure` when they panic; a
+plain `error` return is invisible to the scheduler because the signature is
+`func()`. Use `CallE` (or `NamedE`) when your closure returns an `error` and
+you want `OnFailure` plus the `scheduled.failed` event to fire on the normal
+error path.
+
+```go
+s.CallE(func() error {
+    return syncData()
+}).Hourly().
+    OnFailure(func(err error) {
+        log.Error("Data sync failed", "error", err)
+        sendAlert(err)
+    })
+```
+{{< /callout >}}
+
 ### Global Hooks
 
 Run callbacks before/after each scheduler cycle:
@@ -333,6 +363,46 @@ s.Command("backup-db").Daily().
 s.Command("process-queue").Hourly().
     AppendOutputTo("storage/logs/queue.log")
 ```
+
+## Registering Jobs
+
+The scheduler exposes four closure-registration helpers. They differ along
+two axes: whether the closure returns an `error`, and whether you supply
+an explicit job name.
+
+```go
+// func() closure, auto-derived name (best-effort runtime symbol or "closure")
+s.Call(func() {
+    generateReports()
+}).Daily()
+
+// func() error closure; returned err feeds OnFailure + scheduled.failed
+s.CallE(func() error {
+    return generateReports()
+}).Daily().OnFailure(handleErr)
+
+// Explicit name + func() closure. Recommended when chaining WithoutOverlapping,
+// since the overlap guard keys on the job name.
+s.Named("reports:generate", func() {
+    generateReports()
+}).Daily().WithoutOverlapping()
+
+// Explicit name + func() error closure. Combines both ergonomic wins.
+s.NamedE("reports:generate", func() error {
+    return generateReports()
+}).Daily().WithoutOverlapping().OnFailure(handleErr)
+```
+
+`Call` and `CallE` derive a best-effort name from the closure's runtime
+symbol; anonymous functions land at `pkg.parent.func1` style identifiers
+that are not stable across builds. Reach for `Named` / `NamedE` whenever
+the job name needs to be stable, such as when you rely on
+`WithoutOverlapping` (the overlap guard collides if multiple closures
+share the default name).
+
+You can also chain `.Name("...")` on any job to override the derived name
+after registration; doing so silences the `WithoutOverlapping` collision
+warning for that job.
 
 ## Advanced Features
 
@@ -402,11 +472,15 @@ func (s *Scheduler) MaintenanceMode(enabled bool) *Scheduler
 
 // Define jobs
 func (s *Scheduler) Call(callback func()) *Job
+func (s *Scheduler) CallE(callback func() error) *Job
+func (s *Scheduler) Named(name string, callback func()) *Job
+func (s *Scheduler) NamedE(name string, callback func() error) *Job
 func (s *Scheduler) Command(command string, args ...string) *Job
+func (s *Scheduler) Add(job *Job) *Job
 
 // Lifecycle
 func (s *Scheduler) Run(ctx context.Context) error
-func (s *Scheduler) Stop()
+func (s *Scheduler) Shutdown(ctx context.Context) error
 
 // Global hooks
 func (s *Scheduler) Before(callback func()) *Scheduler
@@ -482,6 +556,44 @@ IsRunning() bool
 // Execution
 Run() error
 ```
+
+## Running Scheduled Work
+
+The scheduler is constructed during app bootstrap but does not start its
+ticker loop on its own. You have two deployment shapes:
+
+### In-process with HTTP serve
+
+For single-process deployments, opt the loop in via the
+`WithSchedulerInProcess` option when constructing the app. The scheduler
+starts after `Router.Freeze()` and before `http.Server.ListenAndServe`,
+binds to the app's shutdown context, and drains in-flight jobs through
+`Scheduler.Shutdown` on signal-driven shutdown.
+
+```go
+import "github.com/velocitykode/velocity"
+
+app := velocity.New(
+    velocity.WithSchedulerInProcess(),
+)
+
+if err := app.Serve(); err != nil {
+    log.Fatal(err)
+}
+```
+
+### Separate process via the CLI
+
+For multi-process deployments (one or more `vel serve` workers plus a
+dedicated scheduler), leave `WithSchedulerInProcess` off and run the
+scheduler in its own process:
+
+```bash
+vel schedule:work
+```
+
+Running the scheduler both in-process and via `vel schedule:work` against
+the same app will fire each job twice. Pick one shape per deployment.
 
 ## Best Practices
 
@@ -789,3 +901,9 @@ func TestJobConstraints(t *testing.T) {
     assert.False(t, job.IsDue(sunday))
 }
 ```
+
+## Related
+
+- [Queue](/docs/advanced/queue/) - durable jobs the scheduler can dispatch when a tick fires
+- [Async](/docs/core/async/) - fire-and-forget primitives for in-process work scheduled tasks may kick off
+- [Events](/docs/advanced/events/) - emit events from scheduled jobs so other listeners can react without coupling

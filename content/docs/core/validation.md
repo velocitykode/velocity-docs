@@ -6,10 +6,14 @@ weight: 50
 
 Velocity provides a flexible, extensible validation system for validating HTTP requests, form data, and general data structures. The validation package uses a declarative, rule-based approach designed for Go's type system.
 
+Import path: `github.com/velocitykode/velocity/validation`
+
+For HTTP handlers, the higher-level [form-request](/docs/core/form-requests) helper (`vform.Form[T]`) wraps the rules below with binding, flashing, and redirect-on-failure. Reach for `vform` first; reach for `validation.Check*` directly when you need a custom render path or you're validating data that isn't an HTTP request.
+
 ## Quick Start
 
 {{% callout type="info" %}}
-**Simple and Declarative**: Define validation rules as strings and let Velocity handle the rest.
+**Simple and Declarative**: Define validation rules as a slice of rule tokens per field and let Velocity handle the rest.
 {{% /callout %}}
 
 {{< tabs items="Basic Validation,HTTP Request Validation,Custom Messages" >}}
@@ -20,24 +24,21 @@ import "github.com/velocitykode/velocity/validation"
 
 func validateUser(data map[string]interface{}) error {
     rules := validation.Rules{
-        "email":    "required|email",
-        "password": "required|min:8",
-        "age":      "required|numeric|min:18",
-        "username": "required|alpha_num",
+        "email":    {"required", "email"},
+        "password": {"required", "min:8"},
+        "age":      {"required", "numeric", "min:18"},
+        "username": {"required", "alpha_num"},
     }
 
-    validated, err := validation.Validate(data, rules)
-    if err != nil {
-        // Handle validation errors
-        validationErr := err.(validation.ValidationErrors)
-        fmt.Println("Validation failed:", validationErr.Error())
-        return err
+    result := validation.CheckData(data, rules)
+    if result.HasErrors() {
+        // result.All() is map[string]string (first error per field).
+        // result.Messages() is map[string][]string (all errors per field).
+        fmt.Println("Validation failed:", result.All())
+        return result.Err()
     }
 
-    // Use validated data
-    email := validated.GetString("email")
-    age := validated.GetInt("age")
-
+    // No errors, use the input directly.
     return nil
 }
 ```
@@ -46,62 +47,65 @@ func validateUser(data map[string]interface{}) error {
 {{< tab >}}
 ```go
 import (
-    "github.com/velocitykode/velocity/http"
+    "github.com/velocitykode/velocity/router"
     "github.com/velocitykode/velocity/validation"
 )
 
-func RegisterUser(c *http.Context) error {
-    // Validate HTTP request
+func RegisterUser(c *router.Context) error {
     rules := validation.Rules{
-        "name":     "required|string",
-        "email":    "required|email",
-        "password": "required|min:8|confirmed",
-        "age":      "required|numeric|min:18",
-        "terms":    "required|accepted",
+        "name":     {"required", "string"},
+        "email":    {"required", "email"},
+        "password": {"required", "min:8", "confirmed"},
+        "age":      {"required", "numeric", "min:18"},
+        "terms":    {"required", "accepted"},
     }
 
-    validated, err := validation.ValidateRequest(c.Request, rules)
-    if err != nil {
+    result := validation.Check(c.Request, rules)
+    if result.HasErrors() {
         return c.JSON(422, map[string]interface{}{
-            "errors": err.(validation.ValidationErrors).All(),
+            "errors": result.Messages(),
         })
     }
 
-    // Create user with validated data
-    user := &User{
-        Name:     validated.GetString("name"),
-        Email:    validated.GetString("email"),
-        Password: validated.GetString("password"),
-        Age:      validated.GetInt("age"),
+    // Validation passed, bind the request body and proceed.
+    var input struct {
+        Name, Email, Password string
+        Age                   int
+    }
+    if err := c.BindAuto(&input); err != nil {
+        return err
     }
 
-    return c.JSON(200, user)
+    return c.JSON(200, input)
 }
 ```
 {{< /tab >}}
 
 {{< tab >}}
 ```go
-import "github.com/velocitykode/velocity/validation"
+import (
+    "github.com/velocitykode/velocity/router"
+    "github.com/velocitykode/velocity/validation"
+)
 
-func validateWithCustomMessages(data map[string]interface{}) error {
+func validateWithCustomMessages(c *router.Context) error {
     rules := validation.Rules{
-        "email":    "required|email",
-        "password": "required|min:8",
+        "email":    {"required", "email"},
+        "password": {"required", "min:8"},
     }
 
-    // Set custom error messages
-    validator := validation.Get()
-    validator.SetMessages(validation.Messages{
+    messages := validation.Messages{
         "email.required":    "Please provide your email address",
         "email.email":       "Please enter a valid email address",
         "password.required": "Password is required",
         "password.min":      "Password must be at least 8 characters",
-    })
+    }
 
-    validated, err := validator.Validate(data, rules)
-    if err != nil {
-        return err
+    result := validation.Check(c.Request, rules, messages)
+    if result.HasErrors() {
+        return c.JSON(422, map[string]interface{}{
+            "errors": result.Messages(),
+        })
     }
 
     return nil
@@ -110,6 +114,28 @@ func validateWithCustomMessages(data map[string]interface{}) error {
 {{< /tab >}}
 
 {{< /tabs >}}
+
+## Migrating from `map[string]string`
+
+`validation.Rules` is now `map[string][]string`. Each field maps to an ordered slice of rule tokens. The legacy single-string-per-field form (e.g. `"required|email"`) lives on as `validation.PipeRules` and converts via `validation.NewRules`:
+
+```go
+// Legacy pipe-string form (still accepted via PipeRules).
+legacy := validation.PipeRules{
+    "email":    "required|email",
+    "password": "required|min:8|confirmed",
+}
+
+// Canonical form.
+rules := validation.NewRules(legacy)
+// equivalent to:
+//   validation.Rules{
+//       "email":    {"required", "email"},
+//       "password": {"required", "min:8", "confirmed"},
+//   }
+```
+
+Pipe-delimited tokens inside a single slice element (`{"required|email"}`) are still accepted, the validator splits on `|` before evaluating, so existing code paths keep working while you migrate. New code should write the slice form directly.
 
 ## Configuration
 
@@ -128,665 +154,421 @@ VALIDATION_BAIL_ON_ERROR=true
 
 ## Available Rules
 
-### Presence Rules
+Velocity ships 49 built-in rules plus two database rules (`unique`, `exists`) that are registered automatically when validation runs against an `orm.Database` (i.e. `CheckWithDB` / `CheckDataWithDB`, or via `vform.Form[T]` when the request has services attached).
+
+The table below is the complete catalog. The "Empty input" column describes how the rule treats a `nil` or absent field; combine with `required` to enforce presence and with `nullable` / `filled` for opt-out semantics.
+
+| Rule | Args | Example | Empty input |
+|---|---|---|---|
+| `accepted` | (none) | `{"terms": {"accepted"}}` | fails |
+| `alpha` | (none) | `{"name": {"alpha"}}` | passes (use with `required`) |
+| `alpha_dash` | (none) | `{"slug": {"alpha_dash"}}` | passes |
+| `alpha_num` | (none) | `{"username": {"alpha_num"}}` | passes |
+| `array` | (none) | `{"tags": {"array"}}` | passes |
+| `between` | `min,max` | `{"age": {"numeric", "between:18,65"}}` | passes |
+| `boolean` | (none) | `{"active": {"boolean"}}` | passes |
+| `confirmed` | (none) | `{"password": {"confirmed"}}` | passes (skipped when value is `nil`) |
+| `date` | (none) | `{"published_at": {"date"}}` | passes |
+| `date_format` | `layout` | `{"day": {"date_format:2006-01-02"}}` | passes |
+| `different` | `field` | `{"alt_email": {"different:email"}}` | passes |
+| `email` | (none) | `{"email": {"email"}}` | empty string fails; `nil` passes |
+| `ends_with` | `suffix[,...]` | `{"file": {"ends_with:.pdf,.png"}}` | passes |
+| `exists` | `table[,column]` | `{"team_id": {"exists:teams,id"}}` | passes (DB rule, requires `CheckWithDB`) |
+| `file` | (none) | `{"avatar": {"file"}}` | passes |
+| `filled` | (none) | `{"bio": {"filled"}}` | passes when field absent; fails when present-but-empty |
+| `gt` | `n` or `field` | `{"max": {"gt:min"}}` | passes |
+| `gte` | `n` or `field` | `{"qty": {"gte:1"}}` | passes |
+| `image` | (none) | `{"avatar": {"image"}}` | passes |
+| `in` | `v[,v,...]` | `{"role": {"in:admin,user,mod"}}` | passes |
+| `integer` | (none) | `{"age": {"integer"}}` | passes |
+| `ip` | (none) | `{"addr": {"ip"}}` | empty string fails; `nil` passes |
+| `ipv4` | (none) | `{"addr": {"ipv4"}}` | empty string fails; `nil` passes |
+| `ipv6` | (none) | `{"addr": {"ipv6"}}` | empty string fails; `nil` passes |
+| `json` | (none) | `{"meta": {"json"}}` | passes |
+| `lt` | `n` or `field` | `{"min": {"lt:max"}}` | passes |
+| `lte` | `n` or `field` | `{"qty": {"lte:100"}}` | passes |
+| `max` | `n` | `{"bio": {"max:500"}}` | passes |
+| `mimes` | `ext[,ext,...]` | `{"upload": {"mimes:jpg,png,pdf"}}` | passes |
+| `min` | `n` | `{"password": {"min:8"}}` | passes |
+| `not_in` | `v[,v,...]` | `{"username": {"not_in:admin,root"}}` | passes |
+| `nullable` | (none) | `{"middle_name": {"nullable", "string"}}` | always passes (marker) |
+| `numeric` | (none) | `{"price": {"numeric"}}` | passes |
+| `password` | `[len][,mixed][,num][,symbol]` | `{"pw": {"password:12"}}` | fails (treats empty as missing) |
+| `present` | (none) | `{"opt_in": {"present"}}` | fails when key absent; passes when key present-but-empty |
+| `regex` | `pattern` | `{"sku": {"regex:^[A-Z]{3}-\\d{4}$"}}` | passes (pattern must be `^...$` anchored) |
+| `required` | (none) | `{"name": {"required"}}` | fails on `nil`, `""`, empty slice/map |
+| `required_if` | `field,value` | `{"phone": {"required_if:contact,phone"}}` | conditional |
+| `required_unless` | `field,value` | `{"company": {"required_unless:type,personal"}}` | conditional |
+| `required_with` | `field` | `{"shipping": {"required_with:address"}}` | conditional |
+| `required_without` | `field` | `{"sku": {"required_without:gtin"}}` | conditional |
+| `same` | `field` | `{"pw_confirm": {"same:password"}}` | passes |
+| `size` | `n` | `{"zip": {"size:5"}}` | passes |
+| `starts_with` | `prefix[,...]` | `{"url": {"starts_with:https://"}}` | passes |
+| `string` | (none) | `{"name": {"string"}}` | passes |
+| `timezone` | (none) | `{"tz": {"timezone"}}` | empty string fails; `nil` passes |
+| `ulid` | (none) | `{"id": {"ulid"}}` | passes |
+| `unique` | `table[,column[,exceptID[,idCol]]]` | `{"email": {"unique:users,email"}}` | passes (DB rule, requires `CheckWithDB`) |
+| `url` | (none) | `{"website": {"url"}}` | empty string fails; `nil` passes |
+| `url_public` | (none) | `{"webhook": {"url_public"}}` | same as `url` plus rejects private/internal hosts |
+| `uuid` | (none) | `{"id": {"uuid"}}` | passes |
+
+{{% callout type="info" title="`confirmed` cross-field semantics" %}}
+The `confirmed` rule on field `<X>` looks for a sibling field named `<X>_confirmation` in the input map and compares the two with `reflect.DeepEqual`. The convention is fixed; the suffix is not configurable. If the confirmation field is missing or differs, validation fails with `"The <X> confirmation does not match."`.
+
+```go
+rules := validation.Rules{
+    "password": {"required", "min:8", "confirmed"},
+}
+
+// Both fields must arrive in the request:
+//   password=secret123
+//   password_confirmation=secret123
+```
+
+`confirmed` returns success when the source field is `nil`, so combine it with `required` if the field itself is mandatory. Use [`same`](#same--different) instead when you need to match against an arbitrary field name.
+{{% /callout %}}
+
+### Highlights
 
 #### required
 
-Field must be present and not empty:
+Field must be present and not empty (`nil`, `""`, empty slice, empty map all fail):
 
 ```go
-rules := validation.Rules{
-    "name": "required",
-}
-// ✓ "John"
-// ✗ "" (empty string)
-// ✗ nil
+rules := validation.Rules{"name": {"required"}}
 ```
 
-#### nullable
+#### nullable / filled / present
 
-Field can be null or empty:
-
-```go
-rules := validation.Rules{
-    "middle_name": "nullable|string",
-}
-// ✓ "Smith"
-// ✓ ""
-// ✓ nil
-```
-
-#### filled
-
-If field is present, it must not be empty:
+`nullable` is a marker: it always passes and lets a value be `nil` or empty without other rules tripping. `filled` accepts an absent field but fails when the field is present and empty. `present` requires the key to exist in the input map but allows an empty value.
 
 ```go
 rules := validation.Rules{
-    "bio": "filled",
-}
-// ✓ "Hello world"
-// ✓ (field not present)
-// ✗ "" (empty when present)
-```
-
-#### present
-
-Field must be present (but can be empty):
-
-```go
-rules := validation.Rules{
-    "accept_terms": "present",
-}
-// ✓ "" (present but empty)
-// ✓ "yes"
-// ✗ (field not in data)
-```
-
-### Type Rules
-
-#### string
-
-Value must be a string:
-
-```go
-rules := validation.Rules{
-    "name": "string",
-}
-// ✓ "John"
-// ✗ 123
-```
-
-#### integer
-
-Value must be an integer:
-
-```go
-rules := validation.Rules{
-    "age": "integer",
-}
-// ✓ 25
-// ✗ "25"
-// ✗ 25.5
-```
-
-#### numeric
-
-Value must be numeric (integer or float):
-
-```go
-rules := validation.Rules{
-    "price": "numeric",
-}
-// ✓ 99
-// ✓ 99.99
-// ✗ "99.99"
-```
-
-#### boolean
-
-Value must be boolean:
-
-```go
-rules := validation.Rules{
-    "active": "boolean",
-}
-// ✓ true
-// ✓ false
-// ✗ "true"
-```
-
-#### array
-
-Value must be an array:
-
-```go
-rules := validation.Rules{
-    "tags": "array",
-}
-// ✓ []string{"go", "web"}
-// ✗ "go,web"
-```
-
-### String Rules
-
-#### email
-
-Value must be a valid email address:
-
-```go
-rules := validation.Rules{
-    "email": "email",
-}
-// ✓ "user@example.com"
-// ✗ "invalid-email"
-```
-
-#### url
-
-Value must be a valid URL:
-
-```go
-rules := validation.Rules{
-    "website": "url",
-}
-// ✓ "https://example.com"
-// ✗ "not-a-url"
-```
-
-#### alpha
-
-Value must contain only alphabetic characters:
-
-```go
-rules := validation.Rules{
-    "name": "alpha",
-}
-// ✓ "John"
-// ✗ "John123"
-```
-
-#### alpha_num
-
-Value must contain only alphanumeric characters:
-
-```go
-rules := validation.Rules{
-    "username": "alpha_num",
-}
-// ✓ "user123"
-// ✗ "user_123"
-```
-
-#### alpha_dash
-
-Value must contain only alphanumeric characters, dashes, and underscores:
-
-```go
-rules := validation.Rules{
-    "slug": "alpha_dash",
-}
-// ✓ "my-post_title"
-// ✗ "my post!"
-```
-
-### Size Rules
-
-#### min
-
-Minimum value or length:
-
-```go
-rules := validation.Rules{
-    "password": "min:8",      // String: min 8 characters
-    "age":      "numeric|min:18",  // Number: min value 18
-    "tags":     "array|min:2",     // Array: min 2 elements
+    "middle_name": {"nullable", "string"},
+    "bio":         {"filled"},
+    "opt_in":      {"present"},
 }
 ```
 
-#### max
+#### min / max / size / between
 
-Maximum value or length:
+These rules adapt to the value's type. On strings they measure character length; on numbers they compare values; on slices they count elements.
 
 ```go
 rules := validation.Rules{
-    "bio":   "max:500",       // String: max 500 characters
-    "age":   "numeric|max:120",    // Number: max value 120
-    "tags":  "array|max:10",       // Array: max 10 elements
+    "password": {"min:8"},
+    "bio":      {"max:500"},
+    "zip_code": {"size:5"},
+    "age":      {"numeric", "between:18,65"},
 }
 ```
 
-#### size
+#### confirmed / same / different
 
-Exact value or length:
+Cross-field comparisons. `confirmed` is a special-cased `same` that targets `<field>_confirmation`. `same` and `different` accept any sibling field name as their parameter.
 
 ```go
 rules := validation.Rules{
-    "zip_code": "size:5",     // String: exactly 5 characters
-    "rating":   "numeric|size:5",  // Number: exactly 5
-    "choices":  "array|size:3",    // Array: exactly 3 elements
+    "password":         {"required", "confirmed"},
+    "password_confirm": {"same:password"},
+    "alt_email":        {"different:email"},
 }
 ```
 
-#### between
+#### in / not_in
 
-Value must be between two values:
-
-```go
-rules := validation.Rules{
-    "age":      "numeric|between:18,65",
-    "username": "between:3,20",
-}
-```
-
-### Comparison Rules
-
-#### same
-
-Field must have the same value as another field:
+Value must (or must not) be in a comma-separated list:
 
 ```go
 rules := validation.Rules{
-    "password":         "required",
-    "password_confirm": "same:password",
+    "role":     {"in:admin,user,moderator"},
+    "username": {"not_in:admin,root,system"},
 }
-```
-
-#### different
-
-Field must have a different value from another field:
-
-```go
-rules := validation.Rules{
-    "email":     "required|email",
-    "alt_email": "different:email",
-}
-```
-
-#### confirmed
-
-Field must have a matching confirmation field:
-
-```go
-rules := validation.Rules{
-    "password": "confirmed",  // Looks for "password_confirmation"
-}
-
-// Form data must include both:
-// password: "secret123"
-// password_confirmation: "secret123"
-```
-
-#### in
-
-Value must be in a list of values:
-
-```go
-rules := validation.Rules{
-    "role": "in:admin,user,moderator",
-}
-// ✓ "admin"
-// ✗ "superadmin"
-```
-
-#### not_in
-
-Value must not be in a list of values:
-
-```go
-rules := validation.Rules{
-    "username": "not_in:admin,root,system",
-}
-// ✓ "john"
-// ✗ "admin"
 ```
 
 #### accepted
 
-Field must be yes, on, 1, or true (useful for terms of service):
+Field must be `yes`, `on`, `1`, or `true` (case-insensitive). Useful for terms-of-service checkboxes:
+
+```go
+rules := validation.Rules{"terms": {"accepted"}}
+```
+
+#### required_if / required_unless / required_with / required_without
+
+Conditional presence rules. Use them when a field is required only when another field has a particular value, or only when another field is present/absent:
 
 ```go
 rules := validation.Rules{
-    "terms": "accepted",
+    "phone":    {"required_if:contact,phone"},
+    "company":  {"required_unless:type,personal"},
+    "shipping": {"required_with:address"},
+    "sku":      {"required_without:gtin"},
 }
-// ✓ "yes", "on", "1", true
-// ✗ "no", "off", "0", false
+```
+
+#### gt / gte / lt / lte
+
+Strict / inclusive numeric comparisons. The parameter may be a numeric literal or another field name, in which case the threshold is read from that field's numeric value:
+
+```go
+rules := validation.Rules{
+    "max_price": {"numeric", "gt:min_price"},
+    "qty":       {"numeric", "lte:100"},
+}
+```
+
+#### password
+
+Stricter than `min`. Defaults to length >= 8 plus at least one upper, lower, digit, and symbol. A single numeric parameter overrides only the length; flag tokens (`mixed`, `num`, `symbol`, `length:<n>`) tune the requirements:
+
+```go
+rules := validation.Rules{
+    "pw": {"password:12"},                    // length >= 12, all defaults
+    "pw": {"password:8,mixed,num,symbol"},    // explicit
+}
+```
+
+#### regex
+
+Pattern must be anchored with `^...$` and is rejected if it contains obvious catastrophic-backtracking shapes (e.g. `(a+)+`). Each evaluation is bounded to 10 ms.
+
+```go
+rules := validation.Rules{"sku": {"regex:^[A-Z]{3}-\\d{4}$"}}
+```
+
+#### file / mimes / image
+
+`file` confirms the value carries `*multipart.FileHeader`-shaped metadata. `mimes` checks the filename's extension (no content sniffing) against a comma-separated allowlist. `image` is a shortcut for the common image extensions (`jpg`, `jpeg`, `png`, `gif`, `webp`, `bmp`, `svg`, `heic`, `heif`, `avif`).
+
+```go
+rules := validation.Rules{
+    "avatar":   {"image", "max:2048"},
+    "document": {"file", "mimes:pdf,docx"},
+}
+```
+
+#### unique / exists (database rules)
+
+Registered only when validation has access to an `orm.Database`. `vform.Form[T]` wires this automatically from `ctx.Services.DB`; with the lower-level entry points use `validation.CheckWithDB` / `validation.CheckDataWithDB`.
+
+```go
+rules := validation.Rules{
+    "email":   {"required", "email", "unique:users,email"},
+    "team_id": {"required", "exists:teams,id"},
+}
+
+// On update, exclude the current row by id:
+rules = validation.Rules{
+    "email": {"required", "email", "unique:users,email," + userID},
+}
 ```
 
 ## API Reference
 
-### Global Functions
+### Top-level entry points
 
-#### Validate
+`Check`, `CheckData`, `CheckWithDB`, and `CheckDataWithDB` are the package's public entry points. They all return a `*Result` whose `HasErrors()`, `All()`, `Messages()`, `First()`, and `Old()` methods drive both JSON responses and view-side flash data.
 
-Validate data against rules:
+#### Check
 
-```go
-data := map[string]interface{}{
-    "email": "user@example.com",
-    "age":   25,
-}
-
-rules := validation.Rules{
-    "email": "required|email",
-    "age":   "required|numeric|min:18",
-}
-
-validated, err := validation.Validate(data, rules)
-if err != nil {
-    // Handle validation errors
-    validationErr := err.(validation.ValidationErrors)
-    for field, messages := range validationErr.All() {
-        fmt.Printf("%s: %v\n", field, messages)
-    }
-    return err
-}
-
-// Access validated data
-email := validated.GetString("email")
-age := validated.GetInt("age")
-```
-
-#### ValidateRequest
-
-Validate HTTP request:
+Validate an HTTP request (form values or JSON body, auto-detected from `Content-Type`):
 
 ```go
-func handler(c *http.Context) error {
+func handler(c *router.Context) error {
     rules := validation.Rules{
-        "email": "required|email",
-        "name":  "required|string",
+        "email": {"required", "email"},
+        "name":  {"required", "string"},
     }
 
-    validated, err := validation.ValidateRequest(c.Request, rules)
-    if err != nil {
+    result := validation.Check(c.Request, rules)
+    if result.HasErrors() {
         return c.JSON(422, map[string]interface{}{
-            "errors": err.(validation.ValidationErrors).All(),
+            "errors": result.Messages(),
         })
     }
-
-    return c.JSON(200, validated.All())
+    // ... bind and continue
+    return nil
 }
 ```
 
-#### ValidateValue
+#### CheckData
 
-Validate a single value:
+Validate a pre-extracted `map[string]interface{}`:
 
 ```go
-email := "user@example.com"
-err := validation.ValidateValue(email, "required|email")
-if err != nil {
-    fmt.Println("Invalid email:", err)
+data := map[string]interface{}{"email": "user@example.com", "age": 25}
+result := validation.CheckData(data, validation.Rules{
+    "email": {"required", "email"},
+    "age":   {"required", "numeric", "min:18"},
+})
+if err := result.Err(); err != nil {
+    // err wraps validation.ErrValidationFailed and unwraps to ValidationErrors
+    return err
 }
 ```
 
-### ValidatedData Methods
+#### CheckWithDB / CheckDataWithDB
 
-#### Get
-
-Get any value:
+Same as above but with `unique` and `exists` rules registered against an `orm.Database`:
 
 ```go
-value := validated.Get("field_name")
+result := validation.CheckWithDB(c.Request, rules, c.Services.DB)
 ```
 
-#### GetString
+### Result methods
 
-Get a string value:
+| Method | Returns |
+|---|---|
+| `HasErrors()` | `bool`: true when at least one field failed |
+| `First(field)` | first message for `field`, or `""` |
+| `All()` | `map[string]string`, first message per field (Inertia-friendly shape) |
+| `Messages()` | `map[string][]string`, all messages per field |
+| `Err()` | `error` wrapping `ErrValidationFailed`; `nil` on success. Satisfies `errors.As(&ValidationErrors{})` |
+| `Old()` | `map[string]interface{}` of original input with `password` / `secret` / `token` fields stripped, suitable for flashing |
 
-```go
-name := validated.GetString("name")
-```
+### ValidationErrors
 
-#### GetInt
-
-Get an integer value:
-
-```go
-age := validated.GetInt("age")
-```
-
-#### GetBool
-
-Get a boolean value:
+When you unwrap `Result.Err()` with `errors.As(&validation.ValidationErrors{})`, you get the lower-level shape:
 
 ```go
-active := validated.GetBool("active")
-```
-
-#### All
-
-Get all validated data:
-
-```go
-data := validated.All()
-```
-
-#### HasErrors
-
-Check if validation failed:
-
-```go
-if validated.HasErrors() {
-    // Handle errors
+var ve validation.ValidationErrors
+if errors.As(result.Err(), &ve) {
+    ve.Count()                     // total error count
+    ve.HasError("email")           // bool
+    ve.First("email")              // first message
+    ve.All()                       // map[string][]string
+    ve.HasRule("email", "required")// bool, prefer over substring match
+    ve.RulesFor("email")           // []string of rule names that failed
 }
 ```
 
-#### Errors
-
-Get validation errors:
-
-```go
-errors := validated.Errors()
-```
-
-### ValidationErrors Methods
-
-#### Error
-
-Get error message as string:
-
-```go
-err := validation.Validate(data, rules)
-if err != nil {
-    fmt.Println(err.Error())
-    // Output: "validation failed: email: email is required; age: age must be numeric"
-}
-```
-
-#### HasError
-
-Check if a field has errors:
-
-```go
-if errors.HasError("email") {
-    // Email field has validation errors
-}
-```
-
-#### First
-
-Get the first error for a field:
-
-```go
-emailError := errors.First("email")
-fmt.Println(emailError)
-```
-
-#### All
-
-Get all errors:
-
-```go
-allErrors := errors.All()
-for field, messages := range allErrors {
-    fmt.Printf("%s: %v\n", field, messages)
-}
-```
-
-#### Count
-
-Get total error count:
-
-```go
-count := errors.Count()
-fmt.Printf("Total validation errors: %d\n", count)
-```
-
-#### IsEmpty
-
-Check if there are no errors:
-
-```go
-if errors.IsEmpty() {
-    // No validation errors
-}
-```
+`errors.Is(result.Err(), validation.ErrValidationFailed)` works for the generic "validation failed" branch.
 
 ## Custom Validation Rules
 
-You can register custom validation rules:
+`validation.Rules` is the type for the rule set; `validation.RuleHandler` is the signature for a custom rule. Custom rules must be registered on a `Validator` instance returned by `validation.NewValidator()`. There is no global rule registry; this keeps custom rules opt-in per validator.
 
 ```go
-import "github.com/velocitykode/velocity/validation"
+import (
+    "fmt"
+    "unicode"
 
-func init() {
-    // Register a custom "strong_password" rule
-    validation.RegisterRule("strong_password", func(
+    "github.com/velocitykode/velocity/validation"
+)
+
+func newAppValidator() validation.Validator {
+    v := validation.NewValidator()
+    v.RegisterRule("strong_password", func(
         field string,
         value interface{},
         params []string,
         data map[string]interface{},
     ) error {
-        password, ok := value.(string)
+        pw, ok := value.(string)
         if !ok {
-            return fmt.Errorf("%s must be a string", field)
+            return fmt.Errorf("The %s field must be a string.", field)
         }
 
-        // Check password strength
-        hasUpper := false
-        hasLower := false
-        hasNumber := false
-        hasSpecial := false
-
-        for _, char := range password {
+        var hasUpper, hasLower, hasNumber, hasSpecial bool
+        for _, r := range pw {
             switch {
-            case unicode.IsUpper(char):
+            case unicode.IsUpper(r):
                 hasUpper = true
-            case unicode.IsLower(char):
+            case unicode.IsLower(r):
                 hasLower = true
-            case unicode.IsNumber(char):
+            case unicode.IsNumber(r):
                 hasNumber = true
-            case unicode.IsPunct(char) || unicode.IsSymbol(char):
+            case unicode.IsPunct(r) || unicode.IsSymbol(r):
                 hasSpecial = true
             }
         }
-
         if !hasUpper || !hasLower || !hasNumber || !hasSpecial {
-            return fmt.Errorf(
-                "%s must contain uppercase, lowercase, number, and special character",
-                field,
-            )
+            return fmt.Errorf("The %s must contain uppercase, lowercase, number, and special character.", field)
         }
-
         return nil
     })
+    return v
 }
 
 // Usage
-rules := validation.Rules{
-    "password": "required|min:8|strong_password",
-}
-```
-
-## Custom Error Messages
-
-### Per-Validator Messages
-
-```go
-validator := validation.Get()
-validator.SetMessages(validation.Messages{
-    "email.required": "We need your email address",
-    "email.email":    "That doesn't look like a valid email",
-    "password.min":   "Password should be at least 8 characters",
+v := newAppValidator()
+result, err := v.Validate(data, validation.Rules{
+    "password": {"required", "min:8", "strong_password"},
 })
 ```
 
-### Inline Messages
+For most adopters the built-in [`password`](#password) rule is enough; reach for a custom rule only when the policy is genuinely app-specific.
 
-```go
-func validateWithMessages(data map[string]interface{}) error {
-    rules := validation.Rules{
-        "email":    "required|email",
-        "password": "required|min:8",
-    }
+## Custom Error Messages
 
-    messages := validation.Messages{
-        "email.required":    "Email is required",
-        "email.email":       "Invalid email format",
-        "password.required": "Password is required",
-        "password.min":      "Password must be at least 8 characters",
-    }
-
-    validator := validation.Get()
-    validator.SetMessages(messages)
-
-    return validator.Validate(data, rules)
-}
-```
-
-## Best Practices
-
-### 1. Validate Early
-
-Validate input as soon as it enters your application:
-
-```go
-func CreateUser(c *http.Context) error {
-    // Validate first, before any business logic
-    validated, err := validation.ValidateRequest(c.Request, validation.Rules{
-        "email": "required|email",
-        "name":  "required|string",
-    })
-    if err != nil {
-        return c.JSON(422, map[string]interface{}{
-            "errors": err.(validation.ValidationErrors).All(),
-        })
-    }
-
-    // Now proceed with business logic
-    user := createUserFromValidatedData(validated)
-    return c.JSON(201, user)
-}
-```
-
-### 2. Use Type-Safe Getters
-
-Use the typed getters to avoid type assertions:
-
-```go
-// Good: Type-safe
-age := validated.GetInt("age")
-email := validated.GetString("email")
-active := validated.GetBool("active")
-
-// Avoid: Manual type assertion
-age := validated.Get("age").(int)  // Can panic!
-```
-
-### 3. Provide Clear Error Messages
-
-Use custom messages to improve user experience:
+The high-level entry points accept a variadic `Messages` map keyed by `"field.rule"`:
 
 ```go
 messages := validation.Messages{
-    "email.email":      "Please enter a valid email address",
-    "password.min":     "Your password needs to be at least 8 characters",
-    "terms.accepted":   "You must accept the terms of service",
+    "email.required":   "Email is required",
+    "email.email":      "Invalid email format",
+    "password.required": "Password is required",
+    "password.min":     "Password must be at least 8 characters",
+}
+
+result := validation.Check(c.Request, rules, messages)
+```
+
+When using a `validation.NewValidator()` instance directly, call `SetMessages` once before invoking `Validate` / `ValidateRequest`. From a [form-request](/docs/core/form-requests), implement the `WithMessages` interface and `vform.Form[T]` will pass them through.
+
+## Best Practices
+
+### 1. Validate at the edge
+
+Validate as soon as input enters the handler, before any business logic:
+
+```go
+func CreateUser(c *router.Context) error {
+    result := validation.Check(c.Request, validation.Rules{
+        "email": {"required", "email"},
+        "name":  {"required", "string"},
+    })
+    if result.HasErrors() {
+        return c.JSON(422, map[string]interface{}{
+            "errors": result.Messages(),
+        })
+    }
+    // ... bind + business logic
+    return nil
 }
 ```
 
-### 4. Combine Rules Appropriately
+### 2. Prefer `vform.Form[T]` for HTTP
 
-Order rules from general to specific:
+[Form requests](/docs/core/form-requests) bundle binding, validation, flashing, and redirect-back into one call. Use `validation.Check*` directly only when you need a custom render path or you're validating data that isn't an HTTP request.
+
+### 3. Provide clear error messages
+
+```go
+messages := validation.Messages{
+    "email.email":    "Please enter a valid email address",
+    "password.min":   "Your password needs to be at least 8 characters",
+    "terms.accepted": "You must accept the terms of service",
+}
+```
+
+### 4. Order rules from general to specific
 
 ```go
 rules := validation.Rules{
-    // Good: required first, then type, then constraints
-    "age": "required|numeric|min:18|max:120",
-
-    // Less clear
-    "age": "min:18|max:120|required|numeric",
+    // Good: required first, then type, then constraints.
+    "age": {"required", "numeric", "min:18", "max:120"},
 }
 ```
 
-### 5. Create Reusable Rule Sets
+### 5. Reuse rule sets
 
 ```go
 var (
-    EmailRules    = "required|email"
-    PasswordRules = "required|min:8|strong_password"
-    PhoneRules    = "required|numeric|size:10"
+    EmailRules    = []string{"required", "email"}
+    PasswordRules = []string{"required", "min:8", "strong_password"}
+    PhoneRules    = []string{"required", "numeric", "size:10"}
 )
 
 rules := validation.Rules{
@@ -798,124 +580,73 @@ rules := validation.Rules{
 
 ## Complete Example
 
-Here's a complete example of a user registration endpoint with validation:
+Here's a full user-registration endpoint using `validation.CheckWithDB` (so the `unique` rule resolves against the database):
 
 ```go
 package handlers
 
 import (
-    "github.com/velocitykode/velocity/http"
+    "github.com/velocitykode/velocity/router"
     "github.com/velocitykode/velocity/validation"
 )
 
 type UserHandler struct{}
 
-func (uc *UserHandler) Register(c *http.Context) error {
-    // Define validation rules
+func (uc *UserHandler) Register(c *router.Context) error {
     rules := validation.Rules{
-        "name":                 "required|string|min:2|max:100",
-        "email":                "required|email",
-        "password":             "required|min:8|confirmed",
-        "password_confirmation": "required",
-        "age":                  "required|numeric|min:18",
-        "terms":                "required|accepted",
-        "newsletter":           "nullable|boolean",
+        "name":                  {"required", "string", "min:2", "max:100"},
+        "email":                 {"required", "email", "unique:users,email"},
+        "password":              {"required", "min:8", "confirmed"},
+        "password_confirmation": {"required"},
+        "age":                   {"required", "numeric", "min:18"},
+        "terms":                 {"required", "accepted"},
+        "newsletter":            {"nullable", "boolean"},
     }
 
-    // Custom error messages
     messages := validation.Messages{
-        "name.required":     "Please tell us your name",
-        "name.min":          "Name must be at least 2 characters",
-        "email.required":    "We need your email address",
-        "email.email":       "Please enter a valid email address",
-        "password.required": "Password is required",
-        "password.min":      "Password must be at least 8 characters",
+        "name.required":      "Please tell us your name",
+        "name.min":           "Name must be at least 2 characters",
+        "email.required":     "We need your email address",
+        "email.email":        "Please enter a valid email address",
+        "email.unique":       "That email is already registered",
+        "password.required":  "Password is required",
+        "password.min":       "Password must be at least 8 characters",
         "password.confirmed": "Passwords do not match",
-        "age.required":      "Please provide your age",
-        "age.min":           "You must be at least 18 years old",
-        "terms.accepted":    "You must accept the terms of service",
+        "age.required":       "Please provide your age",
+        "age.min":            "You must be at least 18 years old",
+        "terms.accepted":     "You must accept the terms of service",
     }
 
-    // Set custom messages
-    validator := validation.Get()
-    validator.SetMessages(messages)
-
-    // Validate request
-    validated, err := validator.ValidateRequest(c.Request, rules)
-    if err != nil {
-        // Return validation errors
-        validationErr := err.(validation.ValidationErrors)
+    result := validation.CheckWithDB(c.Request, rules, c.Services.DB, messages)
+    if result.HasErrors() {
         return c.JSON(422, map[string]interface{}{
             "message": "Validation failed",
-            "errors":  validationErr.All(),
+            "errors":  result.Messages(),
         })
     }
 
-    // Create user from validated data
+    var input struct {
+        Name, Email, Password string
+        Age                   int
+        Newsletter            bool
+    }
+    if err := c.BindAuto(&input); err != nil {
+        return err
+    }
+
     user := &User{
-        Name:           validated.GetString("name"),
-        Email:          validated.GetString("email"),
-        Password:       hashPassword(validated.GetString("password")),
-        Age:            validated.GetInt("age"),
-        NewsletterOptIn: validated.GetBool("newsletter"),
+        Name:            input.Name,
+        Email:           input.Email,
+        Password:        hashPassword(input.Password),
+        Age:             input.Age,
+        NewsletterOptIn: input.Newsletter,
     }
-
-    // Save user to database
     if err := user.Save(); err != nil {
-        return c.JSON(500, map[string]string{
-            "error": "Failed to create user",
-        })
+        return c.JSON(500, map[string]string{"error": "Failed to create user"})
     }
 
     return c.JSON(201, map[string]interface{}{
         "message": "Registration successful",
-        "user":    user,
-    })
-}
-
-func (uc *UserHandler) UpdateProfile(c *http.Context) error {
-    userID := c.Param("id")
-
-    rules := validation.Rules{
-        "name":  "nullable|string|min:2|max:100",
-        "email": "nullable|email",
-        "bio":   "nullable|string|max:500",
-        "age":   "nullable|numeric|min:18",
-    }
-
-    validated, err := validation.ValidateRequest(c.Request, rules)
-    if err != nil {
-        return c.JSON(422, map[string]interface{}{
-            "errors": err.(validation.ValidationErrors).All(),
-        })
-    }
-
-    // Update user with validated data
-    user := FindUserByID(userID)
-    if user == nil {
-        return c.JSON(404, map[string]string{
-            "error": "User not found",
-        })
-    }
-
-    // Only update fields that were provided
-    for field, value := range validated.All() {
-        switch field {
-        case "name":
-            user.Name = value.(string)
-        case "email":
-            user.Email = value.(string)
-        case "bio":
-            user.Bio = value.(string)
-        case "age":
-            user.Age = validated.GetInt("age")
-        }
-    }
-
-    user.Save()
-
-    return c.JSON(200, map[string]interface{}{
-        "message": "Profile updated successfully",
         "user":    user,
     })
 }
@@ -927,20 +658,18 @@ func (uc *UserHandler) UpdateProfile(c *http.Context) error {
 func TestValidation(t *testing.T) {
     data := map[string]interface{}{
         "email":    "user@example.com",
-        "password": "secret123",
+        "password": "secret12",
         "age":      25,
     }
 
     rules := validation.Rules{
-        "email":    "required|email",
-        "password": "required|min:8",
-        "age":      "required|numeric|min:18",
+        "email":    {"required", "email"},
+        "password": {"required", "min:8"},
+        "age":      {"required", "numeric", "min:18"},
     }
 
-    validated, err := validation.Validate(data, rules)
-    assert.NoError(t, err)
-    assert.Equal(t, "user@example.com", validated.GetString("email"))
-    assert.Equal(t, 25, validated.GetInt("age"))
+    result := validation.CheckData(data, rules)
+    assert.False(t, result.HasErrors())
 }
 
 func TestValidationErrors(t *testing.T) {
@@ -950,16 +679,22 @@ func TestValidationErrors(t *testing.T) {
     }
 
     rules := validation.Rules{
-        "email": "required|email",
-        "age":   "required|numeric",
+        "email": {"required", "email"},
+        "age":   {"required", "numeric"},
     }
 
-    _, err := validation.Validate(data, rules)
-    assert.Error(t, err)
+    result := validation.CheckData(data, rules)
+    assert.True(t, result.HasErrors())
 
-    validationErr := err.(validation.ValidationErrors)
-    assert.True(t, validationErr.HasError("email"))
-    assert.True(t, validationErr.HasError("age"))
-    assert.Equal(t, 2, validationErr.Count())
+    var ve validation.ValidationErrors
+    require.True(t, errors.As(result.Err(), &ve))
+    assert.True(t, ve.HasError("email"))
+    assert.True(t, ve.HasError("age"))
+    assert.Equal(t, 2, ve.Count())
 }
 ```
+
+## Related
+
+- [Form Requests](/docs/core/form-requests/) - HTTP-handler entry point that wraps validation with binding, flashing, and redirect-back
+- [Middleware](/docs/core/middleware/) - where global input shaping (CSRF, rate limit, body parsing) runs before validation

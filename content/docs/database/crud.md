@@ -202,6 +202,48 @@ user, _ := User{}.Find(1)
 user.DeleteWith("Profile", "Posts")
 ```
 
+## Append-Only Models
+
+For tables that should never be mutated after insert (`audit_logs`, `events`, `outbox`, ledger entries), embed `orm.ImmutableModel[T]` instead of `orm.Model[T]`. The append-only embed has `CreatedAt` but no `UpdatedAt`, and exposes no `Update` / mass-update path. Embedding `Model[T]` would silently inherit `UpdatedAt` and stamp it on every save, which fails at the driver against a missing column.
+
+```go
+type AuditLog struct {
+    orm.ImmutableModel[AuditLog]
+    Actor  string         `orm:"column:actor"`
+    Action string         `orm:"column:action"`
+    Meta   map[string]any `orm:"column:meta;type:jsonb"`
+}
+
+// Insert is the only mutation allowed.
+log, err := AuditLog{}.Create(map[string]any{
+    "actor":  "user:42",
+    "action": "user.deleted",
+    "meta":   map[string]any{"target": 99},
+})
+```
+
+Reads work like any other model:
+
+```go
+log, err := AuditLog{}.Find(id)
+recent, err := AuditLog{}.Where("actor = ?", actor).OrderBy("created_at", "DESC").Limit(50).Get()
+err := orm.Model[AuditLog]{}.WithContext(ctx).Where("action = ?", "user.deleted").Get()
+```
+
+Calling `Save()` on an already-persisted `ImmutableModel` returns `orm.ErrImmutableModelUpdate`. To "edit" an immutable record, append a new row instead.
+
+For UUID primary keys, embed `orm.ImmutableUUIDModel[T]`.
+
+{{< callout type="warning" title="Use orm.Save for the parent struct" >}}
+The instance `Save()` method on the embedded `*ImmutableModel[T]` cannot resolve the parent struct, table name, or hooks via reflection. Persist with the package-level helper:
+
+```go
+err := orm.Save(manager, &record)
+```
+
+`Create` / `CreateMany` on the static-like helpers go through this path automatically.
+{{< /callout >}}
+
 ## Working with Soft Deletes
 
 ### Query Soft Deleted Records
@@ -353,3 +395,9 @@ func (u *User) Deleted() {
 4. **Handle errors** - Always check returned errors
 5. **Use mass updates carefully** - Mass updates skip model events
 6. **Index for performance** - Index columns used in WHERE clauses
+
+## Related
+
+- [Queries](/docs/database/queries/) - read-side counterpart: Where / First / Get / pagination patterns
+- [Relationships](/docs/database/relationships/) - HasMany / BelongsTo wiring used by Save and lifecycle hooks
+- [Migrations](/docs/database/migrations/) - schema and indexes that back the models you create and update

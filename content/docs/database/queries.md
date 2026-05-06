@@ -29,6 +29,37 @@ count := User{}.Count()
 count := User{}.Where("role = ?", "admin").Count()
 ```
 
+## Tracing and Cancellation
+
+The static-like helpers (`Find`, `FindBy`, `First`, `All`, `Where`, ...) are context-blind by themselves. To propagate a request or transaction context to the driver, enter the chain through `Model[T].WithContext(ctx)`. Every base model (`Model[T]`, `UUIDModel[T]`, `SoftDeleteModel[T]`, `SoftDeleteUUIDModel[T]`, `ImmutableModel[T]`, `ImmutableUUIDModel[T]`) exposes it.
+
+```go
+// Context-blind (no cancellation, no trace propagation)
+user, err := User{}.Find(1)
+user, err := User{}.FindBy("email", "john@example.com")
+users, err := User{}.Where("role = ?", "admin").Get()
+count := User{}.Count()
+
+// Context-bound (cancellation honored, trace IDs flow through)
+var u User
+err := orm.Model[User]{}.WithContext(ctx).Where("id = ?", 1).First(&u)
+err := orm.Model[User]{}.WithContext(ctx).Where("email = ?", email).First(&u)
+users, err := orm.Model[User]{}.WithContext(ctx).Where("role = ?", "admin").Get()
+count, err := orm.Model[User]{}.WithContext(ctx).Count()
+```
+
+`WithContext` returns `*Query[T]` so the rest of the builder API (`Where`, `OrderBy`, `GroupBy`, `Limit`, `Pluck`, ...) is available on the chain. Reach for it on any handler that already has a `ctx context.Context` in scope; it costs nothing and unblocks request-scoped cancellation and tracing.
+
+{{< callout type="tip" title="Mass updates" >}}
+For mass updates, chain through the builder so the driver sees ctx:
+
+```go
+affected, err := orm.Model[User]{}.WithContext(ctx).
+    Where("role = ?", "guest").
+    Update(map[string]any{"active": false})
+```
+{{< /callout >}}
+
 ## Chained Queries
 
 ```go
@@ -49,6 +80,9 @@ users, err := User{}.Select("id", "name", "email").Get()
 
 // Pluck single column
 emails, err := User{}.Pluck("email")
+
+// Pluck distinct values: .Distinct().Pluck(col) returns deduped values
+roles, err := User{}.Distinct().Pluck("role")
 
 // Pluck as map
 emailsMap, err := User{}.PluckMap("id", "email") // map[uint]string
@@ -102,6 +136,36 @@ users, _ := User{}.
     GroupBy("users.id").
     Get()
 ```
+
+### Grouped Predicates
+
+`WhereGroup` and `OrWhereGroup` wrap a sub-builder's conditions in parentheses so they bind tighter than the surrounding `AND`/`OR`. Reach for it whenever an `OR` group needs to be scoped by an outer predicate, typically a multi-column free-text search restricted to the current tenant or team.
+
+```go
+// WHERE team_id = ? AND (name LIKE ? OR email LIKE ?)
+users, err := User{}.
+    Where("team_id = ?", teamID).
+    WhereGroup(func(sub *orm.Query[User]) {
+        sub.Where("name LIKE ?", "%"+q+"%").
+            OrWhere("email LIKE ?", "%"+q+"%")
+    }).
+    Get()
+```
+
+`OrWhereGroup` is the OR-joined counterpart:
+
+```go
+// WHERE active = ? OR (role = ? OR role = ?)
+users, err := User{}.
+    Where("active = ?", true).
+    OrWhereGroup(func(sub *orm.Query[User]) {
+        sub.Where("role = ?", "admin").
+            OrWhere("role = ?", "owner")
+    }).
+    Get()
+```
+
+Empty groups (closure adds no conditions) are dropped, no stray parentheses appear in the SQL. A `nil` closure is a no-op. Errors from the sub-builder propagate to the outer query and surface on the next terminal call.
 
 ## Ordering
 
@@ -244,3 +308,9 @@ users, _ := User{}.With("Posts").Get() // 2 queries total
 User{}.Where("email = ?", email).First()  // email should be indexed
 User{}.OrderBy("created_at", "DESC").Get() // created_at should be indexed
 ```
+
+## Related
+
+- [CRUD](/docs/database/crud/) - create, update, delete, and lifecycle hooks for the same models you query here
+- [Relationships](/docs/database/relationships/) - HasMany / BelongsTo helpers and `With(...)` eager loading
+- [Migrations](/docs/database/migrations/) - schema definitions and indexes that back efficient queries

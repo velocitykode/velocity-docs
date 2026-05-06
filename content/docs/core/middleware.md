@@ -258,6 +258,172 @@ func CORS(next router.HandlerFunc) router.HandlerFunc {
 }
 ```
 
+## Built-in middleware
+
+The `router` package ships parameterized middleware for the common
+hardening concerns of an API surface. Each one returns a
+`router.MiddlewareFunc` you can drop into `m.API(...)`, attach with
+`.Use(...)`, or chain inside a sub-group.
+
+### `RateLimitByKey` - per-API-token throttling
+
+`RateLimit` and `RateLimitByIP` cover the usual cases. When the throttle
+key isn't the IP - for example, an API token, an account ID, or a tenant
+header - reach for `RateLimitByKey`:
+
+```go
+func RateLimitByKey(
+    requests int,
+    window   time.Duration,
+    keyFunc  func(*router.Context) string,
+    opts     ...router.RateLimitOption,
+) router.MiddlewareFunc
+```
+
+The `keyFunc` is called once per request and decides which bucket the
+request counts against. A canonical setup for "1000 requests/hour per
+API token, fall back to IP for unauthenticated calls":
+
+```go
+import (
+    "strings"
+    "time"
+
+    "github.com/velocitykode/velocity/router"
+)
+
+func APITokenThrottle() router.MiddlewareFunc {
+    return router.RateLimitByKey(1000, time.Hour, func(c *router.Context) string {
+        // Authorization: Bearer <token>
+        auth := c.Header("Authorization")
+        if token := strings.TrimPrefix(auth, "Bearer "); token != "" && token != auth {
+            return "tok:" + token
+        }
+        // Anonymous callers share a per-IP bucket.
+        return "ip:" + c.IP()
+    },
+        router.WithBurst(50),
+        router.WithMessage("API quota exceeded"),
+    )
+}
+
+// In app/middleware.go
+m.API(
+    middleware.EnsureJSONMiddleware,
+    APITokenThrottle(),
+)
+```
+
+`X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, and
+`Retry-After` headers are set automatically. A background goroutine
+sweeps idle buckets so the limiter map can't grow without bound; tune
+the sweep with `WithCleanupInterval(...)`.
+
+{{< callout type="warning" >}}
+The `keyFunc` runs on every request - keep it allocation-free. Don't
+hash the bearer token here; if you need that, do it once in an upstream
+auth middleware and stash the digest with `c.Set(...)`.
+{{< /callout >}}
+
+For "10/second AND 1000/hour" stacking, compose limiters with
+`router.NewRateLimitGroup(...)`.
+
+### `BodyLimit` - cap request bodies on `/v1/*`
+
+`router.BodyLimit(limit int64)` wraps the request body in
+`http.MaxBytesReader`. Reads past the cap fail with the usual
+`http: request body too large` error, which surfaces through your
+binding layer as a 413. Pass it once at API-stack registration so every
+write endpoint inherits the same ceiling:
+
+```go
+// internal/app/middleware.go
+func Middleware(m *velocity.MiddlewareStack) {
+    m.API(
+        middleware.EnsureJSONMiddleware,
+        router.BodyLimit(1<<20), // 1 MiB on every /v1/* JSON request
+    )
+}
+```
+
+Override on a single route when one endpoint legitimately needs more
+headroom (file uploads, bulk import):
+
+```go
+func Register(r *velocity.Routing) {
+    r.API("/v1", func(api router.Router) {
+        api.Post("/users", handlers.CreateUser)                     // 1 MiB (inherited)
+        api.Post("/imports", handlers.Import).Use(router.BodyLimit(50 << 20)) // 50 MiB
+    })
+}
+```
+
+{{< callout type="info" >}}
+`BodyLimit` panics at construction if `limit <= 0`; pass a positive byte
+count. The middleware also stores the cap in request-scoped state so
+later layers (validation, logging) can read it back.
+{{< /callout >}}
+
+### `Timeout` - bound handler latency on `/v1/*`
+
+`router.Timeout(duration time.Duration)` cancels the request context
+after the deadline and writes `503 Service Unavailable` if the handler
+hasn't returned. The middleware always waits for the handler goroutine
+to finish so pooled context state is safe.
+
+```go
+m.API(
+    middleware.EnsureJSONMiddleware,
+    router.BodyLimit(1<<20),
+    router.Timeout(5*time.Second), // global API ceiling
+)
+```
+
+Per-route override for an endpoint that calls a slow upstream:
+
+```go
+r.API("/v1", func(api router.Router) {
+    api.Get("/reports/:id", handlers.Report).Use(router.Timeout(30 * time.Second))
+})
+```
+
+Handlers should respect the cancelled context - pass `c.Request.Context()`
+into DB queries, HTTP clients, and queue dispatches so the work unwinds
+when the deadline trips.
+
+{{< callout type="warning" >}}
+`Timeout` only protects the handler chain that runs after it. Place it
+inside the API stack (or per-route), not in the global stack, so the
+recovery and logging middleware still see the response after the
+deadline fires.
+{{< /callout >}}
+
+### `ContentTypeJSON` - reject non-JSON write requests
+
+For JSON APIs, reject `POST`/`PUT`/`PATCH` (and bodied `DELETE`) calls
+that aren't `application/json` before they reach your handler:
+
+```go
+m.API(
+    router.ContentTypeJSON(),
+    middleware.EnsureJSONMiddleware,
+)
+```
+
+`ContentTypeJSON()` is sugar for `router.ContentType("application/json")`.
+Use the longer form when you need to allow more than one media type:
+
+```go
+uploads.Use(router.ContentType(
+    "multipart/form-data",
+    "application/x-www-form-urlencoded",
+))
+```
+
+The middleware skips `GET`, `HEAD`, `OPTIONS`, and bodyless `DELETE`
+requests; it returns `415 Unsupported Media Type` with a JSON body when
+the check fails.
+
 ## Testing middleware
 
 For unit tests, call the middleware directly with a stub next-handler:
@@ -297,3 +463,9 @@ middleware on a fresh router and exercise it via `httptest`.
 - For expensive setup (rate limiter, DB pool), build once in the outer
   function and capture it in the closure - don't construct it inside
   the inner handler on every request.
+
+## Related
+
+- [CSRF](/docs/core/csrf/) - token-issuing middleware shipped with the framework
+- [Authentication](/docs/core/authentication/) - session and guard middleware that gates protected routes
+- [Cache](/docs/core/cache/) - the building block behind rate-limiter middleware (counter storage with TTL)

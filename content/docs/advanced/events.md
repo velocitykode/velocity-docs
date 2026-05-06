@@ -24,13 +24,12 @@ func (e UserRegistered) Name() string {
     return "user.registered"
 }
 
-// Dispatch the event
-func registerUser(email string, password string) {
-    // Create user...
-    user := createUser(email, password)
+// Dispatch the event from a handler. ctx.Events() returns the
+// app-wide events.Dispatcher wired up at boot.
+func (h *AuthHandler) Register(ctx *router.Context) error {
+    user := createUser(ctx.FormValue("email"), ctx.FormValue("password"))
 
-    // Dispatch event
-    events.Dispatch(UserRegistered{
+    return ctx.Events().Dispatch(UserRegistered{
         UserID: user.ID,
         Email:  user.Email,
     })
@@ -54,9 +53,9 @@ func (l *SendWelcomeEmail) ShouldQueue() bool {
     return true // Process asynchronously
 }
 
-// Register the listener
-func init() {
-    events.Listen("user.registered", &SendWelcomeEmail{})
+// Register the listener through the App.Events hook.
+func (a *App) Events(d events.Dispatcher) {
+    d.Listen("user.registered", &SendWelcomeEmail{})
 }
 ```
 {{< /tab >}}
@@ -75,41 +74,42 @@ func (l *UserActivityLogger) ShouldQueue() bool {
     return false
 }
 
-// Listen to all user events
-func init() {
-    events.Listen("user.*", &UserActivityLogger{})
+// Listen to wildcards via the App.Events hook
+func (a *App) Events(d events.Dispatcher) {
+    // All user events
+    d.Listen("user.*", &UserActivityLogger{})
 
-    // Listen to all "created" events
-    events.Listen("*.created", &AuditLogger{})
+    // All "created" events
+    d.Listen("*.created", &AuditLogger{})
 
-    // Listen to all events
-    events.Listen("*", &GlobalLogger{})
+    // All events
+    d.Listen("*", &GlobalLogger{})
 }
 ```
 {{< /tab >}}
 
 {{< tab >}}
 ```go
-// Dispatch events asynchronously
-func processOrder(order *Order) error {
+// Dispatch events asynchronously from a handler
+func (h *OrderHandler) Place(ctx *router.Context, order *Order) error {
     // Save order synchronously
-    if err := db.Create(order); err != nil {
+    if err := h.db.Create(order); err != nil {
         return err
     }
 
-    // Dispatch events asynchronously
-    events.DispatchAsync(OrderPlaced{
+    // Dispatch asynchronously (queue or panic-safe goroutine fallback)
+    if err := ctx.Events().DispatchAsync(OrderPlaced{
         OrderID: order.ID,
         Total:   order.Total,
-    })
+    }); err != nil {
+        return err
+    }
 
     // Or dispatch after a delay
-    events.DispatchAfter(
+    return ctx.Events().DispatchAfter(
         OrderFollowUp{OrderID: order.ID},
-        24 * time.Hour,
+        24*time.Hour,
     )
-
-    return nil
 }
 ```
 {{< /tab >}}
@@ -147,15 +147,18 @@ func (e OrderPlaced) Name() string {
 
 ### Using Strings
 
-For simple events, you can use strings directly:
+For simple events, you can use strings directly. Resolve the dispatcher from the
+`router.Context` (or the closure passed into `App.Events`) and call `Dispatch` on it.
 
 ```go
-// Dispatch string events
-events.Dispatch("cache.cleared")
-events.Dispatch("maintenance.started")
+// Dispatch string events from a handler
+ctx.Events().Dispatch("cache.cleared")
+ctx.Events().Dispatch("maintenance.started")
 
-// Listen to string events
-events.Listen("cache.cleared", &CacheListener{})
+// Listen to string events at boot
+func (a *App) Events(d events.Dispatcher) {
+    d.Listen("cache.cleared", &CacheListener{})
+}
 ```
 
 ### Auto-Generated Names
@@ -270,9 +273,9 @@ func (s *UserEventSubscriber) Subscribe(dispatcher events.Dispatcher) {
     dispatcher.Listen("user.deleted", &CleanupUserData{})
 }
 
-// Register the subscriber
-func init() {
-    events.Subscribe(&UserEventSubscriber{})
+// Register the subscriber via App.Events
+func (a *App) Events(d events.Dispatcher) {
+    d.Subscribe(&UserEventSubscriber{})
 }
 ```
 
@@ -299,9 +302,8 @@ func (s *UserSubscriber) HandleUserUpdated(event interface{}) error {
 }
 
 // Register auto subscriber
-func init() {
-    subscriber := events.NewAutoSubscriber(&UserSubscriber{}, "Handle")
-    events.Subscribe(subscriber)
+func (a *App) Events(d events.Dispatcher) {
+    d.Subscribe(events.NewAutoSubscriber(&UserSubscriber{}, "Handle"))
 }
 ```
 
@@ -323,22 +325,73 @@ func (s *OrderSubscriber) CancelOrder(event interface{}) error {
 }
 
 // Register with explicit mapping
-func init() {
-    subscriber := events.NewMappedSubscriber(&OrderSubscriber{}, events.EventMap{
+func (a *App) Events(d events.Dispatcher) {
+    d.Subscribe(events.NewMappedSubscriber(&OrderSubscriber{}, events.EventMap{
         "ProcessOrder": "order.placed",
         "CancelOrder":  "order.cancelled",
-    })
-    events.Subscribe(subscriber)
+    }))
 }
 ```
 
+## Listening to Model Lifecycle Events
+
+`Dispatcher` is not just for app-level domain events. The framework ships a parallel `ModelObserver` contract for per-record hooks (`Creating`, `Created`, `Updating`, `Updated`, `Saving`, `Saved`, `Deleting`, `Deleted`, `Restoring`, `Restored`) plus an `ObservableDispatcher` that owns an `ObserverRegistry` keyed by model type name.
+
+```go
+import "github.com/velocitykode/velocity/events"
+
+type User struct {
+    ID    int
+    Email string
+}
+
+// Implement only the hooks you need. BaseObserver no-ops the rest.
+type UserObserver struct {
+    events.BaseObserver
+}
+
+func (o *UserObserver) Created(model interface{}) error {
+    u := model.(*User)
+    log.Info("user created", "user_id", u.ID)
+    return nil
+}
+
+func (o *UserObserver) Deleted(model interface{}) error {
+    u := model.(*User)
+    return cache.Forget("user:" + strconv.Itoa(u.ID))
+}
+```
+
+Wire it up against an `ObservableDispatcher`. The registry keys by the unqualified type name (`"User"`), so register either by name or by passing an instance:
+
+```go
+func (a *App) Events(d events.Dispatcher) {
+    obs, ok := d.(*events.ObservableDispatcher)
+    if !ok {
+        return // dispatcher does not support model observers
+    }
+
+    // By type name
+    obs.Observe("User", &UserObserver{})
+
+    // Or by instance (type name extracted via reflection)
+    obs.ObserveModel(&User{}, &UserObserver{})
+}
+```
+
+Lifecycle hooks fire only when the calling code invokes `obs.FireModelEvent("created", &user)` (typically from a service-layer wrapper around your repository writes). `FireModelEvent` runs the observers and *also* dispatches a regular `*ModelEvent` under the name `<modeltype>.<action>` (e.g. `user.created`), so a wildcard listener on `*.created` still sees it. Use `events.NewConditionalObserver(observer, predicate)` to gate hooks on runtime state, or `events.NewAutoObserver(instance)` to map struct methods named `Creating`/`Created`/... onto the contract via reflection.
+
 ## Dispatching Events
+
+All dispatch calls are methods on the `events.Dispatcher` resolved from
+`ctx.Events()` (in handlers) or the `d` parameter of `App.Events`.
 
 ### Synchronous Dispatch
 
 ```go
-// Dispatch and wait for all listeners to complete
-err := events.Dispatch(UserRegistered{
+// Dispatch and wait for all listeners to complete. Listeners that
+// return ShouldQueue() == true are still pushed to the queue dispatcher.
+err := ctx.Events().Dispatch(UserRegistered{
     UserID: 123,
     Email:  "user@example.com",
 })
@@ -350,8 +403,8 @@ if err != nil {
 ### Force Synchronous
 
 ```go
-// Always dispatch synchronously, even for queued listeners
-err := events.DispatchNow(OrderPlaced{
+// Always run synchronously, ignoring ShouldQueue.
+err := ctx.Events().DispatchNow(OrderPlaced{
     OrderID: "ORD-123",
 })
 ```
@@ -359,8 +412,9 @@ err := events.DispatchNow(OrderPlaced{
 ### Asynchronous Dispatch
 
 ```go
-// Dispatch without waiting (uses goroutines or queue)
-err := events.DispatchAsync(EmailSent{
+// Dispatch without waiting. Uses the configured QueueDispatcher when
+// available, otherwise falls back to a panic-safe goroutine (async.Go).
+err := ctx.Events().DispatchAsync(EmailSent{
     To:      "user@example.com",
     Subject: "Welcome",
 })
@@ -369,18 +423,20 @@ err := events.DispatchAsync(EmailSent{
 ### Delayed Dispatch
 
 ```go
-// Dispatch after a delay
-err := events.DispatchAfter(
+// Dispatch after a delay. Uses the queue when available; otherwise
+// schedules via time.AfterFunc.
+err := ctx.Events().DispatchAfter(
     OrderFollowUp{OrderID: "ORD-123"},
-    24 * time.Hour,
+    24*time.Hour,
 )
 ```
 
 ### Dispatch Until Result
 
 ```go
-// Dispatch until first non-nil result
-result, err := events.Until(ValidatePayment{
+// Dispatch until first non-nil result. Listeners that want to short-circuit
+// must implement HandleWithResult(event interface{}) (interface{}, error).
+result, err := ctx.Events().Until(ValidatePayment{
     Amount: 99.99,
     Method: "credit_card",
 })
@@ -398,8 +454,10 @@ Velocity supports flexible wildcard patterns for event matching:
 ### Prefix Matching
 
 ```go
-// Listen to all user events
-events.Listen("user.*", &UserActivityLogger{})
+func (a *App) Events(d events.Dispatcher) {
+    // Listen to all user events
+    d.Listen("user.*", &UserActivityLogger{})
+}
 
 // Matches:
 // - user.registered
@@ -411,8 +469,10 @@ events.Listen("user.*", &UserActivityLogger{})
 ### Suffix Matching
 
 ```go
-// Listen to all "created" events
-events.Listen("*.created", &CreatedLogger{})
+func (a *App) Events(d events.Dispatcher) {
+    // Listen to all "created" events
+    d.Listen("*.created", &CreatedLogger{})
+}
 
 // Matches:
 // - user.created
@@ -423,58 +483,66 @@ events.Listen("*.created", &CreatedLogger{})
 ### Match Everything
 
 ```go
-// Listen to all events
-events.Listen("*", &GlobalLogger{})
+func (a *App) Events(d events.Dispatcher) {
+    // Listen to every event the dispatcher routes
+    d.Listen("*", &GlobalLogger{})
+}
 ```
 
 ### Multiple Patterns
 
 ```go
-// Listen to multiple event patterns
-events.Listen([]string{
-    "user.registered",
-    "user.updated",
-    "order.placed",
-}, &MultiEventListener{})
+func (a *App) Events(d events.Dispatcher) {
+    // Listen to multiple event names with one registration
+    d.Listen([]string{
+        "user.registered",
+        "user.updated",
+        "order.placed",
+    }, &MultiEventListener{})
+}
 ```
 
-## Global Dispatcher Functions
+## Dispatcher API Cheat Sheet
+
+Every operation is a method on the `events.Dispatcher` returned by
+`ctx.Events()` (or passed into `App.Events`). `Listen` returns an `int` ID
+that can be passed to `Off` to unregister later.
 
 ```go
-// Register a listener
-events.Listen("user.registered", &MyListener{})
+func (a *App) Events(d events.Dispatcher) {
+    // Register a listener (returns an int ID for later removal)
+    id := d.Listen("user.registered", &MyListener{})
 
-// Register a subscriber
-events.Subscribe(&MySubscriber{})
+    // Register a subscriber (or auto/mapped/group)
+    d.Subscribe(&MySubscriber{})
 
-// Dispatch an event
-events.Dispatch(UserRegistered{UserID: 1})
+    // Remove a single listener by ID
+    d.Off(id)
 
-// Dispatch synchronously
-events.DispatchNow(OrderPlaced{OrderID: "123"})
+    // Remove all listeners for an event (Flush == Forget)
+    d.Flush("user.registered")
+    d.Forget("user.registered")
 
-// Dispatch asynchronously
-events.DispatchAsync(EmailSent{})
-
-// Dispatch with delay
-events.DispatchAfter(Reminder{}, 1*time.Hour)
-
-// Dispatch until result
-result, _ := events.Until(ValidateData{})
-
-// Check if event has listeners
-if events.HasListeners("user.registered") {
-    // Event has listeners
+    // Inspect listeners
+    if d.HasListeners("user.registered") {
+        listeners := d.GetListeners("user.registered")
+        _ = listeners
+    }
 }
 
-// Get all listeners for an event
-listeners := events.GetListeners("user.registered")
+// Dispatch from anywhere that has access to the dispatcher
+func (h *Handler) Do(ctx *router.Context) error {
+    d := ctx.Events()
 
-// Remove all listeners for an event
-events.Flush("user.registered")
+    _ = d.Dispatch(UserRegistered{UserID: 1})
+    _ = d.DispatchNow(OrderPlaced{OrderID: "123"})
+    _ = d.DispatchAsync(EmailSent{})
+    _ = d.DispatchAfter(Reminder{}, 1*time.Hour)
 
-// Remove specific listeners
-events.Forget("user.registered")
+    result, _ := d.Until(ValidateData{})
+    _ = result
+    return nil
+}
 ```
 
 ## Common Use Cases
@@ -520,22 +588,24 @@ func (l *TrackRegistration) Handle(event interface{}) error {
 func (l *TrackRegistration) ShouldQueue() bool { return true }
 
 // Setup
-func init() {
-    events.Listen("user.registered", &SendWelcomeEmail{})
-    events.Listen("user.registered", &CreateUserProfile{})
-    events.Listen("user.registered", &TrackRegistration{})
+func (a *App) Events(d events.Dispatcher) {
+    d.Listen("user.registered", &SendWelcomeEmail{})
+    d.Listen("user.registered", &CreateUserProfile{})
+    d.Listen("user.registered", &TrackRegistration{})
 }
 
 // Usage in handler
 func (c *AuthHandler) Register(ctx *router.Context) error {
     user := createUser(email, password)
 
-    events.Dispatch(UserRegistered{
+    if err := ctx.Events().Dispatch(UserRegistered{
         UserID:    user.ID,
         Email:     user.Email,
         Name:      user.Name,
         IPAddress: ctx.Request.RemoteAddr,
-    })
+    }); err != nil {
+        return err
+    }
 
     return ctx.JSON(user)
 }
@@ -557,12 +627,12 @@ func (e OrderPlaced) Name() string {
 }
 
 // Listeners for different responsibilities
-func init() {
-    events.Listen("order.placed", &ProcessPayment{})
-    events.Listen("order.placed", &SendOrderConfirmation{})
-    events.Listen("order.placed", &UpdateInventory{})
-    events.Listen("order.placed", &NotifyWarehouse{})
-    events.Listen("order.placed", &UpdateAnalytics{})
+func (a *App) Events(d events.Dispatcher) {
+    d.Listen("order.placed", &ProcessPayment{})
+    d.Listen("order.placed", &SendOrderConfirmation{})
+    d.Listen("order.placed", &UpdateInventory{})
+    d.Listen("order.placed", &NotifyWarehouse{})
+    d.Listen("order.placed", &UpdateAnalytics{})
 }
 ```
 
@@ -581,10 +651,10 @@ func (l *AuditLogger) ShouldQueue() bool {
 }
 
 // Register for all creation events
-func init() {
-    events.Listen("*.created", &AuditLogger{})
-    events.Listen("*.updated", &AuditLogger{})
-    events.Listen("*.deleted", &AuditLogger{})
+func (a *App) Events(d events.Dispatcher) {
+    d.Listen("*.created", &AuditLogger{})
+    d.Listen("*.updated", &AuditLogger{})
+    d.Listen("*.deleted", &AuditLogger{})
 }
 ```
 
@@ -607,8 +677,8 @@ func (l *CacheInvalidator) ShouldQueue() bool {
     return false // Invalidate immediately
 }
 
-func init() {
-    events.Listen("*.updated", &CacheInvalidator{})
+func (a *App) Events(d events.Dispatcher) {
+    d.Listen("*.updated", &CacheInvalidator{})
 }
 ```
 
@@ -616,31 +686,42 @@ func init() {
 
 ### Using Fake Dispatcher
 
+`events.NewFakeDispatcher()` records dispatched events without invoking
+listeners. Wire it into a test app via `velocity.WithFakeEvents(fake)` so
+every `ctx.Events()` call inside the handler resolves to the fake.
+
 ```go
-import "github.com/velocitykode/velocity/events"
+import (
+    "github.com/velocitykode/velocity"
+    "github.com/velocitykode/velocity/events"
+    "github.com/velocitykode/velocity/velocitytest"
+)
 
 func TestUserRegistration(t *testing.T) {
-    // Create fake dispatcher
-    fake := events.NewFake()
+    // Create fake dispatcher and inject it into the test app
+    fake := events.NewFakeDispatcher()
+    app, _ := velocitytest.NewApp(velocity.WithFakeEvents(fake))
 
-    // Swap global dispatcher
-    events.Initialize(fake)
-    defer events.Reset()
-
-    // Perform action that dispatches events
-    registerUser("test@example.com", "password")
+    // Perform action that dispatches events (using the test app)
+    registerUser(app, "test@example.com", "password")
 
     // Assert event was dispatched
-    fake.AssertDispatched(UserRegistered{}, func(e interface{}) bool {
+    if err := fake.AssertDispatched(UserRegistered{}, func(e interface{}) bool {
         event := e.(UserRegistered)
         return event.Email == "test@example.com"
-    })
+    }); err != nil {
+        t.Fatal(err)
+    }
 
     // Assert specific number of times
-    fake.AssertDispatchedTimes(UserRegistered{}, 1)
+    if err := fake.AssertDispatchedTimes(UserRegistered{}, 1); err != nil {
+        t.Fatal(err)
+    }
 
     // Assert not dispatched
-    fake.AssertNotDispatched(UserDeleted{})
+    if err := fake.AssertNotDispatched(UserDeleted{}); err != nil {
+        t.Fatal(err)
+    }
 }
 ```
 
@@ -668,13 +749,13 @@ func TestSendWelcomeEmail(t *testing.T) {
 
 ```go
 func TestEventFlow(t *testing.T) {
-    // Setup real dispatcher with test listeners
+    // Spin up a real dispatcher and register tracking listeners on it directly.
     dispatcher := events.NewDispatcher()
-    events.Initialize(dispatcher)
 
-    // Track which listeners were called
-    var called []string
-    mu := sync.Mutex{}
+    var (
+        called []string
+        mu     sync.Mutex
+    )
 
     trackingListener := func(name string) events.Listener {
         return &testListener{
@@ -687,12 +768,14 @@ func TestEventFlow(t *testing.T) {
         }
     }
 
-    events.Listen("user.registered", trackingListener("email"))
-    events.Listen("user.registered", trackingListener("profile"))
-    events.Listen("user.registered", trackingListener("analytics"))
+    dispatcher.Listen("user.registered", trackingListener("email"))
+    dispatcher.Listen("user.registered", trackingListener("profile"))
+    dispatcher.Listen("user.registered", trackingListener("analytics"))
 
     // Dispatch event
-    events.Dispatch(UserRegistered{UserID: 1})
+    if err := dispatcher.Dispatch(UserRegistered{UserID: 1}); err != nil {
+        t.Fatal(err)
+    }
 
     // Verify all listeners were called
     assert.Equal(t, 3, len(called))
@@ -718,11 +801,13 @@ func TestEventFlow(t *testing.T) {
 ### Async vs Sync
 
 ```go
-// Synchronous: Blocks until all listeners complete
-events.DispatchNow(event)
+d := ctx.Events()
 
-// Asynchronous: Returns immediately
-events.DispatchAsync(event)
+// Synchronous: blocks until every listener completes
+d.DispatchNow(event)
+
+// Asynchronous: returns immediately (queue or async.Go fallback)
+d.DispatchAsync(event)
 ```
 
 **Use synchronous when:**
@@ -737,19 +822,25 @@ events.DispatchAsync(event)
 
 ### Queue Integration
 
-For high-volume applications, integrate with the queue system:
+For high-volume applications, back queued listeners with a real queue. Build a
+`*events.DefaultDispatcher`, wire a `QueueDispatcher` into it, then expose it
+to the app (typically by registering a service provider that overrides
+`Services.Events`, or by constructing the dispatcher in your `main` and
+swapping it in via your own option).
 
 ```go
-import "github.com/velocitykode/velocity/queue"
-
-// Setup queue dispatcher
-queueDispatcher := &QueueEventDispatcher{
-    queue: queue.Connection("redis"),
-}
+import (
+    "github.com/velocitykode/velocity/events"
+    "github.com/velocitykode/velocity/queue"
+)
 
 dispatcher := events.NewDispatcher()
-dispatcher.SetQueueDispatcher(queueDispatcher)
-events.Initialize(dispatcher)
+dispatcher.SetQueueDispatcher(&QueueEventDispatcher{
+    queue: queue.Connection("redis"),
+})
+
+// `dispatcher` now pushes ShouldQueue() listeners through Redis instead of
+// running them inline. Inject it as the app's events service at boot.
 ```
 
 ### Batching Events
@@ -757,13 +848,14 @@ events.Initialize(dispatcher)
 ```go
 // Collect events and dispatch in batches
 type EventBatcher struct {
-    events []interface{}
-    mu     sync.Mutex
+    dispatcher events.Dispatcher
+    pending    []interface{}
+    mu         sync.Mutex
 }
 
 func (b *EventBatcher) Add(event interface{}) {
     b.mu.Lock()
-    b.events = append(b.events, event)
+    b.pending = append(b.pending, event)
     b.mu.Unlock()
 }
 
@@ -771,16 +863,21 @@ func (b *EventBatcher) Flush() error {
     b.mu.Lock()
     defer b.mu.Unlock()
 
-    for _, event := range b.events {
-        if err := events.Dispatch(event); err != nil {
+    for _, event := range b.pending {
+        if err := b.dispatcher.Dispatch(event); err != nil {
             return err
         }
     }
 
-    b.events = nil
+    b.pending = nil
     return nil
 }
 ```
+
+The framework also ships purpose-built wrappers for this space:
+`events.NewBatchingDispatcher`, `events.NewDebouncingDispatcher`,
+`events.NewThrottlingDispatcher`, and `events.NewCoalescingDispatcher`
+implement the same patterns without hand-rolled bookkeeping.
 
 ## Troubleshooting
 
@@ -808,3 +905,40 @@ func (b *EventBatcher) Flush() error {
 3. Batch events when possible
 4. Profile listener execution times
 5. Remove unnecessary listeners
+
+## Recipe: Audit every domain event with one listener
+
+**When:** You want a single auditor to capture every event the app dispatches (`*.created`, `*.updated`, payment events, login events, anything) without enumerating them or coupling auditing to each producer.
+
+**Code:**
+```go
+type AuditAll struct{ writer audit.Writer }
+
+func (l *AuditAll) Handle(event interface{}) error {
+    name, _ := event.(events.Event)
+    return l.writer.Record(audit.Entry{
+        Name:    name.Name(),
+        Payload: event,
+        At:      time.Now(),
+    })
+}
+
+func (l *AuditAll) ShouldQueue() bool { return true }
+
+func (a *App) Events(d events.Dispatcher) {
+    d.Listen("*", &AuditAll{writer: a.Audit})
+}
+```
+
+**Why this shape:** The `*` pattern in `Dispatcher.Listen` matches every event the dispatcher routes, including model lifecycle events emitted via `FireModelEvent` and framework events like `query.executed` or `request.failed`. One listener instance is cheaper than per-event registrations and impossible to forget when a new event type is introduced. `ShouldQueue() == true` keeps audit writes off the request path so a slow audit sink cannot stall handlers; the dispatcher transparently pushes the work through whatever `QueueDispatcher` is wired (memory, Redis, etc.). Make the writer idempotent on `(name, payload-hash)` so retries do not double-record.
+
+**See also:**
+- [Wildcard Patterns](#wildcard-patterns) for prefix/suffix variants when you want to scope the auditor
+- [Listening to Model Lifecycle Events](#listening-to-model-lifecycle-events) for the per-record hook contract that `*.created` rides on
+- [Notifications](/docs/advanced/notifications/) for fan-out patterns that pair well with auditing
+
+## Related
+
+- [Notifications](/docs/advanced/notifications/) for turning an event into a multi-channel user notification
+- [Cache](/docs/core/cache/) for invalidating cache entries from `*.updated` / `*.deleted` listeners
+- [Queue](/docs/advanced/queue/) for backing queued listeners with a durable driver and picking the right primitive for long-running work
