@@ -1,10 +1,10 @@
 ---
 title: Relationships
-description: Define hasOne, hasMany, and belongsTo relationships with eager loading in Velocity ORM.
+description: Define hasOne, hasMany, belongsTo, manyToMany, and polymorphic relationships with eager loading in Velocity ORM.
 weight: 30
 ---
 
-Velocity ORM supports three relation types: `hasOne`, `hasMany`, and `belongsTo`. Relations are declared via a struct tag and loaded with `.With()`.
+Velocity ORM supports five relation types: `hasOne`, `hasMany`, `belongsTo`, `manyToMany`, and `polymorphic`. Relations are declared via a struct tag and loaded with `.With()`.
 
 ## Relationship Types
 
@@ -13,20 +13,27 @@ Velocity ORM supports three relation types: `hasOne`, `hasMany`, and `belongsTo`
 | `hasOne` | One-to-one | Parent | User has one Profile |
 | `hasMany` | One-to-many | Parent | User has many Posts |
 | `belongsTo` | Inverse of hasOne / hasMany | Child | Post belongs to User |
+| `manyToMany` | Many-to-many via pivot | Either side | User has many Roles |
+| `polymorphic` | Heterogeneous parent | Child | Comment on Post or Video |
 
 ## Tag Syntax
 
-Every relation tag uses **comma-separated** values inside a single `relation:` key:
+Every relation tag uses **comma-separated** values inside a single `relation:` key. The shape depends on the type:
 
 ```
-orm:"relation:<type>,<foreignKey>,<localKey>"
+orm:"relation:hasOne,<foreignKey>,<localKey>"
+orm:"relation:hasMany,<foreignKey>,<localKey>"
+orm:"relation:belongsTo,<foreignKey>,<localKey>"
+orm:"relation:manyToMany,<pivotTable>,<localFK>,<relatedFK>"
+orm:"relation:polymorphic,<typeColumn>,<idColumn>"
 ```
 
-- `<type>`: one of `hasOne`, `hasMany`, `belongsTo` (case-sensitive).
-- `<foreignKey>`: the column on the **child** table that holds the link.
-- `<localKey>`: the column on the **parent** table being referenced (almost always `id`).
+- `<type>`: one of `hasOne`, `hasMany`, `belongsTo`, `manyToMany`, `polymorphic` (case-sensitive).
+- `hasOne` / `hasMany` / `belongsTo`: `<foreignKey>` is the column on the **child** table; `<localKey>` is the column on the **parent** (almost always `id`).
+- `manyToMany`: `<pivotTable>` is the join table; `<localFK>` and `<relatedFK>` are its two FK columns. See [Many-to-Many](#many-to-many).
+- `polymorphic`: `<typeColumn>` and `<idColumn>` live on the **child** and identify the parent row. See [Polymorphic Relations](#polymorphic-relations).
 
-All three parts are required. There are no convention-based defaults: the parser will not infer key names from the field name.
+All parts are required for each shape. There are no convention-based defaults: the parser will not infer key names from the field name.
 
 {{< callout type="warning" title="Use commas, not semicolons" >}}
 The outer `orm:"..."` tag uses `;` to separate top-level directives (`column:foo;type:bigint;not_null`). The `relation:` directive value uses `,` internally. Mixing them causes the parser to reject the tag.
