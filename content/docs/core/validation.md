@@ -115,28 +115,6 @@ func validateWithCustomMessages(c *router.Context) error {
 
 {{< /tabs >}}
 
-## Migrating from `map[string]string`
-
-`validation.Rules` is now `map[string][]string`. Each field maps to an ordered slice of rule tokens. The legacy single-string-per-field form (e.g. `"required|email"`) lives on as `validation.PipeRules` and converts via `validation.NewRules`:
-
-```go
-// Legacy pipe-string form (still accepted via PipeRules).
-legacy := validation.PipeRules{
-    "email":    "required|email",
-    "password": "required|min:8|confirmed",
-}
-
-// Canonical form.
-rules := validation.NewRules(legacy)
-// equivalent to:
-//   validation.Rules{
-//       "email":    {"required", "email"},
-//       "password": {"required", "min:8", "confirmed"},
-//   }
-```
-
-Pipe-delimited tokens inside a single slice element (`{"required|email"}`) are still accepted, the validator splits on `|` before evaluating, so existing code paths keep working while you migrate. New code should write the slice form directly.
-
 ## Configuration
 
 The validation package works out of the box with no configuration required. However, you can customize behavior through environment variables:

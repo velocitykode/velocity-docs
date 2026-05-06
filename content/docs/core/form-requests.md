@@ -39,25 +39,6 @@ type is `validation.Rules` (`map[string][]string`) so the same value can
 be passed straight into `validation.Check` / `CheckWithDB` without an
 intermediate conversion.
 
-{{% callout type="info" title="Migrating from `map[string]string`" %}}
-The old `map[string]string` rule shape (single `"required|email"` token
-per field) has been replaced by `validation.Rules` (`map[string][]string`).
-Pipe-strings still work as a single slice element (`{"required|email"}`)
-and via the `validation.PipeRules` + `validation.NewRules` shim:
-
-```go
-func (r *CreatePostRequest) Rules() validation.Rules {
-    return validation.NewRules(validation.PipeRules{
-        "title": "required|min:3",
-        "body":  "required|min:10",
-    })
-}
-```
-
-Use the slice form directly for new code; reach for `NewRules` only when
-porting existing rule strings.
-{{% /callout %}}
-
 ### Custom messages
 
 Implement `WithMessages` to override per-field rule errors:
@@ -168,11 +149,8 @@ binder when there's nothing to check.
 
 ```go
 // In package validation
-type Rules     = map[string][]string  // field -> list of rule tokens
-type PipeRules = map[string]string    // legacy: field -> "required|email"
-type Messages  = map[string]string    // "field.rule" -> message
-
-func NewRules(p PipeRules) Rules      // pipe-string -> canonical
+type Rules    = map[string][]string  // field -> list of rule tokens
+type Messages = map[string]string    // "field.rule" -> message
 
 // In package validation/vform
 type FormRequest interface {
