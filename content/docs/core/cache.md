@@ -9,7 +9,9 @@ Velocity provides a unified caching interface supporting multiple drivers. The f
 ## Quick Start
 
 {{% callout type="info" %}}
-**No global cache.** All cache operations are methods on `*cache.Manager`. Reach for `app.Cache` outside of requests, `ctx.Cache()` inside a handler. The package-level helpers are limited to `cache.NewManager`, `cache.RememberT`, and `cache.RememberTWithContext`.
+**No global cache.** All cache operations are methods on `*cache.Manager`. Reach for `app.Cache` outside of requests, `ctx.Cache()` inside a handler. The package-level helpers are limited to `cache.NewManager`, `cache.RememberT`, `cache.RememberTWithContext`, and `cache.Drivers()` (the pluggable driver registry).
+
+Inside a handler always prefer the `*WithContext` variant of every method (`PutWithContext`, `GetWithContext`, `RememberEWithContext`, `StoreWithContext`, ...) so the request's deadline flows through to Redis dials, S3 reaches, and DB connects.
 {{% /callout %}}
 
 {{< tabs items="Basic Usage,Remember Pattern,Bulk Operations" >}}
@@ -22,20 +24,23 @@ import (
 )
 
 func handler(ctx *router.Context) error {
-    // Store a value with TTL
-    ctx.Cache().Put("user:123", userData, 1*time.Hour)
+    rctx := ctx.Context()
+
+    // Store a value with TTL. PutWithContext threads ctx through to the
+    // driver so a slow Redis write is cancelled when the request is.
+    ctx.Cache().PutWithContext(rctx, "user:123", userData, 1*time.Hour)
 
     // Retrieve a value
     var user User
-    if val, found := ctx.Cache().Get("user:123"); found {
+    if val, found := ctx.Cache().GetWithContext(rctx, "user:123"); found {
         user = val.(User)
     }
 
     // Store permanently
-    ctx.Cache().Forever("app_version", "1.0.0")
+    ctx.Cache().ForeverWithContext(rctx, "app_version", "1.0.0")
 
     // Remove a value
-    ctx.Cache().Forget("user:123")
+    ctx.Cache().ForgetWithContext(rctx, "user:123")
     return nil
 }
 ```
@@ -51,10 +56,12 @@ import (
 func getUser(ctx *router.Context, userID int) (*User, error) {
     key := fmt.Sprintf("user:%d", userID)
 
-    // Get from cache or compute and store. Use RememberE so a transient
-    // DB error is propagated instead of being baked into the cache slot.
-    result, err := ctx.Cache().RememberE(key, 15*time.Minute, func() (interface{}, error) {
-        return fetchUserFromDB(userID)
+    // Get from cache or compute and store. Use RememberEWithContext so a
+    // transient DB error is propagated instead of poisoning the slot, and
+    // the request's deadline flows into both the cache lookup and the
+    // upstream call.
+    result, err := ctx.Cache().RememberEWithContext(ctx.Context(), key, 15*time.Minute, func() (interface{}, error) {
+        return fetchUserFromDB(ctx.Context(), userID)
     })
     if err != nil {
         return nil, err
@@ -96,15 +103,17 @@ func bulkOperations(app *velocity.App) {
 
 ## Decision matrix
 
-Pick the `Remember*` variant that matches your error and context needs. Default to `RememberE` for any callback that touches the network or a database.
+Pick the `Remember*` variant that matches your error and context needs. Default to `RememberEWithContext` (or the typed `RememberTWithContext[T]`) inside any handler that already has a `ctx`.
 
 | Situation | Helper |
 |---|---|
 | Memoize idempotent fetch; tolerate framework eating callback errors | `Remember` |
 | Memoize and propagate callback errors (no cache poison on err) | `RememberE` |
-| Same, with ctx propagation through the cache backend | `RememberEWithContext` |
-| Typed return (skip the `interface{}` assert) | `RememberT[T]` |
-| Forever cache until explicit `Forget` | `RememberForever` |
+| Inside a handler, propagate request ctx into Redis / S3 / DB lookups | `RememberWithContext` / `RememberEWithContext` |
+| Typed return, no `interface{}` assertion at the call site | `RememberT[T]` |
+| Typed and ctx-aware (the default for new code) | `RememberTWithContext[T]` |
+| Forever cache until explicit `Forget` | `RememberForever` / `RememberForeverWithContext` |
+| Forever and error-aware | `RememberForeverE` / `RememberForeverEWithContext` |
 
 {{< callout type="warning" >}}
 `Remember` swallows the error you discard inside the callback. If `fetchUserFromDB` fails, you cache the zero value for the full TTL and every subsequent caller gets garbage back. Use `RememberE` whenever the callback can fail.
@@ -159,7 +168,9 @@ type ContextStore interface {
 }
 ```
 
-Every `Manager` operation has a `*WithContext` counterpart: `GetWithContext`, `PutWithContext`, `ForeverWithContext`, `ForgetWithContext`, `RememberWithContext`, `RememberEWithContext`, `RememberForeverWithContext`, `RememberForeverEWithContext`. Use them from any handler that already has a `ctx`.
+Every `Manager` operation has a `*WithContext` counterpart: `GetWithContext`, `PutWithContext`, `ForeverWithContext`, `ForgetWithContext`, `RememberWithContext`, `RememberEWithContext`, `RememberForeverWithContext`, `RememberForeverEWithContext`, plus `StoreWithContext(ctx, name)` and `DefaultStoreWithContext(ctx)` for resolving named stores under the caller's deadline. Use them from any handler that already has a `ctx`.
+
+The ctx threads end-to-end: the first call that materialises a store (Redis dial, file mkdir, S3 endpoint check) sees the caller's ctx through the registry's `Resolve(ctx, name, cfg)` path, and every subsequent read/write on a `ContextStore` honours the same ctx. A handler with a 200 ms deadline cancels both the Redis dial AND the Redis `GET` if either runs long.
 
 ```go
 func handler(ctx *router.Context) error {
@@ -172,6 +183,8 @@ func handler(ctx *router.Context) error {
     return ctx.JSON(200, val)
 }
 ```
+
+`Store(name)` and `DefaultStore()` still exist; they call `StoreWithContext(context.Background(), ...)` internally. Reach for them only outside a request scope (boot wiring, scripts, tests).
 
 ## Configuration
 
@@ -200,6 +213,8 @@ CACHE_STORES=session:memory,api:redis
 ```
 
 ## Drivers
+
+The framework ships four built-in factories (`memory`, `file`, `redis`, `database`) that self-register from `cache/init.go` at package import time. Any extra factory you install via `cache.Drivers().Register(...)` joins the same registry and becomes selectable through `CACHE_DRIVER` like a built-in.
 
 ### Memory Driver
 
@@ -246,7 +261,67 @@ REDIS_PASSWORD=
 REDIS_DATABASE=0
 ```
 
+The Redis factory takes the caller's ctx and uses it for the initial `PING`, so a misconfigured cluster fails under the request deadline rather than the go-redis default dial timeout. Construct one directly when you need to bypass the manager:
+
+```go
+import (
+    "context"
+    "github.com/velocitykode/velocity/cache/drivers"
+)
+
+store, err := drivers.NewRedisStore(ctx, "myapp", "127.0.0.1", 6379, "", 0, false)
+if err != nil {
+    return err
+}
+```
+
+`NewRedisStore` validates host non-empty / port positive in the factory itself; `cache.StoreConfig.Validate` no longer enforces driver-specific fields, so third-party drivers stay free to define their own config shape.
+
+## Custom Drivers
+
+`cache.Drivers()` returns the canonical driver registry. Register a third-party factory from your driver package's `init()` and the manager will resolve it like any built-in:
+
+```go
+package dragonfly
+
+import (
+    "context"
+
+    "github.com/velocitykode/velocity/cache"
+)
+
+func init() {
+    cache.Drivers().Register("dragonfly", func(ctx context.Context, cfg cache.StoreConfig) (cache.Store, error) {
+        // Validate the driver-specific fields here. The manager has
+        // already merged global + per-store prefix into cfg.Prefix.
+        if cfg.Host == "" {
+            return nil, fmt.Errorf("dragonfly: host required")
+        }
+        return newDragonflyStore(ctx, cfg)
+    })
+}
+```
+
+Then point the config at the new driver name:
+
+```env
+CACHE_DRIVER=dragonfly
+```
+
+A few rules the registry enforces (panicking at boot, never at first request):
+
+- Names are case-insensitive and trimmed; `Dragonfly` and `dragonfly` collide.
+- `Register` panics on a duplicate registration. Use `Drivers().Override(name, factory)` from tests when you intentionally want to swap a real driver for a fake; it returns the previous factory so a `t.Cleanup` can restore it.
+- A `nil` factory or empty name panics immediately.
+- `Resolve` returns a typed `*driverregistry.NotFoundError` (with the available names) when `CACHE_DRIVER` points at an unregistered driver, so the failure surface includes a "did you mean?" hint.
+
+`StoreConfig.Validate` only checks that `Driver` is non-empty. It deliberately does NOT consult `Drivers().Names()`: validation runs at config-load time, while the driver package's `init()` may run later (a blank import). Registry lookup is the resolver's job.
+
+For the cross-subsystem story (queue, storage, mail, notification, log, orm all share the same `driverregistry`), see [Driver Registry](/docs/advanced/driver-registry/).
+
 ## API Reference
+
+Every method below has a `*WithContext` sibling that takes `ctx context.Context` as the first argument. The non-ctx forms exist for boot wiring and one-off scripts; inside a handler always reach for the ctx-aware variant.
 
 ### Basic Operations
 
@@ -257,14 +332,14 @@ Store a value in the cache with a TTL:
 ```go
 import "time"
 
-// Store string
-app.Cache.Put("username", "john_doe", 1*time.Hour)
+// Store string (request-scoped)
+app.Cache.PutWithContext(ctx, "username", "john_doe", 1*time.Hour)
 
 // Store struct
 user := User{ID: 123, Name: "John Doe"}
-app.Cache.Put("user:123", user, 30*time.Minute)
+app.Cache.PutWithContext(ctx, "user:123", user, 30*time.Minute)
 
-// Store with longer TTL
+// Boot-time wiring without a request ctx: use plain Put.
 app.Cache.Put("config", configData, 24*time.Hour)
 ```
 
@@ -273,14 +348,15 @@ app.Cache.Put("config", configData, 24*time.Hour)
 Retrieve a value from the cache:
 
 ```go
-// Get value
-value, found := app.Cache.Get("username")
+// Get value (ctx threads through to Redis when applicable)
+value, found := app.Cache.GetWithContext(ctx, "username")
 if found {
     username := value.(string)
     fmt.Println("Username:", username)
 }
 
-// Get string value directly
+// Get string value directly. GetString is convenience-only and does not
+// take a ctx; use GetWithContext + a type assertion when you need both.
 username, found := app.Cache.GetString("username")
 if found {
     fmt.Println("Username:", username)
@@ -292,9 +368,9 @@ if found {
 Store a value permanently (no expiration):
 
 ```go
-// Store without expiration
-app.Cache.Forever("app_name", "Velocity")
-app.Cache.Forever("build_number", "1234")
+// Store without expiration, request-scoped
+app.Cache.ForeverWithContext(ctx, "app_name", "Velocity")
+app.Cache.ForeverWithContext(ctx, "build_number", "1234")
 ```
 
 #### Forget
@@ -302,8 +378,8 @@ app.Cache.Forever("build_number", "1234")
 Remove a value from the cache:
 
 ```go
-// Remove single key
-app.Cache.Forget("user:123")
+// Remove single key, request-scoped
+app.Cache.ForgetWithContext(ctx, "user:123")
 
 // Check if removed
 if !app.Cache.Has("user:123") {
@@ -337,7 +413,7 @@ result, err := app.Cache.Remember("config:flags", 15*time.Minute, func() interfa
 
 #### RememberE
 
-Error-aware variant of `Remember`. The callback returns `(interface{}, error)`; on a non-nil error the cache slot is NOT written and the error is propagated. This prevents transient upstream failures from pinning a zero value for the full TTL.
+Error-aware variant of `Remember`. The callback returns `(interface{}, error)`; on a non-nil error the cache slot is NOT written and the error is propagated. This prevents transient upstream failures from pinning a zero value for the full TTL. Use `RememberEWithContext` whenever a ctx is in scope.
 
 ```go
 func getExpensiveData(app *velocity.App, id int) (*Data, error) {
@@ -355,10 +431,10 @@ func getExpensiveData(app *velocity.App, id int) (*Data, error) {
 
 #### RememberEWithContext
 
-`RememberE` with a `context.Context`. The ctx threads through to the underlying driver via `ContextStore` so a slow Redis lookup is cancelled with the request. Memory and file drivers ignore the ctx transparently.
+`RememberE` with a `context.Context`. The ctx threads through to the underlying driver via `ContextStore` so a slow Redis lookup is cancelled with the request, AND through the registry's `Resolve(ctx, ...)` step the first time the store is materialised so the initial Redis dial honours the same deadline. Memory and file drivers ignore the ctx transparently.
 
 ```go
-func getRegions(app *velocity.App, ctx context.Context) ([]Region, error) {
+func getRegions(ctx context.Context, app *velocity.App) ([]Region, error) {
     val, err := app.Cache.RememberEWithContext(ctx, "regions", 5*time.Minute, func() (interface{}, error) {
         return upstream.FetchRegions(ctx)
     })
@@ -400,9 +476,9 @@ On a type mismatch (cache slot holds a different type than `T`), the function re
 Get from cache or compute and store permanently:
 
 ```go
-func getAppConfig(app *velocity.App) (*Config, error) {
-    result, err := app.Cache.RememberForever("app_config", func() interface{} {
-        return loadConfig()
+func getAppConfig(ctx context.Context, app *velocity.App) (*Config, error) {
+    result, err := app.Cache.RememberForeverEWithContext(ctx, "app_config", func() (interface{}, error) {
+        return loadConfig(ctx)
     })
     if err != nil {
         return nil, err
@@ -411,7 +487,7 @@ func getAppConfig(app *velocity.App) (*Config, error) {
 }
 ```
 
-`RememberForeverE` is the error-aware variant; `RememberForeverWithContext` and `RememberForeverEWithContext` add ctx propagation.
+`RememberForeverE` is the error-aware variant; `RememberForeverWithContext` and `RememberForeverEWithContext` add ctx propagation. Prefer `RememberForeverEWithContext` for any callback that hits the network.
 
 #### Increment / Decrement
 
@@ -503,9 +579,11 @@ CACHE_STORES=session:memory,api:redis
 ### Using Named Stores
 
 ```go
-func useMultipleStores(app *velocity.App) {
-    // Get named store off the manager
-    sessionStore, err := app.Cache.Store("session")
+func useMultipleStores(ctx context.Context, app *velocity.App) {
+    // Get named store off the manager. StoreWithContext threads ctx into
+    // the driver factory the first time the store is materialised, so a
+    // slow Redis dial is cancelled when the request is.
+    sessionStore, err := app.Cache.StoreWithContext(ctx, "session")
     if err != nil {
         log.Error("Failed to get session store", "error", err)
         return
@@ -519,15 +597,17 @@ func useMultipleStores(app *velocity.App) {
 }
 ```
 
+`Store(name)` is the ctx-less form (it calls `StoreWithContext(context.Background(), name)` internally). Prefer the ctx-aware variant inside any handler. Subsequent calls to either form return the cached instance, so you only pay the dial cost on the first call.
+
 ### Manager for Advanced Usage
 
 The framework constructs a `*cache.Manager` during `velocity.New()` and exposes it as `app.Cache`. Reach for it directly when you need named stores or distributed locks:
 
 ```go
-func setupCaching(app *velocity.App) {
-    // Get specific stores from the manager
-    apiCache, _ := app.Cache.Store("api")
-    sessionCache, _ := app.Cache.Store("session")
+func setupCaching(ctx context.Context, app *velocity.App) {
+    // Get specific stores from the manager, ctx-scoped.
+    apiCache, _ := app.Cache.StoreWithContext(ctx, "api")
+    sessionCache, _ := app.Cache.StoreWithContext(ctx, "session")
 
     // Use different stores for different purposes
     apiCache.Put("api:users", users, 5*time.Minute)
@@ -535,7 +615,7 @@ func setupCaching(app *velocity.App) {
 }
 ```
 
-If you ever need a manager outside the framework lifecycle (tests, scripts), build one yourself with `cache.NewManager(&cache.Config{...})`. That is the only package-level constructor.
+`DefaultStoreWithContext(ctx)` returns the manager's default store under the same ctx contract. If you ever need a manager outside the framework lifecycle (tests, scripts), build one yourself with `cache.NewManager(&cache.Config{...})`. That is the only package-level constructor.
 
 ## Usage Patterns
 
@@ -547,24 +627,24 @@ Reduce database queries by caching user profiles:
 func getUserProfile(ctx *router.Context, userID int) (*User, error) {
     key := fmt.Sprintf("user:profile:%d", userID)
 
-    result, err := ctx.Cache().RememberE(key, 1*time.Hour, func() (interface{}, error) {
-        return db.QueryUser(userID)
+    user, err := cache.RememberTWithContext[*User](ctx.Cache(), ctx.Context(), key, 1*time.Hour, func() (*User, error) {
+        return db.QueryUser(ctx.Context(), userID)
     })
     if err != nil {
         return nil, err
     }
-    return result.(*User), nil
+    return user, nil
 }
 
 func updateUserProfile(ctx *router.Context, userID int, updates map[string]interface{}) error {
     // Update database
-    if err := db.UpdateUser(userID, updates); err != nil {
+    if err := db.UpdateUser(ctx.Context(), userID, updates); err != nil {
         return err
     }
 
-    // Invalidate cache
+    // Invalidate cache under the request ctx so a slow Redis is cancellable.
     key := fmt.Sprintf("user:profile:%d", userID)
-    ctx.Cache().Forget(key)
+    ctx.Cache().ForgetWithContext(ctx.Context(), key)
 
     return nil
 }
@@ -578,13 +658,9 @@ Cache expensive API responses:
 func fetchWeatherData(ctx *router.Context, city string) (*Weather, error) {
     key := fmt.Sprintf("weather:%s", city)
 
-    result, err := ctx.Cache().RememberE(key, 15*time.Minute, func() (interface{}, error) {
-        return callWeatherAPI(city)
+    return cache.RememberTWithContext[*Weather](ctx.Cache(), ctx.Context(), key, 15*time.Minute, func() (*Weather, error) {
+        return callWeatherAPI(ctx.Context(), city)
     })
-    if err != nil {
-        return nil, err
-    }
-    return result.(*Weather), nil
 }
 ```
 
@@ -604,7 +680,7 @@ func checkRateLimit(ctx *router.Context, userID int) (bool, error) {
 
     // Set expiration on first request
     if count == 1 {
-        ctx.Cache().Put(key, count, 1*time.Minute)
+        ctx.Cache().PutWithContext(ctx.Context(), key, count, 1*time.Minute)
     }
 
     // Check if over limit (e.g., 60 requests per minute)
@@ -623,13 +699,13 @@ Use cache for session data:
 ```go
 func storeSession(ctx *router.Context, sessionID string, data map[string]interface{}) error {
     key := fmt.Sprintf("session:%s", sessionID)
-    return ctx.Cache().Put(key, data, 30*time.Minute)
+    return ctx.Cache().PutWithContext(ctx.Context(), key, data, 30*time.Minute)
 }
 
 func getSession(ctx *router.Context, sessionID string) (map[string]interface{}, error) {
     key := fmt.Sprintf("session:%s", sessionID)
 
-    val, found := ctx.Cache().Get(key)
+    val, found := ctx.Cache().GetWithContext(ctx.Context(), key)
     if !found {
         return nil, fmt.Errorf("session not found")
     }
@@ -639,7 +715,7 @@ func getSession(ctx *router.Context, sessionID string) (map[string]interface{}, 
 
 func destroySession(ctx *router.Context, sessionID string) error {
     key := fmt.Sprintf("session:%s", sessionID)
-    return ctx.Cache().Forget(key)
+    return ctx.Cache().ForgetWithContext(ctx.Context(), key)
 }
 ```
 
@@ -649,20 +725,14 @@ Cache database query results:
 
 ```go
 func getPopularPosts(ctx *router.Context) ([]Post, error) {
-    key := "posts:popular"
-
-    result, err := ctx.Cache().RememberE(key, 10*time.Minute, func() (interface{}, error) {
-        return db.Query(`
+    return cache.RememberTWithContext[[]Post](ctx.Cache(), ctx.Context(), "posts:popular", 10*time.Minute, func() ([]Post, error) {
+        return db.QueryWithContext(ctx.Context(), `
             SELECT * FROM posts
             WHERE published = true
             ORDER BY views DESC
             LIMIT 10
         `)
     })
-    if err != nil {
-        return nil, err
-    }
-    return result.([]Post), nil
 }
 ```
 
@@ -734,6 +804,7 @@ func TestCaching(t *testing.T) {
 ```go
 import (
     "time"
+    "github.com/velocitykode/velocity/cache"
     "github.com/velocitykode/velocity/router"
 )
 
@@ -743,19 +814,16 @@ func (c *ProductHandler) Show(ctx *router.Context) error {
     productID := ctx.Param("id")
     key := fmt.Sprintf("product:%s", productID)
 
-    // Try to get from cache
-    if val, found := ctx.Cache().Get(key); found {
-        return ctx.JSON(200, val)
-    }
-
-    // Fetch from database
-    product, err := fetchProduct(productID)
+    // RememberTWithContext returns *Product directly, propagates the
+    // request ctx into both the cache lookup and the upstream fetch, and
+    // skips the cache write on error so a transient failure does not
+    // poison the slot for the full TTL.
+    product, err := cache.RememberTWithContext[*Product](ctx.Cache(), ctx.Context(), key, 1*time.Hour, func() (*Product, error) {
+        return fetchProduct(ctx.Context(), productID)
+    })
     if err != nil {
         return ctx.Error("Product not found", 404)
     }
-
-    // Store in cache for 1 hour
-    ctx.Cache().Put(key, product, 1*time.Hour)
 
     return ctx.JSON(200, product)
 }
@@ -764,12 +832,12 @@ func (c *ProductHandler) Update(ctx *router.Context) error {
     productID := ctx.Param("id")
 
     // Update product in database
-    if err := updateProduct(productID, ctx.Body); err != nil {
+    if err := updateProduct(ctx.Context(), productID, ctx.Body); err != nil {
         return ctx.Error("Failed to update product", 500)
     }
 
-    // Invalidate cache
-    ctx.Cache().Forget(fmt.Sprintf("product:%s", productID))
+    // Invalidate cache under the request ctx
+    ctx.Cache().ForgetWithContext(ctx.Context(), fmt.Sprintf("product:%s", productID))
 
     return ctx.JSON(200, map[string]string{"status": "updated"})
 }
@@ -777,6 +845,7 @@ func (c *ProductHandler) Update(ctx *router.Context) error {
 
 ## Related
 
+- [Driver Registry](/docs/advanced/driver-registry/) for the shared `Drivers().Register` pattern across cache, queue, storage, mail, notification, log, and orm.
 - [Notifications](/docs/advanced/notifications/) for outbound delivery channels that frequently sit behind a cache.
 - [Queue](/docs/advanced/queue/) when work is too long for fire-and-forget caching and needs durable retries.
 - [CSRF](/docs/core/csrf/) which leans on the cache manager for token storage in distributed deployments.
