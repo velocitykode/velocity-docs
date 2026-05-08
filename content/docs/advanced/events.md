@@ -6,6 +6,28 @@ weight: 80
 
 Velocity provides a powerful event system that allows you to decouple various parts of your application using the observer pattern. Events enable clean, maintainable code by separating concerns and making your application more extensible.
 
+{{< callout type="warning" title="Breaking change: ctx is now the first arg" >}}
+Every callback in the events package takes `context.Context` as its first
+positional argument. Migrate your code as follows:
+
+```text
+Handle(event)         -> Handle(ctx, event)
+Dispatch(event)       -> Dispatch(ctx, event)
+Created(model)        -> Created(ctx, model)
+SetEventDispatcher(fn func(any) error) ->
+    SetEventDispatcher(fn func(context.Context, any) error)
+```
+
+The same shape applies to `DispatchNow`, `DispatchAsync`, `DispatchAfter`,
+`Until`, every `ModelObserver` lifecycle method, `MiddlewareFunc`,
+`HandleWithResult`, `HandleWithPropagation`, `AsyncDispatcher.Push`,
+`TransactionalDispatcher.Commit` / `DispatchAfterCommit`,
+`ObserverRegistry.Fire` / `FireModelEvent`, `ObservableModel.FireEvent`,
+and `QueueDispatcher.Push`. Subsystems that implement
+`contract.EventDispatcherAware` plumb their own ctx into the bridge instead
+of dropping to `context.Background()`.
+{{< /callout >}}
+
 ## Quick Start
 
 {{< tabs items="Basic Events,Event Listeners,Wildcard Listeners,Async Events" >}}
@@ -25,11 +47,12 @@ func (e UserRegistered) Name() string {
 }
 
 // Dispatch the event from a handler. ctx.Events() returns the
-// app-wide events.Dispatcher wired up at boot.
+// app-wide events.Dispatcher wired up at boot. Pass the request ctx
+// so listeners observe deadlines, trace IDs, and tx scopes.
 func (h *AuthHandler) Register(ctx *router.Context) error {
     user := createUser(ctx.FormValue("email"), ctx.FormValue("password"))
 
-    return ctx.Events().Dispatch(UserRegistered{
+    return ctx.Events().Dispatch(ctx.Request.Context(), UserRegistered{
         UserID: user.ID,
         Email:  user.Email,
     })
@@ -39,14 +62,14 @@ func (h *AuthHandler) Register(ctx *router.Context) error {
 
 {{< tab >}}
 ```go
-// Define a listener
+// Define a listener. Handle now takes ctx as the first argument.
 type SendWelcomeEmail struct{}
 
-func (l *SendWelcomeEmail) Handle(event interface{}) error {
+func (l *SendWelcomeEmail) Handle(ctx context.Context, event interface{}) error {
     e := event.(UserRegistered)
 
-    // Send welcome email
-    return sendEmail(e.Email, "Welcome to our platform!")
+    // Send welcome email; honour ctx.Done() if the sink supports it.
+    return sendEmail(ctx, e.Email, "Welcome to our platform!")
 }
 
 func (l *SendWelcomeEmail) ShouldQueue() bool {
@@ -62,11 +85,11 @@ func (a *App) Events(d events.Dispatcher) {
 
 {{< tab >}}
 ```go
-// Create a logger that handles all user events
+// Create a logger that handles all user events.
 type UserActivityLogger struct{}
 
-func (l *UserActivityLogger) Handle(event interface{}) error {
-    log.Info("User event occurred", "event", event)
+func (l *UserActivityLogger) Handle(ctx context.Context, event interface{}) error {
+    log.InfoContext(ctx, "User event occurred", "event", event)
     return nil
 }
 
@@ -92,13 +115,17 @@ func (a *App) Events(d events.Dispatcher) {
 ```go
 // Dispatch events asynchronously from a handler
 func (h *OrderHandler) Place(ctx *router.Context, order *Order) error {
+    rctx := ctx.Request.Context()
+
     // Save order synchronously
-    if err := h.db.Create(order); err != nil {
+    if err := h.db.Create(rctx, order); err != nil {
         return err
     }
 
-    // Dispatch asynchronously (queue or panic-safe goroutine fallback)
-    if err := ctx.Events().DispatchAsync(OrderPlaced{
+    // Dispatch asynchronously (queue or panic-safe goroutine fallback).
+    // Async paths derive ctx via context.WithoutCancel: trace IDs flow
+    // through to listeners but cancellation/deadline are stripped.
+    if err := ctx.Events().DispatchAsync(rctx, OrderPlaced{
         OrderID: order.ID,
         Total:   order.Total,
     }); err != nil {
@@ -107,6 +134,7 @@ func (h *OrderHandler) Place(ctx *router.Context, order *Order) error {
 
     // Or dispatch after a delay
     return ctx.Events().DispatchAfter(
+        rctx,
         OrderFollowUp{OrderID: order.ID},
         24*time.Hour,
     )
@@ -115,6 +143,28 @@ func (h *OrderHandler) Place(ctx *router.Context, order *Order) error {
 {{< /tab >}}
 
 {{< /tabs >}}
+
+## Async ctx semantics
+
+Async paths -- `Dispatcher.DispatchAsync`, `Dispatcher.DispatchAfter`,
+`AsyncDispatcher.Push`, and the `BatchingDispatcher` /
+`DebouncingDispatcher` / `CoalescingDispatcher.Dispatch` wrappers -- derive
+the listener ctx from the caller via `context.WithoutCancel`. That means:
+
+- Request-scoped values (trace IDs, tenant IDs, anything stored via
+  `context.WithValue`) propagate through to listeners.
+- The caller's cancellation and deadline are **stripped** before dispatch,
+  because the listener may legitimately outlive the caller (a 30s delayed
+  listener kicked off from an HTTP handler keeps running long after the
+  response flushed).
+
+If you need cancellation to reach the listener, do not use the async
+methods. Use `Dispatch` synchronously and let the listener spawn its own
+goroutine that observes `ctx.Done()`, or push to a queue with the
+cancellation contract you want.
+
+The synchronous `Dispatch` / `DispatchNow` / `Until` paths pass ctx through
+unchanged.
 
 ## Transactional dispatch buffer
 
@@ -128,7 +178,7 @@ Three pieces wire up the buffer:
 2. `orm.Manager.Transaction(ctx, fn)` installs a per-transaction `*events.BufferedDispatcher` into that holder for the lifetime of the call. Any `events.Buffer(ctx)` lookup inside `fn` (or any descendant call that received the same `ctx`) finds the buffer.
 3. On successful `tx.Commit()` the buffer is flushed; on `fn` returning an error, the deferred panic recovery, or a commit failure, the buffer is dropped and no events fire.
 
-`Manager.SetTxEventBus(bus)` wires the kind-aware sink the buffer drains into. The framework calls it during boot so `DispatchAsync`, `DispatchAfter`, and `Until` recorded inside the transaction route back through the matching method on the underlying dispatcher when the buffer flushes, so `ShouldQueue`, the recorded delay, and the until-first-non-nil contract all survive the buffer boundary. Without a tx event bus, the buffer falls back to the legacy untyped sink set by `SetEventDispatcher` and every kind collapses onto `Dispatch`.
+`Manager.SetTxEventBus(bus)` wires the kind-aware sink the buffer drains into. The framework calls it during boot so `DispatchAsync`, `DispatchAfter`, and `Until` recorded inside the transaction route back through the matching ctx-aware method on the underlying dispatcher when the buffer flushes, so `ShouldQueue`, the recorded delay, and the until-first-non-nil contract all survive the buffer boundary. The flush uses the parent transaction ctx so trace IDs, deadlines, and request-scoped values propagate all the way through to listeners. Without a tx event bus, the buffer falls back to the legacy untyped sink set by `SetEventDispatcher` (now itself ctx-aware) and every kind collapses onto `Dispatch`.
 
 ### Recipe: emit `OrderPlaced` only on tx commit
 
@@ -145,8 +195,9 @@ func (h *OrderHandler) Place(ctx *router.Context) error {
             return err // buffer dropped, OrderPlaced never fires
         }
 
-        // Recorded into the per-tx buffer; fires on commit.
-        return events.Buffer(reqCtx).Dispatch(OrderPlaced{
+        // Recorded into the per-tx buffer; fires on commit. The ctx
+        // arg is captured at flush time, not at record time.
+        return events.Buffer(reqCtx).Dispatch(reqCtx, OrderPlaced{
             OrderID: order.ID,
             Total:   order.Total,
         })
@@ -167,6 +218,21 @@ A nested `Transaction` call on the same prepared `ctx` reuses the outermost buff
 {{< callout type="warning" title="Use the prepared ctx everywhere" >}}
 `events.Buffer(ctx)` returns a fresh standalone buffer when `ctx` carries no holder, and events recorded on a standalone buffer are silently discarded on flush (no underlying dispatcher is wired). Always thread the `ctx` returned by `PrepareBuffer` through to the call site that records events. A derived ctx without the holder will buffer into the void.
 {{< /callout >}}
+
+## DispatchAfterCommit
+
+`TransactionalDispatcher.DispatchAfterCommit(ctx, event)` is the explicit
+form for "fire this only if the current tx commits."
+
+- Inside a tx (between `BeginTransaction` and `Commit` / `Rollback`) the
+  event is queued and fires on `Commit(ctx)`.
+- Outside a tx the event is dispatched immediately and any error from the
+  underlying dispatcher is returned to the caller.
+
+Both branches now return error. Previously the non-tx branch swallowed
+dispatcher failures, which made the contract silently weaker outside a tx
+than inside one. Wrap with `_ = dispatcher.DispatchAfterCommit(ctx, evt)`
+if you genuinely want fire-and-forget semantics.
 
 ## Event Definition
 
@@ -204,8 +270,8 @@ For simple events, you can use strings directly. Resolve the dispatcher from the
 
 ```go
 // Dispatch string events from a handler
-ctx.Events().Dispatch("cache.cleared")
-ctx.Events().Dispatch("maintenance.started")
+ctx.Events().Dispatch(ctx.Request.Context(), "cache.cleared")
+ctx.Events().Dispatch(ctx.Request.Context(), "maintenance.started")
 
 // Listen to string events at boot
 func (a *App) Events(d events.Dispatcher) {
@@ -234,15 +300,15 @@ type UserRegistered struct {
 ```go
 type MyListener struct{}
 
-func (l *MyListener) Handle(event interface{}) error {
+func (l *MyListener) Handle(ctx context.Context, event interface{}) error {
     // Type assert to get event data
     e, ok := event.(UserRegistered)
     if !ok {
         return fmt.Errorf("unexpected event type")
     }
 
-    // Process the event
-    log.Info("Processing event", "user_id", e.UserID)
+    // Process the event; honour ctx for cancellation when applicable.
+    log.InfoContext(ctx, "Processing event", "user_id", e.UserID)
     return nil
 }
 
@@ -260,11 +326,11 @@ type SendWelcomeEmail struct {
     events.QueuedBaseListener
 }
 
-func (l *SendWelcomeEmail) Handle(event interface{}) error {
+func (l *SendWelcomeEmail) Handle(ctx context.Context, event interface{}) error {
     e := event.(UserRegistered)
 
     // Send email (time-consuming operation)
-    return emailService.Send(e.Email, "Welcome!")
+    return emailService.Send(ctx, e.Email, "Welcome!")
 }
 
 func (l *SendWelcomeEmail) ShouldQueue() bool {
@@ -291,10 +357,9 @@ Execute listener logic only when conditions are met:
 ```go
 type NotifyPremiumUsers struct{}
 
-func (l *NotifyPremiumUsers) Handle(event interface{}) error {
+func (l *NotifyPremiumUsers) Handle(ctx context.Context, event interface{}) error {
     e := event.(FeatureReleased)
-    // Notify premium users
-    return notificationService.NotifyPremium(e.FeatureName)
+    return notificationService.NotifyPremium(ctx, e.FeatureName)
 }
 
 func (l *NotifyPremiumUsers) ShouldQueue() bool {
@@ -333,23 +398,24 @@ func (a *App) Events(d events.Dispatcher) {
 
 ### Auto Subscriber
 
-Automatically register methods as listeners based on naming convention:
+Automatically register methods as listeners based on naming convention.
+Both the legacy `(event)` shape and the preferred `(ctx, event)` shape are
+accepted; new code should write the ctx-aware form.
 
 ```go
 type UserSubscriber struct{}
 
-// Method names starting with "Handle" are auto-registered
 // HandleUserRegistered -> listens to "user.registered"
-func (s *UserSubscriber) HandleUserRegistered(event interface{}) error {
+func (s *UserSubscriber) HandleUserRegistered(ctx context.Context, event interface{}) error {
     e := event.(UserRegistered)
-    log.Info("User registered", "user_id", e.UserID)
+    log.InfoContext(ctx, "User registered", "user_id", e.UserID)
     return nil
 }
 
 // HandleUserUpdated -> listens to "user.updated"
-func (s *UserSubscriber) HandleUserUpdated(event interface{}) error {
+func (s *UserSubscriber) HandleUserUpdated(ctx context.Context, event interface{}) error {
     e := event.(UserUpdated)
-    log.Info("User updated", "user_id", e.UserID)
+    log.InfoContext(ctx, "User updated", "user_id", e.UserID)
     return nil
 }
 
@@ -366,12 +432,12 @@ Explicitly map methods to events:
 ```go
 type OrderSubscriber struct{}
 
-func (s *OrderSubscriber) ProcessOrder(event interface{}) error {
+func (s *OrderSubscriber) ProcessOrder(ctx context.Context, event interface{}) error {
     // Handle order.placed event
     return nil
 }
 
-func (s *OrderSubscriber) CancelOrder(event interface{}) error {
+func (s *OrderSubscriber) CancelOrder(ctx context.Context, event interface{}) error {
     // Handle order.cancelled event
     return nil
 }
@@ -387,10 +453,13 @@ func (a *App) Events(d events.Dispatcher) {
 
 ## Listening to Model Lifecycle Events
 
-`Dispatcher` is not just for app-level domain events. The framework ships a parallel `ModelObserver` contract for per-record hooks (`Creating`, `Created`, `Updating`, `Updated`, `Saving`, `Saved`, `Deleting`, `Deleted`, `Restoring`, `Restored`) plus an `ObservableDispatcher` that owns an `ObserverRegistry` keyed by model type name.
+`Dispatcher` is not just for app-level domain events. The framework ships a parallel `ModelObserver` contract for per-record hooks (`Creating`, `Created`, `Updating`, `Updated`, `Saving`, `Saved`, `Deleting`, `Deleted`, `Restoring`, `Restored`) plus an `ObservableDispatcher` that owns an `ObserverRegistry` keyed by model type name. Every callback receives the caller-supplied `context.Context` so observers see request-scoped values (transactions, trace IDs, deadlines) without the model carrying them.
 
 ```go
-import "github.com/velocitykode/velocity/events"
+import (
+    "context"
+    "github.com/velocitykode/velocity/events"
+)
 
 type User struct {
     ID    int
@@ -402,15 +471,15 @@ type UserObserver struct {
     events.BaseObserver
 }
 
-func (o *UserObserver) Created(model interface{}) error {
+func (o *UserObserver) Created(ctx context.Context, model interface{}) error {
     u := model.(*User)
-    log.Info("user created", "user_id", u.ID)
+    log.InfoContext(ctx, "user created", "user_id", u.ID)
     return nil
 }
 
-func (o *UserObserver) Deleted(model interface{}) error {
+func (o *UserObserver) Deleted(ctx context.Context, model interface{}) error {
     u := model.(*User)
-    return cache.Forget("user:" + strconv.Itoa(u.ID))
+    return cache.Forget(ctx, "user:"+strconv.Itoa(u.ID))
 }
 ```
 
@@ -431,24 +500,42 @@ func (a *App) Events(d events.Dispatcher) {
 }
 ```
 
-Lifecycle hooks fire only when the calling code invokes `obs.FireModelEvent("created", &user)` (typically from a service-layer wrapper around your repository writes). `FireModelEvent` runs the observers and *also* dispatches a regular `*ModelEvent` under the name `<modeltype>.<action>` (e.g. `user.created`), so a wildcard listener on `*.created` still sees it. Use `events.NewConditionalObserver(observer, predicate)` to gate hooks on runtime state, or `events.NewAutoObserver(instance)` to map struct methods named `Creating`/`Created`/... onto the contract via reflection.
+Lifecycle hooks fire only when the calling code invokes
+`obs.FireModelEvent(ctx, "created", &user)` (typically from a service-layer
+wrapper around your repository writes). `FireModelEvent` runs the observers
+and *also* dispatches a regular `*ModelEvent` under the name
+`<modeltype>.<action>` (e.g. `user.created`) using the same ctx, so a
+wildcard listener on `*.created` still sees it. Use
+`events.NewConditionalObserver(observer, predicate)` -- where the
+predicate is `func(ctx context.Context, event string, model interface{}) bool`
+-- to gate hooks on runtime state, or `events.NewAutoObserver(instance)` to
+map struct methods named `Creating` / `Created` / ... onto the contract via
+reflection. `AutoObserver` accepts both the legacy `(model)` shape and the
+preferred `(ctx, model)` shape.
+
+`ObservableModel` implementations expose
+`FireEvent(ctx context.Context, event string) error` so the model itself
+can be the trigger when that fits the design better than a service-layer
+call. `ObserverRegistry.Fire(ctx, event, model)` is the lower-level entry
+point.
 
 ## Dispatching Events
 
 All dispatch calls are methods on the `events.Dispatcher` resolved from
-`ctx.Events()` (in handlers) or the `d` parameter of `App.Events`.
+`ctx.Events()` (in handlers) or the `d` parameter of `App.Events`. Every
+method takes `context.Context` as its first argument.
 
 ### Synchronous Dispatch
 
 ```go
 // Dispatch and wait for all listeners to complete. Listeners that
 // return ShouldQueue() == true are still pushed to the queue dispatcher.
-err := ctx.Events().Dispatch(UserRegistered{
+err := ctx.Events().Dispatch(ctx.Request.Context(), UserRegistered{
     UserID: 123,
     Email:  "user@example.com",
 })
 if err != nil {
-    log.Error("Event dispatch failed", "error", err)
+    log.ErrorContext(ctx.Request.Context(), "Event dispatch failed", "error", err)
 }
 ```
 
@@ -456,7 +543,7 @@ if err != nil {
 
 ```go
 // Always run synchronously, ignoring ShouldQueue.
-err := ctx.Events().DispatchNow(OrderPlaced{
+err := ctx.Events().DispatchNow(ctx.Request.Context(), OrderPlaced{
     OrderID: "ORD-123",
 })
 ```
@@ -466,7 +553,9 @@ err := ctx.Events().DispatchNow(OrderPlaced{
 ```go
 // Dispatch without waiting. Uses the configured QueueDispatcher when
 // available, otherwise falls back to a panic-safe goroutine (async.Go).
-err := ctx.Events().DispatchAsync(EmailSent{
+// Listeners receive a ctx derived via context.WithoutCancel: values
+// propagate, cancellation does not.
+err := ctx.Events().DispatchAsync(ctx.Request.Context(), EmailSent{
     To:      "user@example.com",
     Subject: "Welcome",
 })
@@ -476,8 +565,9 @@ err := ctx.Events().DispatchAsync(EmailSent{
 
 ```go
 // Dispatch after a delay. Uses the queue when available; otherwise
-// schedules via time.AfterFunc.
+// schedules via time.AfterFunc with a context.WithoutCancel-derived ctx.
 err := ctx.Events().DispatchAfter(
+    ctx.Request.Context(),
     OrderFollowUp{OrderID: "ORD-123"},
     24*time.Hour,
 )
@@ -487,8 +577,9 @@ err := ctx.Events().DispatchAfter(
 
 ```go
 // Dispatch until first non-nil result. Listeners that want to short-circuit
-// must implement HandleWithResult(event interface{}) (interface{}, error).
-result, err := ctx.Events().Until(ValidatePayment{
+// must implement
+//   HandleWithResult(ctx context.Context, event interface{}) (interface{}, error).
+result, err := ctx.Events().Until(ctx.Request.Context(), ValidatePayment{
     Amount: 99.99,
     Method: "credit_card",
 })
@@ -582,16 +673,17 @@ func (a *App) Events(d events.Dispatcher) {
     }
 }
 
-// Dispatch from anywhere that has access to the dispatcher
+// Dispatch from anywhere that has access to the dispatcher and a ctx.
 func (h *Handler) Do(ctx *router.Context) error {
     d := ctx.Events()
+    rctx := ctx.Request.Context()
 
-    _ = d.Dispatch(UserRegistered{UserID: 1})
-    _ = d.DispatchNow(OrderPlaced{OrderID: "123"})
-    _ = d.DispatchAsync(EmailSent{})
-    _ = d.DispatchAfter(Reminder{}, 1*time.Hour)
+    _ = d.Dispatch(rctx, UserRegistered{UserID: 1})
+    _ = d.DispatchNow(rctx, OrderPlaced{OrderID: "123"})
+    _ = d.DispatchAsync(rctx, EmailSent{})
+    _ = d.DispatchAfter(rctx, Reminder{}, 1*time.Hour)
 
-    result, _ := d.Until(ValidateData{})
+    result, _ := d.Until(rctx, ValidateData{})
     _ = result
     return nil
 }
@@ -616,23 +708,23 @@ func (e UserRegistered) Name() string {
 
 // Listeners
 type SendWelcomeEmail struct{}
-func (l *SendWelcomeEmail) Handle(event interface{}) error {
+func (l *SendWelcomeEmail) Handle(ctx context.Context, event interface{}) error {
     e := event.(UserRegistered)
-    return emailService.SendWelcome(e.Email, e.Name)
+    return emailService.SendWelcome(ctx, e.Email, e.Name)
 }
 func (l *SendWelcomeEmail) ShouldQueue() bool { return true }
 
 type CreateUserProfile struct{}
-func (l *CreateUserProfile) Handle(event interface{}) error {
+func (l *CreateUserProfile) Handle(ctx context.Context, event interface{}) error {
     e := event.(UserRegistered)
-    return profileService.Create(e.UserID)
+    return profileService.Create(ctx, e.UserID)
 }
 func (l *CreateUserProfile) ShouldQueue() bool { return false }
 
 type TrackRegistration struct{}
-func (l *TrackRegistration) Handle(event interface{}) error {
+func (l *TrackRegistration) Handle(ctx context.Context, event interface{}) error {
     e := event.(UserRegistered)
-    return analytics.Track("user_registered", map[string]interface{}{
+    return analytics.Track(ctx, "user_registered", map[string]interface{}{
         "user_id": e.UserID,
         "ip":      e.IPAddress,
     })
@@ -650,7 +742,7 @@ func (a *App) Events(d events.Dispatcher) {
 func (c *AuthHandler) Register(ctx *router.Context) error {
     user := createUser(email, password)
 
-    if err := ctx.Events().Dispatch(UserRegistered{
+    if err := ctx.Events().Dispatch(ctx.Request.Context(), UserRegistered{
         UserID:    user.ID,
         Email:     user.Email,
         Name:      user.Name,
@@ -693,9 +785,9 @@ func (a *App) Events(d events.Dispatcher) {
 ```go
 type AuditLogger struct{}
 
-func (l *AuditLogger) Handle(event interface{}) error {
+func (l *AuditLogger) Handle(ctx context.Context, event interface{}) error {
     // Log all model changes
-    return auditLog.Record(event)
+    return auditLog.Record(ctx, event)
 }
 
 func (l *AuditLogger) ShouldQueue() bool {
@@ -715,12 +807,12 @@ func (a *App) Events(d events.Dispatcher) {
 ```go
 type CacheInvalidator struct{}
 
-func (l *CacheInvalidator) Handle(event interface{}) error {
+func (l *CacheInvalidator) Handle(ctx context.Context, event interface{}) error {
     switch e := event.(type) {
     case UserUpdated:
-        cache.Forget("user:" + strconv.Itoa(e.UserID))
+        cache.Forget(ctx, "user:"+strconv.Itoa(e.UserID))
     case ProductUpdated:
-        cache.Forget("product:" + e.ProductID)
+        cache.Forget(ctx, "product:"+e.ProductID)
     }
     return nil
 }
@@ -734,6 +826,29 @@ func (a *App) Events(d events.Dispatcher) {
 }
 ```
 
+## Middleware
+
+`MiddlewareDispatcher` runs events through a pipeline of `EventMiddleware`
+before they reach listeners. The ctx threads through every stage so
+deadlines, cancellation, and trace context survive the chain.
+
+```go
+type EventMiddleware interface {
+    Handle(ctx context.Context, event interface{},
+        next func(context.Context, interface{}) error) error
+}
+
+// MiddlewareFunc adapts a plain func to the interface.
+type MiddlewareFunc func(ctx context.Context, event interface{},
+    next func(context.Context, interface{}) error) error
+```
+
+Built-in middleware (`LoggingMiddleware`, `TimingMiddleware`,
+`RetryMiddleware`, `FilterMiddleware`, `ValidationMiddleware`,
+`TransformMiddleware`) all use the ctx-aware shape. `RetryMiddleware`
+honours `ctx.Done()` between attempts so a cancelled caller stops the
+retry loop instead of sleeping out the configured delay.
+
 ## Testing
 
 ### Using Fake Dispatcher
@@ -744,6 +859,8 @@ every `ctx.Events()` call inside the handler resolves to the fake.
 
 ```go
 import (
+    "context"
+
     "github.com/velocitykode/velocity"
     "github.com/velocitykode/velocity/events"
     "github.com/velocitykode/velocity/velocitytest"
@@ -789,7 +906,7 @@ func TestSendWelcomeEmail(t *testing.T) {
         Name:   "Test User",
     }
 
-    err := listener.Handle(event)
+    err := listener.Handle(context.Background(), event)
     assert.NoError(t, err)
 
     // Verify email was sent
@@ -811,7 +928,7 @@ func TestEventFlow(t *testing.T) {
 
     trackingListener := func(name string) events.Listener {
         return &testListener{
-            handle: func(e interface{}) error {
+            handle: func(ctx context.Context, e interface{}) error {
                 mu.Lock()
                 called = append(called, name)
                 mu.Unlock()
@@ -825,7 +942,7 @@ func TestEventFlow(t *testing.T) {
     dispatcher.Listen("user.registered", trackingListener("analytics"))
 
     // Dispatch event
-    if err := dispatcher.Dispatch(UserRegistered{UserID: 1}); err != nil {
+    if err := dispatcher.Dispatch(context.Background(), UserRegistered{UserID: 1}); err != nil {
         t.Fatal(err)
     }
 
@@ -847,6 +964,7 @@ func TestEventFlow(t *testing.T) {
 6. **Handle Errors Gracefully**: Don't let one listener failure affect others
 7. **Document Your Events**: Clearly document what events exist and when they're fired
 8. **Test Event Flows**: Use the fake dispatcher to test event dispatching
+9. **Pass the right ctx**: Use the request ctx (or tx ctx) on dispatch so listeners observe deadlines and trace IDs; remember async paths strip cancellation.
 
 ## Performance Considerations
 
@@ -854,23 +972,26 @@ func TestEventFlow(t *testing.T) {
 
 ```go
 d := ctx.Events()
+rctx := ctx.Request.Context()
 
 // Synchronous: blocks until every listener completes
-d.DispatchNow(event)
+d.DispatchNow(rctx, event)
 
 // Asynchronous: returns immediately (queue or async.Go fallback)
-d.DispatchAsync(event)
+d.DispatchAsync(rctx, event)
 ```
 
 **Use synchronous when:**
 - Event handling must complete before continuing
 - Order of execution matters
 - Error handling is critical
+- You need cancellation/deadline to reach listeners
 
 **Use asynchronous when:**
 - Event handling can happen in background
 - Performance is critical
 - Failures can be retried
+- It is OK that ctx cancellation does NOT propagate to listeners
 
 ### Queue Integration
 
@@ -882,9 +1003,22 @@ swapping it in via your own option).
 
 ```go
 import (
+    "context"
+
     "github.com/velocitykode/velocity/events"
     "github.com/velocitykode/velocity/queue"
 )
+
+// QueueDispatcher.Push now takes ctx as its first argument.
+type QueueEventDispatcher struct {
+    queue queue.Driver
+}
+
+func (q *QueueEventDispatcher) Push(ctx context.Context, event interface{},
+    listener events.Listener, delay time.Duration) error {
+    // ... push to your queue, propagating ctx through to PushCtx/PushDelayedCtx
+    return nil
+}
 
 dispatcher := events.NewDispatcher()
 dispatcher.SetQueueDispatcher(&QueueEventDispatcher{
@@ -911,12 +1045,12 @@ func (b *EventBatcher) Add(event interface{}) {
     b.mu.Unlock()
 }
 
-func (b *EventBatcher) Flush() error {
+func (b *EventBatcher) Flush(ctx context.Context) error {
     b.mu.Lock()
     defer b.mu.Unlock()
 
     for _, event := range b.pending {
-        if err := b.dispatcher.Dispatch(event); err != nil {
+        if err := b.dispatcher.Dispatch(ctx, event); err != nil {
             return err
         }
     }
@@ -929,7 +1063,10 @@ func (b *EventBatcher) Flush() error {
 The framework also ships purpose-built wrappers for this space:
 `events.NewBatchingDispatcher`, `events.NewDebouncingDispatcher`,
 `events.NewThrottlingDispatcher`, and `events.NewCoalescingDispatcher`
-implement the same patterns without hand-rolled bookkeeping.
+implement the same patterns without hand-rolled bookkeeping. Each `Dispatch`
+captures the caller's ctx via `context.WithoutCancel` because the actual
+fan-out happens on a background goroutine after the batching/debounce/coalesce
+window elapses.
 
 ## Troubleshooting
 
@@ -947,7 +1084,7 @@ implement the same patterns without hand-rolled bookkeeping.
 1. Wildcard patterns are correct
 2. `ShouldHandle()` method isn't preventing execution
 3. Event is being dispatched on the correct dispatcher instance
-4. Listener implements the `Listener` interface correctly
+4. Listener implements the `Listener` interface correctly (note: `Handle(ctx, event)` -- legacy `Handle(event)` no longer satisfies the interface)
 
 ### Performance Issues
 
@@ -958,6 +1095,17 @@ implement the same patterns without hand-rolled bookkeeping.
 4. Profile listener execution times
 5. Remove unnecessary listeners
 
+### Listener Cancelled Mid-Dispatch (sync only)
+
+`Dispatch` / `DispatchNow` / `Until` propagate the caller's cancellation.
+A listener observing `ctx.Done()` will return early when the request ctx
+is cancelled. If you don't want that, dispatch on a derived ctx:
+
+```go
+detached := context.WithoutCancel(ctx.Request.Context())
+ctx.Events().Dispatch(detached, evt)
+```
+
 ## Recipe: Audit every domain event with one listener
 
 **When:** You want a single auditor to capture every event the app dispatches (`*.created`, `*.updated`, payment events, login events, anything) without enumerating them or coupling auditing to each producer.
@@ -966,9 +1114,9 @@ implement the same patterns without hand-rolled bookkeeping.
 ```go
 type AuditAll struct{ writer audit.Writer }
 
-func (l *AuditAll) Handle(event interface{}) error {
+func (l *AuditAll) Handle(ctx context.Context, event interface{}) error {
     name, _ := event.(events.Event)
-    return l.writer.Record(audit.Entry{
+    return l.writer.Record(ctx, audit.Entry{
         Name:    name.Name(),
         Payload: event,
         At:      time.Now(),
