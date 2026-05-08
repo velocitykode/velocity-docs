@@ -4,88 +4,100 @@ description: Build complex database queries with Velocity's fluent query builder
 weight: 20
 ---
 
-Velocity provides a fluent query builder for database operations.
+Velocity provides a fluent, generic query builder over `Model[T]`. Every read and write terminal takes `context.Context` as its first positional argument so cancellation, tracing, and transaction enrollment flow through naturally.
+
+## Context-first terminals
+
+The chain (`Where`, `OrderBy`, `Select`, `Join`, `Limit`, ...) is context-blind; only the terminal methods take `ctx`. There is no `WithContext` step and no out-of-band chain ctx, `ctx` is always a positional argument on the call that issues SQL.
+
+```go
+// Static-like helpers on the model: ctx is mandatory
+user, err := orm.Model[User]{}.Find(ctx, 1)                         // (*User, error)
+user, err := orm.Model[User]{}.FindBy(ctx, "email", "j@example.com")
+user, err := orm.Model[User]{}.First(ctx)
+user, err := orm.Model[User]{}.Last(ctx)
+users, err := orm.Model[User]{}.All(ctx)
+count, err := orm.Model[User]{}.Count(ctx)
+exists := orm.Model[User]{}.Exists(ctx)
+
+// Chain terminals: ctx on the terminal call
+var u User
+err := orm.Model[User]{}.Where("id = ?", id).First(ctx, &u)
+err := orm.Model[User]{}.Where("id = ?", id).Find(ctx, id, &u)
+
+users, err := orm.Model[User]{}.Where("role = ?", "admin").Get(ctx)
+count, err := orm.Model[User]{}.Where("role = ?", "admin").Count(ctx)
+```
+
+{{< callout type="info" title="Tx auto-enrollment" >}}
+Inside `mgr.Transaction(ctx, func(txCtx context.Context) error { ... })`, every read and write terminal that receives `txCtx` enrolls in that transaction automatically. The chain's driver is rebound from the pool to a tx-bound driver via the ctx value. Pass the original pre-tx `ctx` to a terminal to opt out and route through the pool.
+{{< /callout >}}
 
 ## Basic Queries
 
 ```go
 // Find single record
-user, err := User{}.Find(1)                           // Find by ID
-user, err := User{}.FindBy("email", "john@example.com") // Find by field
-user, err := User{}.First()                           // Get first record
-user, err := User{}.Last()                            // Get last record
+user, err := orm.Model[User]{}.Find(ctx, 1)
+user, err := orm.Model[User]{}.FindBy(ctx, "email", "john@example.com")
+user, err := orm.Model[User]{}.First(ctx)
+user, err := orm.Model[User]{}.Last(ctx)
 
 // Find multiple records
-users, err := User{}.All()                            // Get all records
-users, err := User{}.Where("role = ?", "admin").Get() // Get with conditions
-users, err := User{}.WhereActive(true).Get()          // Dynamic where methods
+users, err := orm.Model[User]{}.All(ctx)
+users, err := orm.Model[User]{}.Where("role = ?", "admin").Get(ctx)
+users, err := orm.Model[User]{}.WhereActive(true).Get(ctx)   // dynamic where
 
-// Check existence
-exists := User{}.Where("email = ?", "john@example.com").Exists()
-exists := User{}.WhereEmail("john@example.com").Exists()
+// Existence
+exists := orm.Model[User]{}.Where("email = ?", email).Exists(ctx)
+gone   := orm.Model[User]{}.Where("email = ?", email).DoesntExist(ctx)
 
-// Count records
-count := User{}.Count()
-count := User{}.Where("role = ?", "admin").Count()
+// Count
+count, err := orm.Model[User]{}.Count(ctx)
+count, err := orm.Model[User]{}.Where("role = ?", "admin").Count(ctx)
 ```
 
-## Tracing and Cancellation
+`Find` on `Model[T]{}` returns `(*T, error)`. The chain variant `q.Find(ctx, id, dest)` writes into the caller's `*T` so it composes with whatever predicates the chain carries.
 
-The static-like helpers (`Find`, `FindBy`, `First`, `All`, `Where`, ...) are context-blind by themselves. To propagate a request or transaction context to the driver, enter the chain through `Model[T].WithContext(ctx)`. Every base model (`Model[T]`, `UUIDModel[T]`, `SoftDeleteModel[T]`, `SoftDeleteUUIDModel[T]`, `ImmutableModel[T]`, `ImmutableUUIDModel[T]`) exposes it.
+## FirstOrFail
+
+`First` returns `ErrRecordNotFound` when nothing matches. `FirstOrFail` (and the static `FindOrFail` / `FirstOrFail` on the model) wrap that into `orm.ErrNotFound`, which itself wraps `sql.ErrNoRows`:
 
 ```go
-// Context-blind (no cancellation, no trace propagation)
-user, err := User{}.Find(1)
-user, err := User{}.FindBy("email", "john@example.com")
-users, err := User{}.Where("role = ?", "admin").Get()
-count := User{}.Count()
+user, err := orm.Model[User]{}.FindOrFail(ctx, id)
+user, err := orm.Model[User]{}.FirstOrFail(ctx)
 
-// Context-bound (cancellation honored, trace IDs flow through)
+// Chain variant: dest is passed to the terminal, like First.
 var u User
-err := orm.Model[User]{}.WithContext(ctx).Where("id = ?", 1).First(&u)
-err := orm.Model[User]{}.WithContext(ctx).Where("email = ?", email).First(&u)
-users, err := orm.Model[User]{}.WithContext(ctx).Where("role = ?", "admin").Get()
-count, err := orm.Model[User]{}.WithContext(ctx).Count()
+err := orm.Model[User]{}.Where("email = ?", email).FirstOrFail(ctx, &u)
+if errors.Is(err, orm.ErrNotFound) { ... }
 ```
-
-`WithContext` returns `*Query[T]` so the rest of the builder API (`Where`, `OrderBy`, `GroupBy`, `Limit`, `Pluck`, ...) is available on the chain. Reach for it on any handler that already has a `ctx context.Context` in scope; it costs nothing and unblocks request-scoped cancellation and tracing.
-
-{{< callout type="tip" title="Mass updates" >}}
-For mass updates, chain through the builder so the driver sees ctx:
-
-```go
-affected, err := orm.Model[User]{}.WithContext(ctx).
-    Where("role = ?", "guest").
-    Update(map[string]any{"active": false})
-```
-{{< /callout >}}
 
 ## Chained Queries
 
 ```go
-users, err := User{}.
+users, err := orm.Model[User]{}.
     Where("role = ?", "admin").
     OrWhere("super_admin = ?", true).
     OrderBy("created_at", "DESC").
     Limit(10).
     Offset(20).
-    Get()
+    Get(ctx)
 ```
 
 ## Select Columns
 
 ```go
 // Select specific columns
-users, err := User{}.Select("id", "name", "email").Get()
+users, err := orm.Model[User]{}.Select("id", "name", "email").Get(ctx)
 
 // Pluck single column
-emails, err := User{}.Pluck("email")
+emails, err := orm.Model[User]{}.Pluck(ctx, "email")
 
-// Pluck distinct values: .Distinct().Pluck(col) returns deduped values
-roles, err := User{}.Distinct().Pluck("role")
+// Pluck distinct values
+roles, err := orm.Model[User]{}.Distinct().Pluck(ctx, "role")
 
 // Pluck as map
-emailsMap, err := User{}.PluckMap("id", "email") // map[uint]string
+emailsMap, err := orm.Model[User]{}.PluckMap("id", "email") // map[uint]string
 ```
 
 ## Conditions
@@ -94,47 +106,47 @@ emailsMap, err := User{}.PluckMap("id", "email") // map[uint]string
 
 ```go
 // Basic where
-users, _ := User{}.Where("active = ?", true).Get()
+users, _ := orm.Model[User]{}.Where("active = ?", true).Get(ctx)
 
 // Multiple conditions
-users, _ := User{}.
+users, _ := orm.Model[User]{}.
     Where("role = ?", "admin").
     Where("active = ?", true).
-    Get()
+    Get(ctx)
 
 // Or where
-users, _ := User{}.
+users, _ := orm.Model[User]{}.
     Where("role = ?", "admin").
     OrWhere("super_admin = ?", true).
-    Get()
+    Get(ctx)
 
 // Where in
-users, _ := User{}.WhereIn("role", []string{"admin", "moderator"}).Get()
+users, _ := orm.Model[User]{}.WhereIn("role", []any{"admin", "moderator"}).Get(ctx)
 
 // Where between
-users, _ := User{}.WhereBetween("age", 18, 65).Get()
+users, _ := orm.Model[User]{}.WhereBetween("age", 18, 65).Get(ctx)
 
 // Where null
-users, _ := User{}.WhereNull("deleted_at").Get()
-users, _ := User{}.WhereNotNull("email_verified_at").Get()
+users, _ := orm.Model[User]{}.WhereNull("deleted_at").Get(ctx)
+users, _ := orm.Model[User]{}.WhereNotNull("email_verified_at").Get(ctx)
 
 // Dynamic where (generated from struct fields)
-users, _ := User{}.WhereEmail("john@example.com").Get()
-users, _ := User{}.WhereRole("admin").WhereActive(true).Get()
+users, _ := orm.Model[User]{}.WhereEmail("john@example.com").Get(ctx)
+users, _ := orm.Model[User]{}.WhereRole("admin").WhereActive(true).Get(ctx)
 ```
 
 ### Raw Expressions
 
 ```go
-users, _ := User{}.
+users, _ := orm.Model[User]{}.
     Where("YEAR(created_at) = ?", 2024).
-    Get()
+    Get(ctx)
 
-users, _ := User{}.
+users, _ := orm.Model[User]{}.
     Select("id", "name", orm.Raw("COUNT(*) as post_count")).
     Join("posts", "posts.user_id", "=", "users.id").
     GroupBy("users.id").
-    Get()
+    Get(ctx)
 ```
 
 ### Grouped Predicates
@@ -143,26 +155,26 @@ users, _ := User{}.
 
 ```go
 // WHERE team_id = ? AND (name LIKE ? OR email LIKE ?)
-users, err := User{}.
+users, err := orm.Model[User]{}.
     Where("team_id = ?", teamID).
     WhereGroup(func(sub *orm.Query[User]) {
         sub.Where("name LIKE ?", "%"+q+"%").
             OrWhere("email LIKE ?", "%"+q+"%")
     }).
-    Get()
+    Get(ctx)
 ```
 
 `OrWhereGroup` is the OR-joined counterpart:
 
 ```go
 // WHERE active = ? OR (role = ? OR role = ?)
-users, err := User{}.
+users, err := orm.Model[User]{}.
     Where("active = ?", true).
     OrWhereGroup(func(sub *orm.Query[User]) {
         sub.Where("role = ?", "admin").
             OrWhere("role = ?", "owner")
     }).
-    Get()
+    Get(ctx)
 ```
 
 Empty groups (closure adds no conditions) are dropped, no stray parentheses appear in the SQL. A `nil` closure is a no-op. Errors from the sub-builder propagate to the outer query and surface on the next terminal call.
@@ -171,110 +183,186 @@ Empty groups (closure adds no conditions) are dropped, no stray parentheses appe
 
 ```go
 // Single order
-users, _ := User{}.OrderBy("created_at", "DESC").Get()
+users, _ := orm.Model[User]{}.OrderBy("created_at", "DESC").Get(ctx)
 
 // Multiple orders
-users, _ := User{}.
+users, _ := orm.Model[User]{}.
     OrderBy("role", "ASC").
     OrderBy("name", "ASC").
-    Get()
+    Get(ctx)
 
 // Latest/Oldest shortcuts
-users, _ := User{}.Latest().Get()  // ORDER BY created_at DESC
-users, _ := User{}.Oldest().Get()  // ORDER BY created_at ASC
+users, _ := orm.Model[User]{}.Latest().Get(ctx)  // ORDER BY created_at DESC
+users, _ := orm.Model[User]{}.Oldest().Get(ctx)  // ORDER BY created_at ASC
 ```
 
 ## Grouping and Aggregates
 
 ```go
 // Group by
-results, err := User{}.
+results, err := orm.Model[User]{}.
     Select("role", "COUNT(*) as count").
     GroupBy("role").
-    Get()
+    Get(ctx)
 
 // Having
-results, err := User{}.
+results, err := orm.Model[User]{}.
     Select("role", "COUNT(*) as count").
     GroupBy("role").
     Having("COUNT(*) > ?", 5).
-    Get()
+    Get(ctx)
 
-// Aggregates
-count := User{}.Count()
-sum := Order{}.Sum("total")
-avg := Product{}.Avg("price")
-max := Product{}.Max("price")
-min := Product{}.Min("price")
+// Aggregates (chain terminals; ctx-first)
+count, err := orm.Model[User]{}.Count(ctx)
+sum,   err := orm.Model[Order]{}.Sum(ctx, "total")
+avg,   err := orm.Model[Product]{}.Avg(ctx, "price")
+max,   err := orm.Model[Product]{}.Max(ctx, "price")
+min,   err := orm.Model[Product]{}.Min(ctx, "price")
+
+// Single-column scalar pull from the first matching row
+v, err := orm.Model[User]{}.Where("id = ?", id).Value(ctx, "email")
 ```
+
+`Sum`, `Avg`, `Min`, and `Max` return `(float64, error)` and report `0` when the result set is empty. `Value` returns `orm.ErrNotFound` on no match.
 
 ## Joins
 
 ```go
 // Inner join
-users, _ := User{}.
+users, _ := orm.Model[User]{}.
     Join("posts", "posts.user_id", "=", "users.id").
     Select("users.*", "posts.title").
-    Get()
+    Get(ctx)
 
 // Left join
-users, _ := User{}.
+users, _ := orm.Model[User]{}.
     LeftJoin("posts", "posts.user_id", "=", "users.id").
-    Get()
+    Get(ctx)
 
 // Multiple joins
-users, _ := User{}.
+users, _ := orm.Model[User]{}.
     Join("posts", "posts.user_id", "=", "users.id").
     Join("comments", "comments.post_id", "=", "posts.id").
     Distinct().
-    Get()
+    Get(ctx)
 ```
 
 ## Pagination
 
 ```go
-// Simple pagination
-users, err := User{}.Limit(10).Offset(20).Get()
+// Simple pagination via limit/offset
+users, err := orm.Model[User]{}.Limit(10).Offset(20).Get(ctx)
 
-// Paginate helper
-pagination := User{}.Paginate(page, perPage)
-// Returns: { Data: []User, Total: 100, PerPage: 10, CurrentPage: 1, LastPage: 10 }
+// Paginate helper: total count + page slice in a single call
+result, err := orm.Model[User]{}.
+    Where("active = ?", true).
+    Paginate(ctx, page, perPage)
+
+// result.Data() / result.Total() / result.PerPage() /
+// result.CurrentPage() / result.LastPage()
 ```
+
+`Paginate` defaults to page 1 and 15 per page when given non-positive values, and runs the count query and the data query against the same conditions so global scopes apply identically to both.
 
 ## Chunking
 
-Process large datasets in batches:
+Process large datasets in fixed-size batches. The callback receives one page at a time; returning a non-nil error from the callback aborts the walk.
 
 ```go
-// Process in chunks
-User{}.Chunk(1000, func(users []User) error {
-    for _, user := range users {
-        // Process user
+err := orm.Model[User]{}.Chunk(ctx, 1000, func(users []User) error {
+    for _, u := range users {
+        // process u
     }
     return nil
 })
+```
 
-// Cursor for memory efficiency (one at a time)
-User{}.Cursor(func(user *User) error {
-    // Process single user
-    return nil
+## Mass Updates and Deletes
+
+Mass writes are chain terminals on `Query[T]`. They take `ctx` first so they enroll in `mgr.Transaction` automatically:
+
+```go
+// Mass update. Copies the input map; never mutated. Auto-stamps updated_at.
+affected, err := orm.Model[User]{}.
+    Where("role = ?", "guest").
+    Update(ctx, map[string]any{"active": false})
+
+// Soft delete (or hard, when the model has no DeletedAt trait)
+affected, err := orm.Model[User]{}.Where("id = ?", id).Delete(ctx)
+
+// Hard delete; bypasses the soft-delete trait
+affected, err := orm.Model[User]{}.Where("id = ?", id).ForceDelete(ctx)
+
+// Insert + return generated id
+id, err := orm.Model[User]{}.InsertGetId(ctx, map[string]any{
+    "email": "j@example.com",
+    "name":  "Jane",
 })
 ```
+
+`Update` injects the driver-appropriate `NOW()` / `CURRENT_TIMESTAMP` sentinel for `updated_at` automatically, except on models that don't carry an `UpdatedAt` column (e.g. `ImmutableModel`). To emit raw SQL deliberately, wrap the value in `orm.RawSQL` (or use the `orm.NOW` constant).
+
+### Chain-style writes
+
+`Save`, `Create`, `CreateMany`, `FirstOrCreate`, and `UpdateOrCreate` are also exposed on the chain. They all share the chain's driver, so a tx-bound `ctx` enrolls them in that transaction:
+
+```go
+err := orm.Model[User]{}.Save(ctx, &user)
+created, err := orm.Model[User]{}.Create(ctx, map[string]any{"email": email})
+err = orm.Model[User]{}.CreateMany(ctx, batch)
+
+u, err := orm.Model[User]{}.FirstOrCreate(ctx,
+    map[string]any{"email": email},
+    map[string]any{"name": name},
+)
+
+u, err := orm.Model[User]{}.UpdateOrCreate(ctx,
+    map[string]any{"email": email},
+    map[string]any{"name": name, "active": true},
+)
+```
+
+`CreateMany` iterates sequentially and short-circuits on the first error. Inside `mgr.Transaction`, returning that error rolls back the partial batch.
 
 ## Subqueries
 
 ```go
 // Subquery in where
-users, _ := User{}.
-    WhereIn("id", Post{}.Select("user_id").Where("published = ?", true)).
-    Get()
+users, _ := orm.Model[User]{}.
+    WhereIn("id", orm.Model[Post]{}.Select("user_id").Where("published = ?", true)).
+    Get(ctx)
 
 // Subquery in select
-users, _ := User{}.
+users, _ := orm.Model[User]{}.
     Select("*").
-    SelectSub(Post{}.Select("COUNT(*)").Where("posts.user_id = users.id"), "post_count").
-    Get()
+    SelectSub(orm.Model[Post]{}.Select("COUNT(*)").Where("posts.user_id = users.id"), "post_count").
+    Get(ctx)
 ```
+
+## Raw SQL
+
+`RawQuery[T]` is the escape hatch for queries the builder doesn't express. Every terminal takes `ctx` as the first argument and enrolls in a transaction the same way the fluent builder does. `Exec` returns the standard library's `sql.Result` so callers can inspect both `RowsAffected()` and `LastInsertId()`.
+
+```go
+// Read into structs
+var u User
+err := orm.NewRawQuery[User]("SELECT * FROM users WHERE email = ?", email).First(ctx, &u)
+
+users, err := orm.NewRawQuery[User]("SELECT * FROM users WHERE role = ?", "admin").Get(ctx)
+
+// Scalar / multi-column scan
+var count int
+err = orm.NewRawQuery[User]("SELECT COUNT(*) FROM users WHERE active").Scan(ctx, &count)
+
+// Exec returns sql.Result
+result, err := orm.NewRawQuery[User]("UPDATE users SET active = ? WHERE last_seen < ?", false, cutoff).Exec(ctx)
+if err != nil { return err }
+affected, _ := result.RowsAffected()
+```
+
+{{< callout type="warning" title="Soft deletes and raw SQL" >}}
+`NewRawQuery` runs the SQL verbatim, it does **not** apply the `deleted_at IS NULL` predicate that `Query[T]` adds for soft-delete models. Use `NewRawQuerySoftDeleteOnly` to opt in to that single scope, or write the predicate by hand. User-registered global scopes (multi-tenant, region, archive...) are never applied to raw SQL; if your model has any, use the fluent builder instead.
+{{< /callout >}}
 
 ## Performance Tips
 
@@ -282,31 +370,32 @@ users, _ := User{}.
 
 ```go
 // Bad: fetches all columns
-users, _ := User{}.Get()
+users, _ := orm.Model[User]{}.Get(ctx)
 
 // Good: fetches only needed columns
-users, _ := User{}.Select("id", "name", "email").Get()
+users, _ := orm.Model[User]{}.Select("id", "name", "email").Get(ctx)
 ```
 
 ### Avoid N+1 Queries
 
 ```go
 // Bad: N+1 queries
-users, _ := User{}.Get()
-for _, user := range users {
-    posts, _ := Post{}.WhereUserID(user.ID).Get() // N queries
+users, _ := orm.Model[User]{}.Get(ctx)
+for _, u := range users {
+    posts, _ := orm.Model[Post]{}.WhereUserID(u.ID).Get(ctx) // N queries
 }
 
-// Good: Eager loading
-users, _ := User{}.With("Posts").Get() // 2 queries total
+// Good: eager loading
+users, _ := orm.Model[User]{}.With("Posts").Get(ctx) // 2 queries total
 ```
 
 ### Use Indexes
 
 ```go
 // Ensure columns used in WHERE, ORDER BY, JOIN are indexed
-User{}.Where("email = ?", email).First()  // email should be indexed
-User{}.OrderBy("created_at", "DESC").Get() // created_at should be indexed
+var u User
+_ = orm.Model[User]{}.Where("email = ?", email).First(ctx, &u)  // email indexed
+users, _ := orm.Model[User]{}.OrderBy("created_at", "DESC").Get(ctx)
 ```
 
 ## Related
