@@ -1,14 +1,16 @@
 ---
 title: CRUD Operations
-description: Create, read, update, and delete database records with Velocity ORM's fluent API.
+description: Create, read, update, and delete database records with Velocity ORM's ctx-first API.
 weight: 40
 ---
 
-Create, read, update, and delete records with Velocity ORM.
+Every state-changing entry point on the ORM (and every read terminal) takes `context.Context` as its first positional argument. There is no implicit auto-commit and no chain-level `WithContext` decoration: pass the ctx your handler already holds, and a tx slot in that ctx (set by `Manager.Transaction` or `WithTxContext`) automatically enrolls the call in the surrounding transaction. A bare `context.Background()` routes through the pool driver.
 
 ## Create
 
 ### Save Instance
+
+`orm.Save` is the package-level persistence helper. Pass `nil` for the manager to use the package default registered by `velocity.New()`.
 
 ```go
 user := User{
@@ -16,19 +18,25 @@ user := User{
     Email: "john@example.com",
     Role:  "user",
 }
-err := user.Save()  // Creates new record
+if err := orm.Save(ctx, nil, &user); err != nil {
+    return err
+}
 fmt.Printf("User created with ID: %d\n", user.ID)
 ```
+
+The same call updates an existing row when `orm.IsExisting(&user)` is true. Rows loaded via `Find`, `Where(...).Get`, `First`, etc. are marked existing automatically.
 
 ### Create with Map
 
 ```go
-user, err := User{}.Create(map[string]any{
+user, err := User{}.Create(ctx, map[string]any{
     "name":  "Jane Doe",
     "email": "jane@example.com",
     "role":  "admin",
 })
 ```
+
+`Create` accepts a `map[string]any` (mass-assignment respects `Fillable`/`Guarded`) or a pre-built `*User`.
 
 ### Create Multiple
 
@@ -37,174 +45,168 @@ users := []User{
     {Name: "Alice", Email: "alice@example.com"},
     {Name: "Bob", Email: "bob@example.com"},
 }
-err := User{}.CreateMany(users)
-```
-
-### First Or Create
-
-Find or create if not exists:
-
-```go
-// Find by email, or create with provided attributes
-user, created := User{}.FirstOrCreate(
-    map[string]any{"email": "john@example.com"},        // Search criteria
-    map[string]any{"name": "John Doe", "role": "user"}, // Creation attributes
-)
-
-if created {
-    fmt.Println("New user created")
-} else {
-    fmt.Println("Existing user found")
+if err := (User{}).CreateMany(ctx, users); err != nil {
+    return err
 }
 ```
 
-### Update Or Create
+Iteration is sequential. The first error short-circuits; preceding rows are part of the in-flight tx when ctx carries one, so a `Manager.Transaction` closure can return that error to roll back the partial batch.
 
-Find and update, or create if not exists:
+### First Or Create
+
+Find by criteria; insert with `conditions ∪ values` if nothing matches.
 
 ```go
-user, err := User{}.UpdateOrCreate(
+user, err := User{}.FirstOrCreate(ctx,
     map[string]any{"email": "john@example.com"},        // Search criteria
-    map[string]any{"name": "John Updated", "role": "admin"}, // Update/create attributes
+    map[string]any{"name": "John Doe", "role": "user"}, // Creation attributes
 )
 ```
 
-## Read
+Returns `(*T, error)`. The "did we just create it" signal moved to a side-channel: call `orm.IsExisting(user)` after the call if you need it (it is always true on the returned pointer; the distinction lives in your branching logic, e.g. counting rows beforehand).
 
-See [Query Builder](queries) for detailed query documentation.
+### Update Or Create
+
+Lookup, update if found, insert if not.
 
 ```go
-// Find by ID
-user, err := User{}.Find(1)
+user, err := User{}.UpdateOrCreate(ctx,
+    map[string]any{"email": "john@example.com"},
+    map[string]any{"name": "John Updated", "role": "admin"},
+)
+```
 
-// Find by field
-user, err := User{}.FindBy("email", "john@example.com")
+The `Query[T]` chain forms exist too: `mgr.Query[T]()` style accepts the same `(ctx, conditions, values)` pair so you can scope the lookup with extra `Where` clauses before the helper resolves.
 
-// First/Last
-user, err := User{}.First()
-user, err := User{}.Last()
+## Read
 
-// All records
-users, err := User{}.All()
+See [Query Builder](/docs/database/queries/) for the full surface. The static helpers terminal in ctx:
 
-// With conditions
-users, err := User{}.Where("role = ?", "admin").Get()
+```go
+user, err := User{}.Find(ctx, 1)
+user, err := User{}.FindBy(ctx, "email", "john@example.com")
+user, err := User{}.First(ctx)
+user, err := User{}.Last(ctx)
+users, err := User{}.All(ctx)
+
+// Chained queries return *Query[T]; terminal methods take ctx.
+users, err := User{}.Where("role = ?", "admin").Get(ctx)
+count, err := User{}.Count(ctx)
+exists := User{}.Where("email = ?", email).Exists(ctx)
 ```
 
 ## Update
 
-### Update Instance
+### Update via Save
+
+Modify the loaded struct, then re-save:
 
 ```go
-user, _ := User{}.Find(1)
+user, err := User{}.Find(ctx, 1)
+if err != nil {
+    return err
+}
 user.Name = "Updated Name"
 user.Email = "newemail@example.com"
-err := user.Save()  // Updates existing record (has ID)
+if err := orm.Save(ctx, nil, user); err != nil {
+    return err
+}
 ```
 
-### Update with Map
-
-```go
-user, _ := User{}.Find(1)
-err := user.Update(map[string]any{
-    "role":   "admin",
-    "active": true,
-})
-```
+Because `Find` marked the row as existing, `Save` takes the UPDATE branch.
 
 ### Mass Update
 
+Update by static helper:
+
 ```go
-// Update single field
-affected := User{}.Where("role = ?", "guest").Update("active", false)
-
-// Update multiple fields
-affected := User{}.WhereRole("guest").UpdateMany(map[string]any{
-    "active": false,
-    "role":   "user",
-})
-
-fmt.Printf("Updated %d records\n", affected)
+affected, err := User{}.Update(ctx,
+    map[string]any{"role": "guest"},   // conditions
+    map[string]any{"active": false},   // updates
+)
 ```
+
+Update through the chain when conditions are richer than `field = value`:
+
+```go
+affected, err := User{}.
+    Where("role = ?", "guest").
+    Where("created_at < ?", cutoff).
+    Update(ctx, map[string]any{"active": false})
+```
+
+`updated_at` is stamped automatically with the driver-appropriate `NOW()` / `CURRENT_TIMESTAMP` sentinel; pass `orm.NOW` (or any other `orm.RawSQL` value) explicitly when you need a column other than `updated_at` to take the server's clock.
 
 ### Increment / Decrement
 
 ```go
-user, _ := User{}.Find(1)
+// Static helpers
+err := User{}.Increment(ctx, "login_count")          // +1
+err := User{}.Increment(ctx, "points", 100)          // +100
+err := User{}.Decrement(ctx, "credits", 10)          // -10
 
-// Increment by 1
-user.Increment("login_count")
-
-// Increment by specific amount
-user.Increment("points", 100)
-
-// Decrement
-user.Decrement("credits", 10)
-
-// Mass increment
-User{}.Where("active = ?", true).Increment("bonus", 5)
+// Chain form: scope the rows first
+err := User{}.Where("active = ?", true).Increment(ctx, "bonus", 5)
 ```
 
-### Touch Timestamps
-
-```go
-user, _ := User{}.Find(1)
-
-// Update updated_at to current time
-user.Touch()
-
-// Touch related records
-user.Posts().Touch()
-```
+The generated UPDATE is atomic (`SET col = col + ?`) so concurrent increments do not lose updates.
 
 ## Delete
 
 ### Soft Delete
 
-If your model has a `DeletedAt` field, records are soft deleted:
+Models composed with `orm.SoftDeleteModel[T]` (or any composition that includes the `SoftDeletes[T]` trait) carry a `deleted_at *time.Time` column. `Delete` on those models stamps `deleted_at = NOW()`; the row stays in the table and is filtered out of subsequent reads by the registered soft-delete scope.
 
 ```go
 type User struct {
-    orm.Model[User]
-    Name      string     `orm:"column:name"`
-    DeletedAt *time.Time `orm:"column:deleted_at"`  // Enables soft delete
+    orm.SoftDeleteModel[User]
+    Name string `orm:"column:name"`
 }
 
-user, _ := User{}.Find(1)
-err := user.Delete()  // Sets deleted_at, doesn't remove row
+// Static helper: soft-delete by conditions.
+affected, err := User{}.DeleteWhere(ctx, map[string]any{"role": "guest"})
+
+// Chain: soft-delete with richer predicates.
+affected, err := User{}.Where("created_at < ?", cutoff).Delete(ctx)
 ```
 
 ### Force Delete
 
-Permanently remove records:
+Permanent removal, even on soft-delete models:
 
 ```go
-user, _ := User{}.Find(1)
-err := user.ForceDelete()  // Permanent deletion
+affected, err := User{}.ForceDeleteWhere(ctx, map[string]any{"id": 42})
+
+// Chain form
+affected, err := User{}.Where("active = ?", false).ForceDelete(ctx)
 ```
 
-### Mass Delete
+On models without soft delete, `Delete` and `ForceDelete` are equivalent.
+
+### Working with Soft Deleted Records
 
 ```go
-// Delete matching records
-affected := User{}.Where("role = ?", "guest").Delete()
+// Default scope hides trashed rows.
+users, err := User{}.All(ctx)
 
-// Force delete matching records
-affected := User{}.Where("active = ?", false).ForceDelete()
+// Include trashed rows.
+users, err := User{}.WithTrashed().Get(ctx)
+
+// Only trashed rows.
+users, err := User{}.OnlyTrashed().Get(ctx)
 ```
 
-### Delete with Associations
+To restore a trashed row, clear `deleted_at` via mass update with the trashed-aware scope explicitly opted in:
 
 ```go
-user, _ := User{}.Find(1)
-
-// Delete user and related records
-user.DeleteWith("Profile", "Posts")
+affected, err := User{}.WithTrashed().
+    Where("id = ?", id).
+    Update(ctx, map[string]any{"deleted_at": nil})
 ```
 
 ## Append-Only Models
 
-For tables that should never be mutated after insert (`audit_logs`, `events`, `outbox`, ledger entries), embed `orm.ImmutableModel[T]` instead of `orm.Model[T]`. The append-only embed has `CreatedAt` but no `UpdatedAt`, and exposes no `Update` / mass-update path. Embedding `Model[T]` would silently inherit `UpdatedAt` and stamp it on every save, which fails at the driver against a missing column.
+Tables that should never be mutated after insert (`audit_logs`, `events`, `outbox`, ledger entries) embed `orm.ImmutableModel[T]` (or `orm.ImmutableUUIDModel[T]`) instead of `orm.Model[T]`. The composition is `IDInt[T] + CreatedAtOnly + AppendOnly`: there is no `UpdatedAt` column and no UPDATE branch.
 
 ```go
 type AuditLog struct {
@@ -214,8 +216,7 @@ type AuditLog struct {
     Meta   map[string]any `orm:"column:meta;type:jsonb"`
 }
 
-// Insert is the only mutation allowed.
-log, err := AuditLog{}.Create(map[string]any{
+log, err := AuditLog{}.Create(ctx, map[string]any{
     "actor":  "user:42",
     "action": "user.deleted",
     "meta":   map[string]any{"target": 99},
@@ -225,128 +226,218 @@ log, err := AuditLog{}.Create(map[string]any{
 Reads work like any other model:
 
 ```go
-log, err := AuditLog{}.Find(id)
-recent, err := AuditLog{}.Where("actor = ?", actor).OrderBy("created_at", "DESC").Limit(50).Get()
-err := orm.Model[AuditLog]{}.WithContext(ctx).Where("action = ?", "user.deleted").Get()
+log, err := AuditLog{}.Find(ctx, id)
+recent, err := AuditLog{}.
+    Where("actor = ?", actor).
+    OrderBy("created_at", "DESC").
+    Limit(50).
+    Get(ctx)
 ```
 
-Calling `Save()` on an already-persisted `ImmutableModel` returns `orm.ErrImmutableModelUpdate`. To "edit" an immutable record, append a new row instead.
-
-For UUID primary keys, embed `orm.ImmutableUUIDModel[T]`.
+`orm.Save(ctx, mgr, &existing)` on an already-persisted immutable record returns `orm.ErrImmutableModelUpdate`. To "edit" an immutable row, append a new one.
 
 {{< callout type="warning" title="Use orm.Save for the parent struct" >}}
-The instance `Save()` method on the embedded `*ImmutableModel[T]` cannot resolve the parent struct, table name, or hooks via reflection. Persist with the package-level helper:
-
-```go
-err := orm.Save(manager, &record)
-```
-
-`Create` / `CreateMany` on the static-like helpers go through this path automatically.
+The package-level `orm.Save(ctx, mgr, &record)` is the only persistence path for `ImmutableModel[T]` parents; there is no instance method. `Create` / `CreateMany` on the static-like helpers go through `orm.Save` automatically.
 {{< /callout >}}
-
-## Working with Soft Deletes
-
-### Query Soft Deleted Records
-
-```go
-// Only soft deleted records
-users, _ := User{}.OnlyTrashed().Get()
-
-// Include soft deleted records
-users, _ := User{}.WithTrashed().Get()
-
-// Normal query (excludes soft deleted)
-users, _ := User{}.Get()
-```
-
-### Restore Soft Deleted Records
-
-```go
-user, _ := User{}.OnlyTrashed().Find(1)
-err := user.Restore()
-
-// Mass restore
-User{}.OnlyTrashed().Where("role = ?", "admin").Restore()
-```
-
-### Check if Soft Deleted
-
-```go
-user, _ := User{}.WithTrashed().Find(1)
-
-if user.Trashed() {
-    fmt.Println("User is soft deleted")
-}
-```
 
 ## Transactions
 
-### Callback Transaction
+`Manager.Transaction` runs a closure inside a database transaction. The ctx passed to the closure carries a `*sql.Tx`; every ORM call you make with that ctx auto-enrolls in the tx.
 
 ```go
-err := orm.Transaction(func() error {
-    user := User{Name: "John", Email: "john@example.com"}
-    if err := user.Save(); err != nil {
-        return err // Auto rollback
+err := manager.Transaction(ctx, func(ctx context.Context) error {
+    user, err := User{}.Create(ctx, map[string]any{
+        "name":  "John",
+        "email": "john@example.com",
+    })
+    if err != nil {
+        return err // auto rollback
     }
 
-    profile := Profile{UserID: user.ID, Bio: "Developer"}
-    if err := profile.Save(); err != nil {
-        return err // Auto rollback
+    if _, err := (Profile{}).Create(ctx, map[string]any{
+        "user_id": user.ID,
+        "bio":     "Developer",
+    }); err != nil {
+        return err
     }
 
-    return nil // Auto commit
+    return nil // auto commit
 })
-
-if err != nil {
-    log.Printf("Transaction failed: %v", err)
-}
 ```
 
-### Manual Transaction
+Lifecycle:
 
-```go
-tx := orm.Begin()
-defer tx.Rollback() // Rollback if not committed
-
-user := User{Name: "Jane"}
-if err := user.SaveTx(tx); err != nil {
-    return err
-}
-
-profile := Profile{UserID: user.ID}
-if err := profile.SaveTx(tx); err != nil {
-    return err
-}
-
-if err := tx.Commit(); err != nil {
-    return err
-}
-```
+- Closure returns a non-nil error: rollback, error returned to caller.
+- Closure panics: rollback, panic re-raised. Rollback failures surface as `TxRecover` events.
+- Closure returns nil: commit, then per-tx callbacks and buffered events flush.
 
 ### Nested Transactions (Savepoints)
 
-```go
-err := orm.Transaction(func() error {
-    user := User{Name: "John"}
-    user.Save()
+Re-entering `Transaction` from inside a closure reuses the outer tx. The inner closure observes savepoint semantics: an inner rollback discards only the inner work; the outer tx still commits or rolls back on its own boundary.
 
-    // Nested transaction (savepoint)
-    err := orm.Transaction(func() error {
-        post := Post{UserID: user.ID, Title: "Draft"}
-        return post.Save()
+```go
+err := manager.Transaction(ctx, func(ctx context.Context) error {
+    user, err := User{}.Create(ctx, map[string]any{"name": "John"})
+    if err != nil {
+        return err
+    }
+
+    // Savepoint: inner failure is contained.
+    inner := manager.Transaction(ctx, func(ctx context.Context) error {
+        _, err := (Post{}).Create(ctx, map[string]any{
+            "user_id": user.ID,
+            "title":   "Draft",
+        })
+        return err
+    })
+    if inner != nil {
+        log.Printf("post creation failed: %v", inner)
+    }
+    return nil
+})
+```
+
+### Manual Transactions
+
+When the closure form does not fit (long-lived txs, savepoint issuance), `Manager.Begin` returns the raw `*sql.Tx`. Thread it through ctx with `orm.WithTxContext`:
+
+```go
+tx, err := manager.Begin(ctx)
+if err != nil {
+    return err
+}
+txCtx := orm.WithTxContext(ctx, tx)
+
+if err := orm.Save(txCtx, manager, &user); err != nil {
+    _ = tx.Rollback()
+    return err
+}
+return tx.Commit()
+```
+
+Prefer `Transaction` for everyday work; the manual path skips the per-tx event buffer and callback drain wiring that `Transaction` installs for you.
+
+## Commit Callbacks
+
+`OnCommit`, `OnRollback`, and `OnCommitFailure` register work to fire after the surrounding transaction settles. They are the durable replacement for "do this thing only if the row actually persisted" branches that used to live inline.
+
+```go
+ctx = orm.PrepareTxCallbacks(ctx)
+
+err := manager.Transaction(ctx, func(ctx context.Context) error {
+    user, err := User{}.Create(ctx, map[string]any{"email": email})
+    if err != nil {
+        return err
+    }
+
+    // Fires only after a successful commit.
+    _ = orm.OnCommit(ctx, func(ctx context.Context) error {
+        return cache.Forget(ctx, "users:"+user.Email)
     })
 
-    if err != nil {
-        // Inner transaction rolled back, outer continues
-        log.Printf("Failed to create post: %v", err)
-    }
+    // Fires only if the tx rolls back.
+    _ = orm.OnRollback(ctx, func(ctx context.Context) error {
+        log.Warn("user create rolled back", "email", email)
+        return nil
+    })
 
     return nil
 })
 ```
 
-## Model Events
+`PrepareTxCallbacks` attaches the callback holder to ctx; without it, the `OnCommit` / `OnRollback` calls return `orm.ErrNoTxCallbacks` so callers can fall back to inline execution.
+
+Important guarantees:
+
+- Callbacks fire AFTER the tx has settled, never inside it.
+- The ctx supplied to a callback is detached from cancellation via `context.WithoutCancel`. A request deadline that triggered the rollback will not poison the cache-invalidation cascade.
+- A panic inside a callback is isolated. It surfaces as a `TxRecover` event with `Cause == "callback_panic"`; subsequent callbacks still run.
+- Savepoint inner registrations defer to the outer tx: only the outermost commit/rollback boundary drains.
+
+### Commit Failure
+
+If `tx.Commit()` itself returns an error, the transaction is in an AMBIGUOUS state: the database may have committed but the network failed before the OK reached the client. `OnCommitFailure` is the only callback list that fires in this case; rollback callbacks do NOT run because the rollback was never confirmed.
+
+```go
+_ = orm.OnCommitFailure(ctx, func(ctx context.Context, commitErr error) error {
+    log.Error("commit ambiguous - leaving outbox/cache untouched",
+        "err", commitErr)
+    return nil
+})
+```
+
+The safe default is to log and leave outboxes / caches alone. Aggressive cleanup risks duplicate work (re-enqueueing jobs that already fired) or stale-cache reads (invalidating changes that DID land).
+
+### Model Hooks: AfterCommit / AfterRollback
+
+Models that implement `orm.AfterCommitHook` or `orm.AfterRollbackHook` are auto-registered against the active TxCallbacks on every successful Save. This is the right home for outbox dispatch, cache invalidation, webhook fanout: anything that requires durability before the side effect can be safely observed.
+
+```go
+type Order struct {
+    orm.Model[Order]
+    Customer string `orm:"column:customer"`
+    Total    int64  `orm:"column:total"`
+}
+
+func (o *Order) AfterCommit(ctx context.Context) error {
+    return events.Dispatch(ctx, OrderPlaced{ID: o.ID})
+}
+
+func (o *Order) AfterRollback(ctx context.Context) error {
+    log.Warn("order rolled back", "id", o.ID)
+    return nil
+}
+```
+
+Outside a `Transaction`, the implicit auto-commit already happened by the time `Save` returns, so `AfterCommit` fires inline immediately after the in-tx hooks. `AfterRollback` only fires inside a `Transaction` that ultimately rolls back.
+
+## Change Tracking
+
+Tracking is opt-in. Calling `orm.Track` snapshots the current field values; `IsDirty`, `IsClean`, and `HasChanged` compare against that snapshot lazily. Models that never call `Track` pay zero: the side-channel is allocated only on demand.
+
+```go
+user, err := User{}.Find(ctx, 1)
+if err != nil {
+    return err
+}
+orm.Track(&user) // baseline
+
+user.Name = "Updated"
+
+orm.IsDirty(&user)              // true
+orm.HasChanged(&user, "Name")   // true
+orm.HasChanged(&user, "Email")  // false
+
+if err := orm.Save(ctx, nil, &user); err != nil {
+    return err
+}
+orm.MarkClean(&user) // re-baseline so subsequent edits are diffed against the saved state
+orm.IsClean(&user)   // true
+```
+
+`HasChanged` keys on the Go field name (e.g. `"Name"`, not `"name"`). Tracking on an in-memory struct that was never persisted is a no-op.
+
+## Existence
+
+`orm.IsExisting(&model)` reports whether the row is persisted. Rows loaded via any read path (`Find`, `Get`, `First`, raw queries) are marked existing automatically; freshly-constructed structs are not until the first successful `Save`.
+
+```go
+var u User
+u.Name = "draft"
+
+orm.IsExisting(&u) // false
+
+if err := orm.Save(ctx, nil, &u); err != nil {
+    return err
+}
+orm.IsExisting(&u) // true
+```
+
+This is the bit that drives `Save`'s INSERT-vs-UPDATE branch. Reach for it directly when you want to branch in user code without round-tripping the database.
+
+## Model Lifecycle Hooks
+
+Models can implement any subset of the lifecycle hook interfaces. The save path detects them via type assertion and fires them at the appropriate point.
 
 ```go
 type User struct {
@@ -355,51 +446,54 @@ type User struct {
     Email string `orm:"column:email"`
 }
 
-// Before create
-func (u *User) Creating() error {
+// Before insert: validate or normalize.
+func (u *User) BeforeCreate() error {
     u.Email = strings.ToLower(u.Email)
     return nil
 }
 
-// After create
-func (u *User) Created() {
-    log.Printf("User %d created", u.ID)
-}
-
-// Before update
-func (u *User) Updating() error {
+// After insert.
+func (u *User) AfterCreate() error {
+    log.Printf("user %d created", u.ID)
     return nil
 }
 
-// After update
-func (u *User) Updated() {
-    log.Printf("User %d updated", u.ID)
-}
-
-// Before delete
-func (u *User) Deleting() error {
+// Before update.
+func (u *User) BeforeUpdate() error {
     return nil
 }
 
-// After delete
-func (u *User) Deleted() {
-    log.Printf("User %d deleted", u.ID)
+// After update.
+func (u *User) AfterUpdate() error {
+    return nil
+}
+
+// Before delete.
+func (u *User) BeforeDelete() error {
+    return nil
+}
+
+// After delete.
+func (u *User) AfterDelete() error {
+    return nil
 }
 ```
 
+These run inside the same connection / transaction as the write. For work that must wait until the row is durable (cache invalidation, queue dispatch), implement `AfterCommit` instead. See [Commit Callbacks](#commit-callbacks).
+
 ## Best Practices
 
-1. **Use transactions** - Wrap related operations in transactions
-2. **Prefer soft deletes** - Use soft deletes for recoverable data
-3. **Validate before save** - Validate data in `Creating()`/`Updating()` hooks
-4. **Handle errors** - Always check returned errors
-5. **Use mass updates carefully** - Mass updates skip model events
-6. **Index for performance** - Index columns used in WHERE clauses
+1. **Always pass ctx.** The compile-time requirement is the point: there is no silent auto-commit code path to forget about.
+2. **Prefer `Manager.Transaction` over `Begin`.** The closure form wires per-tx event buffering and callback drains for you.
+3. **Use `AfterCommit` for side effects.** In-tx `AfterCreate` runs before the row is durable; webhooks and queue jobs belong on `AfterCommit`.
+4. **Check `OnCommitFailure` semantics.** Treat commit-failure as ambiguous; logging is safe, retrying is not.
+5. **Validate in `BeforeCreate` / `BeforeUpdate`.** Mass updates skip lifecycle hooks, so cross-check critical invariants in the request layer when going through the chain `Update`.
+6. **Index columns used in WHERE.** The ORM does not synthesize indexes; see [Migrations](/docs/database/migrations/).
 
 ## Related
 
-- [Queries](/docs/database/queries/) - read-side counterpart: Where / First / Get / pagination patterns
-- [Global Query Scopes](/docs/database/scopes/) - the primitive behind soft-delete, also useful for multi-tenant `team_id` filters and draft visibility
-- [Transactional Outbox](/docs/database/outbox/) - commit queue jobs and events atomically with the write that triggered them
-- [Relationships](/docs/database/relationships/) - HasMany / BelongsTo wiring used by Save and lifecycle hooks
-- [Migrations](/docs/database/migrations/) - schema and indexes that back the models you create and update
+- [Queries](/docs/database/queries/): read-side counterpart, Where / First / Get / pagination patterns
+- [Global Query Scopes](/docs/database/scopes/): the primitive behind soft-delete, also useful for multi-tenant filters and draft visibility
+- [Transactional Outbox](/docs/database/outbox/): commit queue jobs and events atomically with the write that triggered them
+- [Relationships](/docs/database/relationships/): HasMany / BelongsTo wiring used by Save and lifecycle hooks
+- [Migrations](/docs/database/migrations/): schema and indexes that back the models you create and update
