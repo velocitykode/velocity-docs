@@ -16,7 +16,9 @@ Pick the helper that matches what you are trying to do:
 | Pass an arbitrary string key (legacy or non-trivial naming) | `Register(name, factory)` |
 | One-shot dispatch | `driver.PushCtx(ctx, job, queue...)` |
 | Delayed dispatch | `driver.PushDelayedCtx(ctx, job, delay, queue...)` |
+| Long-running job that must abort on shutdown / timeout | implement `HandleCtx(ctx) error` (HandleCtxer) |
 | Batch with then / catch / finally | `NewBatch(jobs...).Then(...).Catch(...).Finally(...).Dispatch(ctx, driver)` |
+| Register a third-party driver backend | `queue.Drivers().Register(name, factory)` |
 
 All dispatch methods are context-aware so cancellation flows through to the backing store. The `queue` parameter is variadic; omit it to fall back to the job's `OnQueue()` (if implemented) or `"default"`.
 
@@ -43,7 +45,9 @@ The framework wires a `queue.Driver` into the service container as `s.Queue`. Ap
 
 ## Creating Jobs
 
-Jobs are structs that implement the `Job` interface:
+Jobs implement the `Job` interface (`Handle() error` + `Failed(error)`). Long-running jobs should additionally implement `HandleCtxer` so cancellation reaches the work.
+
+### `Job` (always required)
 
 ```go
 package jobs
@@ -66,6 +70,72 @@ func (e *EmailJob) Failed(err error) {
     log.Printf("Failed to send email to %s: %v", e.To, err)
 }
 ```
+
+`Handle()` is fine for fast, non-blocking work. The worker has no way to interrupt it once it starts; if the per-job timeout fires or the worker is shutting down, the goroutine continues until `Handle` returns on its own.
+
+### `HandleCtxer` (optional, ctx-aware)
+
+When a job implements `HandleCtx(ctx context.Context) error`, the worker calls it instead of `Handle()` and threads its per-job context in. Cancellation of that context (worker shutdown, per-job timeout) and any trace span on the worker context flow into the handler. Jobs that implement only `Handle()` keep working unchanged.
+
+```go
+package jobs
+
+import (
+    "context"
+    "fmt"
+    "io"
+    "net/http"
+)
+
+type FetchJob struct {
+    URL string `json:"url"`
+}
+
+func (j *FetchJob) Handle() error {
+    // Fallback for callers that ignore HandleCtxer; the worker won't use this
+    // when HandleCtx is also defined.
+    return j.HandleCtx(context.Background())
+}
+
+func (j *FetchJob) HandleCtx(ctx context.Context) error {
+    req, err := http.NewRequestWithContext(ctx, http.MethodGet, j.URL, nil)
+    if err != nil {
+        return err
+    }
+
+    resp, err := http.DefaultClient.Do(req)
+    if err != nil {
+        return err // includes ctx errors when shutdown or timeout fires mid-flight
+    }
+    defer resp.Body.Close()
+
+    // For inner loops without their own ctx-aware I/O, select on ctx.Done()
+    // explicitly so a cancellation aborts promptly.
+    chunks := make(chan []byte)
+    go streamChunks(resp.Body, chunks)
+    for {
+        select {
+        case <-ctx.Done():
+            return ctx.Err()
+        case b, ok := <-chunks:
+            if !ok {
+                return nil
+            }
+            if _, err := io.Discard.Write(b); err != nil {
+                return err
+            }
+        }
+    }
+}
+
+func (j *FetchJob) Failed(err error) {
+    fmt.Printf("fetch %s failed: %v\n", j.URL, err)
+}
+```
+
+{{< callout type="warning" title="Honor ctx.Done()" >}}
+The handler goroutine is **not** forcibly terminated. If `HandleCtx` ignores `ctx` and blocks, the goroutine leaks until the process exits. Implementations MUST observe `ctx.Done()` (via ctx-aware I/O or an explicit `select`) and return promptly when the context cancels. The worker bounds its wait on a misbehaving handler (see [Shutdown semantics](#shutdown-semantics)) so `Stop()` cannot hang, but the leak counts as a bug in the handler.
+{{< /callout >}}
 
 ## Pushing Jobs
 
@@ -125,9 +195,9 @@ func init() {
 
 `T` is typically a pointer type (e.g. `*EmailJob`), matching how jobs are dispatched (`s.Queue.PushCtx(ctx, &EmailJob{...})`).
 
-### `Register` (legacy / explicit naming)
+### `Register` (deprecated, explicit naming)
 
-Use `Register(name, factory)` when you need a non-trivial naming scheme or are bridging legacy callers:
+`Register(name, factory)` is retained for backward compatibility and for callers who need a custom naming scheme. It accepts any string and silently succeeds at boot, so a typo only surfaces at runtime as `ErrJobNotFound` when a payload arrives. Prefer `RegisterJob[T]` for new code.
 
 ```go
 queue.Register("EmailJob", func(data []byte) (queue.Job, error) {
@@ -165,6 +235,9 @@ import (
     "github.com/velocitykode/velocity/queue"
 )
 
+// The handler is the fallback for jobs that DON'T implement HandleCtxer.
+// Jobs that do implement HandleCtx(ctx) are invoked directly by the worker
+// with the per-job ctx; this handler is bypassed for them.
 handler := func(j queue.Job) error { return j.Handle() }
 
 w := queue.NewWorker(s.Queue, "emails", handler,
@@ -181,6 +254,24 @@ defer w.Stop()
 ```
 
 `Start` is idempotent: a second call while the worker is already running is a no-op. Pump goroutines exit when the parent context cancels or `Stop()` is invoked.
+
+### Shutdown semantics
+
+The worker treats parent-ctx cancellation, `Stop()`, and per-job timeouts distinctly:
+
+| Trigger | What the handler sees | What the worker does |
+|---|---|---|
+| Parent `ctx` cancels OR `Stop()` is called | Per-job ctx is cancelled (`HandleCtxer` jobs observe `<-ctx.Done()`); `Handle()`-only jobs keep running until they return | Treats the abort as **clean**: no `Failed()` call, no retry push, no `JobFailed`/`JobRetrying` events. The job stays in flight from the driver's perspective; a future worker (or the driver's shutdown path) reclaims it. |
+| `WithTimeout` fires while parent ctx is still live | Per-job ctx is cancelled with `DeadlineExceeded` | Routes through `handleJobFailure`: increments attempt, fires `JobRetrying` or `JobFailed`, requeues with backoff or marks failed. |
+| Handler returns a non-ctx error during shutdown | n/a | Logs a `WARN` ("Job error swallowed during worker shutdown") and aborts without routing through `Failed()` so the tear-down path stays clean. The error is diagnosable in logs. |
+
+Per-job timeouts also drain the detached handler goroutine. When `WithTimeout` fires (or `Stop()` propagates), the worker waits up to ~5s for the goroutine to observe `ctx.Done()` and unwind. If the handler ignores ctx and blocks past that ceiling, the worker logs a `WARN` ("Handler goroutine did not return after ctx cancellation; leaking") and lets `Stop()` complete; the rogue goroutine leaks until the process exits. This bound exists so a misbehaving handler can't hang shutdown forever.
+
+Practical implications:
+
+- A `HandleCtxer` job that gets cancelled by `Stop()` and returns `ctx.Err()` is **not** a failure. It will be processed again next time a worker picks it up.
+- A `Handle()`-only job already running when `Stop()` is called runs to completion; the worker waits for the pump goroutines to drain. Long-running `Handle()` work blocks shutdown.
+- Per-job timeouts (`WithTimeout`) **are** real failures and consume retry budget. Reach for `HandleCtxer` if you want the timeout to actually interrupt the work rather than just mark it failed in the background.
 
 ## Retry control
 
@@ -299,6 +390,35 @@ d := queue.NewMemoryDriver()
 d, err := queue.NewQueue(queue.QueueConfig{Driver: "redis", Redis: redisCfg})
 ```
 
+### Registering a third-party driver
+
+The built-in drivers (`memory`, `redis`, `database`) self-register through Velocity's unified driver registry. Third-party backends plug in the same way: call `queue.Drivers().Register(name, factory)` from your driver package's `init()` and the name resolves through `queue.NewQueue` / `queue.NewQueueWithContext` like any built-in.
+
+```go
+package kafkaqueue
+
+import (
+    "context"
+
+    "github.com/velocitykode/velocity/queue"
+)
+
+func init() {
+    queue.Drivers().Register("kafka", func(ctx context.Context, cfg queue.QueueConfig) (queue.Driver, error) {
+        return newKafkaDriver(ctx, cfg)
+    })
+}
+```
+
+```go
+// app wiring
+import _ "example.com/kafkaqueue" // pulls in the init() that registers "kafka"
+
+d, err := queue.NewQueueWithContext(ctx, queue.QueueConfig{Driver: "kafka"})
+```
+
+Setting `QUEUE_DRIVER=kafka` in `.env` then routes the framework's bootstrap through the registered factory. See [Driver Registry](/docs/advanced/driver-registry/) for the registry contract shared with cache, storage, and other subsystems.
+
 ## Recipe: retry only on transient errors
 
 **When:** a job calls a flaky upstream API where 5xx responses are worth retrying but 4xx are not.
@@ -340,11 +460,12 @@ func (j *WebhookJob) ShouldRetry(err error) bool {
 ## Best Practices
 
 1. **Job design**: keep jobs small and focused on a single task.
-2. **Idempotency**: design `Handle()` to be safe to retry; uniqueness keys in upstream calls are cheaper than careful retry logic.
-3. **Use `RegisterJob[T]`**: string keys are typo footguns surfaced only at runtime.
-4. **Always set `WithWorkerLogger`**: the stderr fallback exists so errors are never silent, but production workers should route through the framework logger.
-5. **Graceful shutdown**: call `Stop()` (or cancel the parent context) so pump goroutines drain in-flight jobs.
-6. **Register before starting workers**: late registrations work, but a job that arrives before its handler is registered fails with `ErrJobNotFound`.
+2. **Idempotency**: design `Handle()` / `HandleCtx()` to be safe to retry; uniqueness keys in upstream calls are cheaper than careful retry logic.
+3. **Reach for `HandleCtxer` for any I/O or long loop**: ctx-aware I/O (`http.NewRequestWithContext`, `db.QueryContext`, channel receives in a `select`) is the difference between a job that aborts cleanly on shutdown and a goroutine that leaks.
+4. **Use `RegisterJob[T]`**: string keys are typo footguns surfaced only at runtime.
+5. **Always set `WithWorkerLogger`**: the stderr fallback exists so errors are never silent, but production workers should route through the framework logger.
+6. **Graceful shutdown**: call `Stop()` (or cancel the parent context) so pump goroutines drain in-flight jobs. Shutdown-cancelled jobs are not retried or marked failed; a future worker re-picks them from the driver.
+7. **Register before starting workers**: late registrations work, but a job that arrives before its handler is registered fails with `ErrJobNotFound`.
 
 ## Related
 
@@ -352,3 +473,4 @@ func (j *WebhookJob) ShouldRetry(err error) bool {
 - [Mail](/docs/advanced/mail/) - outbound email is a classic queue payload to keep request latency low
 - [Notifications](/docs/advanced/notifications/) - multi-channel delivery that typically dispatches through queue jobs
 - [Async](/docs/core/async/) - fire-and-forget for in-process work; reach for the queue when durability matters
+- [Driver Registry](/docs/advanced/driver-registry/) - the registry contract `queue.Drivers()` is built on, shared with cache and storage
