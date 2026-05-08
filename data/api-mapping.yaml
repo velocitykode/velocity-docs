@@ -1,0 +1,74 @@
+# Velocity framework → docs page mapping.
+#
+# Used by tools/docdrift to verify that every exported symbol in a Velocity
+# package is mentioned somewhere in the docs page(s) that cover it. When the
+# framework gains a new export and nobody updates the docs, this mapping is
+# how the detector knows where the new export should have landed.
+#
+# - Keys are package names relative to the velocity module root
+#   (github.com/velocitykode/velocity/<key>).
+# - Values are docs paths relative to velocity-docs/content/docs/.
+# - A value can be a single string or a list of strings; a symbol counts as
+#   covered if any one of the listed pages mentions it.
+# - Sub-packages (e.g. auth/drivers/session) are folded into their top-level
+#   parent's coverage by default - the detector concatenates the parent's
+#   pages when checking sub-package exports.
+# - Anything in `ignored` is skipped entirely; internal/* is auto-skipped.
+
+packages:
+  app:          advanced/service-providers.md
+  async:        core/async.md
+  auth:         core/authentication.md
+  bond:         frontend/inertia.md
+  broadcast:    realtime/broadcast.md
+  bus:          advanced/bus.md
+  cache:        core/cache.md
+  collect:      advanced/collect.md
+  contract:     advanced/contract.md
+  crypto:       core/crypto.md
+  csrf:         core/csrf.md
+  driverregistry: advanced/driver-registry.md
+  events:       advanced/events.md
+  exceptions:   core/exceptions.md
+  flags:        advanced/flags.md
+  grpc:         advanced/grpc.md
+  httpclient:   advanced/httpclient.md
+  log:          core/logging.md
+  mail:         advanced/mail.md
+  notification: advanced/notifications.md
+  orm:
+    - database/getting-started.md
+    - database/queries.md
+    - database/relationships.md
+    - database/crud.md
+    - database/migrations.md
+    - database/transactions.md
+  pipeline:     advanced/pipeline.md
+  queue:        advanced/queue.md
+  resource:     core/resource.md
+  router:
+    - core/routing.md
+    - core/middleware.md
+    - core/handlers.md
+  scheduler:    advanced/scheduler.md
+  storage:      advanced/storage.md
+  str:          core/string-utilities.md
+  trace:        advanced/trace.md
+  validation:
+    - core/validation.md
+    - core/form-requests.md
+  view:         frontend/view.md
+  webhook:      advanced/webhook.md
+  websocket:    realtime/websockets.md
+
+# Packages skipped by the detector - no public surface that needs prose docs.
+ignored:
+  - chain          # re-exported by root velocity; consumers never import directly
+  - console        # CLI internals; user-facing surface lives in cli/* pages
+  - testing        # internal testsync helpers
+  - velocitytest   # test scaffolding for framework's own tests
+
+# Symbol-level escape hatch: "<pkg>.<symbol>" entries are treated as covered
+# even without doc mention. Use sparingly - every entry here is technical
+# debt. Justify each with a comment.
+exempt_symbols: []
