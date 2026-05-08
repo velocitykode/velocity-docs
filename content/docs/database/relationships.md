@@ -4,7 +4,7 @@ description: Define hasOne, hasMany, belongsTo, manyToMany, and polymorphic rela
 weight: 30
 ---
 
-Velocity ORM supports five relation types: `hasOne`, `hasMany`, `belongsTo`, `manyToMany`, and `polymorphic`. Relations are declared via a struct tag and loaded with `.With()`.
+Velocity ORM supports five relation types: `hasOne`, `hasMany`, `belongsTo`, `manyToMany`, and `polymorphic`. Relations are declared via a struct tag and eager-loaded by chaining `.With(...)` onto a query whose terminal takes `ctx` as the first argument (`Get(ctx)`, `First(ctx, &dest)`, ...).
 
 ## Relationship Types
 
@@ -61,7 +61,7 @@ type Profile struct {
 Load:
 
 ```go
-users, err := User{}.With("Profile").Get()
+users, err := orm.Model[User]{}.With("Profile").Get(ctx)
 for _, u := range users {
     if u.Profile != nil {
         fmt.Println(u.Name, u.Profile.Bio)
@@ -91,7 +91,7 @@ type Post struct {
 Load:
 
 ```go
-users, err := User{}.With("Posts").Get()
+users, err := orm.Model[User]{}.With("Posts").Get(ctx)
 for _, u := range users {
     fmt.Printf("%s has %d posts\n", u.Name, len(u.Posts))
 }
@@ -115,7 +115,7 @@ type Comment struct {
 Load:
 
 ```go
-comments, err := Comment{}.With("Post").Get()
+comments, err := orm.Model[Comment]{}.With("Post").Get(ctx)
 for _, c := range comments {
     if c.Post != nil {
         fmt.Println(c.Post.Title)
@@ -127,7 +127,7 @@ The same shape applies to any inverse relation: `Post.User`, `Profile.User`, etc
 
 ## Many-to-Many
 
-Many-to-many is declared with the `manyToMany:` tag and a pivot table that holds the two foreign keys. Both ends of the relation get a slice field; the pivot rows are managed through accessor helpers, never through plain `Save()`.
+Many-to-many is declared with the `manyToMany:` tag and a pivot table that holds the two foreign keys. Both ends of the relation get a slice field; the pivot rows are managed through accessor helpers, never through plain `orm.Save(ctx, ...)`.
 
 ### Tag syntax
 
@@ -167,7 +167,7 @@ The pivot table itself does not need a Go struct. It only has to exist in the da
 Results are grouped client-side onto each parent's slice field. The pivot table's column list is probed once (`SELECT * FROM <pivot> WHERE 1=0`) and cached in a `sync.Map` keyed by `(driver, table)`, so subsequent loads of the same relation skip the schema lookup.
 
 ```go
-users, _ := User{}.With("Roles").Get()
+users, _ := orm.Model[User]{}.With("Roles").Get(ctx)
 for _, u := range users {
     fmt.Printf("%s has %d roles\n", u.Name, len(u.Roles))
 }
@@ -315,7 +315,7 @@ A common pattern is to register from a service provider's `Boot`. Re-registering
 `.With("Commentable")` groups parents by the value in the type column, then issues one `SELECT ... WHERE id IN (...)` per distinct type. For `N` parents spread across `K` distinct types, the loader issues `K` SQL round trips for that preload, not `N`.
 
 ```go
-comments, _ := Comment{}.With("Commentable").Get()
+comments, _ := orm.Model[Comment]{}.With("Commentable").Get(ctx)
 for _, c := range comments {
     switch v := c.Commentable.Resolved.(type) {
     case *Post:
@@ -403,10 +403,10 @@ c := Comment{
     CommentableType: "post",
     CommentableID:   post.ID,
 }
-_ = c.Save()
+_ = orm.Save(ctx, mgr, &c)
 
 // Eager-load a feed of comments. One IN query per distinct target type.
-comments, _ := Comment{}.With("Commentable").Get()
+comments, _ := orm.Model[Comment]{}.With("Commentable").Get(ctx)
 for _, c := range comments {
     switch v := c.Commentable.Resolved.(type) {
     case *Post:
@@ -426,13 +426,13 @@ for _, c := range comments {
 
 ```go
 // One relation
-users, _ := User{}.With("Posts").Get()
+users, _ := orm.Model[User]{}.With("Posts").Get(ctx)
 
 // Multiple relations
-users, _ := User{}.With("Profile", "Posts").Get()
+users, _ := orm.Model[User]{}.With("Profile", "Posts").Get(ctx)
 ```
 
-Each preload runs as a single `SELECT ... WHERE <queryColumn> IN (?, ?, ...)` against the related table, then results are grouped back onto their parent rows. Soft-deleted children are filtered automatically when the related model embeds `orm.SoftDeleteModel`.
+Each preload runs as a single `SELECT ... WHERE <queryColumn> IN (?, ?, ...)` against the related table, then results are grouped back onto their parent rows. The eager-load query reuses the parent terminal's `ctx`, so a tx-bound ctx loads the relations inside the same transaction. Soft-deleted children are filtered automatically when the related model embeds the `orm.SoftDeletes[T]` trait (directly or via a convenience composition like `orm.SoftDeleteModel[T]`).
 
 ## Custom Foreign Keys
 
@@ -518,8 +518,8 @@ These are observable runtime behaviors of the relation loader that are easy to m
 `findRelationField` tries an exact match first, then falls back to lowercase. Both work:
 
 ```go
-users, _ := User{}.With("Posts").Get()  // exact (preferred)
-users, _ := User{}.With("posts").Get()  // case-insensitive fallback
+users, _ := orm.Model[User]{}.With("Posts").Get(ctx)  // exact (preferred)
+users, _ := orm.Model[User]{}.With("posts").Get(ctx)  // case-insensitive fallback
 ```
 
 ### Numeric key normalization
@@ -536,7 +536,7 @@ The field walker recurses into anonymous embedded structs (skipping `time.Time`)
 
 ### `IsExisting` is set on loaded children
 
-Each loaded related row has its `IsExisting` flag set to `true` on the embedded base model. Calling `Save()` on a loaded child performs an UPDATE rather than an INSERT. Useful when mutating a relation in place.
+Each loaded related row has its existence bit set to `true` in the side-channel store keyed by pointer. A subsequent `orm.Save(ctx, mgr, &child)` therefore takes the UPDATE path rather than the INSERT path. Useful when mutating a relation in place.
 
 ### `hasOne` returns the first match if multiple rows exist
 
@@ -551,5 +551,5 @@ Each `.With("X")` adds one preload. The loader issues a single `SELECT ... WHERE
 1. **Always eager-load.** `.With(...)` prevents N+1 queries on lists.
 2. **Index foreign keys.** Every `<x>_id` column should have a database index; add it in the migration.
 3. **Match key types.** Foreign and local key columns must be comparable (both `bigint`, both string UUIDs, etc.). Mixed types silently return zero matches.
-4. **Soft-delete propagation.** Children with `orm.SoftDeleteModel` are filtered automatically; children without it are not.
-5. **Verify by loading once.** After declaring a new relation, run a `.With("X").Get()` against seed data and assert non-empty results before relying on it in handlers.
+4. **Soft-delete propagation.** Children whose model composes the `orm.SoftDeletes[T]` trait (directly or through `orm.SoftDeleteModel[T]` / `orm.SoftDeleteUUIDModel[T]`) are filtered automatically; children without it are not.
+5. **Verify by loading once.** After declaring a new relation, run a `.With("X").Get(ctx)` against seed data and assert non-empty results before relying on it in handlers.
