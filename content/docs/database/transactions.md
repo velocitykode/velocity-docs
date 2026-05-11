@@ -286,6 +286,59 @@ mgr.Transaction(ctx, func(ctx context.Context) error {
 
 A goroutine that calls `orm.Save(ctx, mgr, ...)` with a tx-bound ctx from a different goroutine than the one that opened the tx is a contract violation; the driver's behavior under concurrent statement execution on a single `*sql.Tx` is undefined and the test suite will not catch it.
 
+## APM: tx span + TransactionExecuted
+
+`Manager.Transaction` mints a fresh span on entry and parents every
+`QueryExecuted` event dispatched inside `fn` under it, so an APM exporter can
+render the tx as a single node grouping its statements.
+
+```text
+RequestStarted          (request span)
+  TransactionExecuted   (tx span, ParentID = request span)
+    QueryExecuted       (stmt root, ParentID = tx span)
+    QueryExecuted       (stmt root, ParentID = tx span)
+    QueryExecuted       (stmt root, ParentID = tx span)
+```
+
+A `TransactionExecuted` event fires on commit, rollback, panic, and
+commit-failure paths:
+
+```go
+type TransactionExecuted struct {
+    Context    context.Context
+    Connection string        // Driver name
+    Duration   time.Duration // BeginTx success -> Commit / Rollback resolution
+    Statements int           // QueryExecuted events under this tx span
+    Error      string        // Empty on commit; populated on rollback / panic / commit failure
+    TraceID    string        // APM trace ID
+    SpanID     string        // The tx span ID; child QueryExecuted ParentID points here
+    ParentID   string        // The caller's prior span
+}
+```
+
+`Statements` counts only direct statements under the tx body. A nested
+`Manager.Transaction` call detects the surrounding tx span and parents its own
+tx span under it; the inner tx ships its own `TransactionExecuted` with its own
+statement count and does NOT bump the outer counter. Exporters that want
+all-stmts-under-the-tree semantics sum across the events sharing a `TraceID`.
+
+Top-level callers without an incoming trace get a freshly minted `TraceID`
+and an empty `ParentID`; nested or downstream callers preserve and extend
+the surrounding trace.
+
+```go
+events.Listen[*orm.TransactionExecuted](dispatcher, func(ctx context.Context, e *orm.TransactionExecuted) error {
+    log.Info("tx",
+        "trace_id", e.TraceID,
+        "span_id", e.SpanID,
+        "duration_ms", e.Duration.Milliseconds(),
+        "stmts", e.Statements,
+        "error", e.Error,
+    )
+    return nil
+})
+```
+
 ## Related
 
 - [CRUD](/docs/database/crud/) - the writes that auto-enroll when ctx carries a tx

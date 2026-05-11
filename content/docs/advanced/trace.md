@@ -50,6 +50,21 @@ if upstreamTrace, upstreamSpan := parseTraceHeader(r); upstreamTrace != "" {
 }
 ```
 
+### Restoring all three fields
+
+`WithTrace` sets only `traceID` and `spanID`; the parent slot stays as whatever
+the inner ctx already carries. When all three fields were captured at the producer
+side (queue payload, redis stream, gRPC frame) and need to be replayed verbatim,
+use `WithFullContext`:
+
+```go
+ctx = trace.WithFullContext(ctx, payload.TraceID, payload.SpanID, payload.ParentID)
+```
+
+The queue worker and gRPC interceptor entry points already call this internally
+when a payload carries the three fields. Reach for it manually only when writing
+a new transport that persists trace state across a process boundary.
+
 ## Child spans
 
 Any time you want to measure a sub-operation, create a child span.
@@ -93,8 +108,11 @@ RNG fails (extremely unlikely).
 ## Where trace values surface
 
 - **APM events** - `httpclient.RequestSent`, `httpclient.RequestFailed`,
-  bus events, and queue events all carry `TraceID`, `SpanID`, and
-  `ParentID` fields. `trace.GetTraceContext(ctx)` is the read path.
+  router events (`RequestStarted`, `RequestHandled`, `RequestFailed`),
+  ORM events (`QueryExecuted`, `TransactionExecuted`, `QueryFailed`),
+  bus events, grpcevents, and queue events all carry `TraceID`, `SpanID`,
+  and `ParentID` fields - the standard 3-field convention.
+  `trace.GetTraceContext(ctx)` is the read path.
 - **Logs** - attach the trace fields to every log line to correlate
   request activity across systems.
 - **Outbound requests** - inject the trace IDs into upstream headers

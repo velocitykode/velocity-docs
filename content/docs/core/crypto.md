@@ -151,6 +151,81 @@ func GenerateKey() (string, error)
 func Init(config Config) error
 ```
 
+### Encryptor interface (AEAD AAD methods)
+
+```go
+// EncryptBytesWithAAD encrypts plaintext and binds aad into the AEAD
+// authentication tag. aad is NOT persisted in the payload; the caller
+// supplies the same aad on DecryptBytesWithAAD. Returns ErrInvalidCipher
+// on non-AEAD ciphers (CBC modes).
+EncryptBytesWithAAD(plaintext, aad []byte) (string, error)
+
+// DecryptBytesWithAAD decrypts a v1 payload produced by
+// EncryptBytesWithAAD. Returns ErrAADMismatch on any GCM auth failure
+// (wrong key, wrong aad, tamper, AAD-vs-no-AAD mixing all collapse to
+// this single error). Returns ErrInvalidPayload on legacy v0 envelopes.
+DecryptBytesWithAAD(payload string, aad []byte) ([]byte, error)
+```
+
+### Sentinel errors
+
+```go
+crypto.ErrNotInitialized   // global Init not called
+crypto.ErrInvalidKey       // empty / malformed key
+crypto.ErrInvalidCipher    // unsupported or non-AEAD cipher
+crypto.ErrInvalidPayload   // malformed envelope
+crypto.ErrDecryptionFailed // generic decrypt failure
+crypto.ErrAADMismatch      // GCM auth failure on the AAD path
+```
+
+Use `errors.Is` against these sentinels; they are re-exported from
+`crypto/drivers` under the same identity so wrapping is transparent.
+
+### AEAD with Additional Authenticated Data
+
+GCM ciphers (`AES-*-GCM`) support binding extra context into the auth tag via
+`EncryptBytesWithAAD` / `DecryptBytesWithAAD`. The AAD is NOT persisted in
+the payload; the caller supplies the same AAD on decrypt, and a mismatch fails
+the tag check. Pin ciphertexts to row identity (`team_id|resource_type|resource_id`)
+so a row's payload cannot be replayed against a different row even with a
+correct key.
+
+```go
+import "github.com/velocitykode/velocity/crypto"
+
+func storeSecret(enc crypto.Encryptor, teamID, resourceID uint, plaintext []byte) (string, error) {
+    aad := fmt.Appendf(nil, "team=%d|resource=secret|id=%d", teamID, resourceID)
+    return enc.EncryptBytesWithAAD(plaintext, aad)
+}
+
+func loadSecret(enc crypto.Encryptor, teamID, resourceID uint, payload string) ([]byte, error) {
+    aad := fmt.Appendf(nil, "team=%d|resource=secret|id=%d", teamID, resourceID)
+    plaintext, err := enc.DecryptBytesWithAAD(payload, aad)
+    if errors.Is(err, crypto.ErrAADMismatch) {
+        // Wrong key, wrong AAD, AAD-vs-no-AAD payload mixing, or ciphertext
+        // tamper. GCM cannot tell them apart. Investigate key rotation,
+        // ciphertext integrity, and aad construction together.
+        return nil, fmt.Errorf("payload does not bind to (team=%d, secret=%d)", teamID, resourceID)
+    }
+    return plaintext, err
+}
+```
+
+Contract:
+
+- Available only on AEAD ciphers (`AES-128-GCM`, `AES-192-GCM`, `AES-256-GCM`).
+  CBC ciphers return `crypto.ErrInvalidCipher` on both methods.
+- `nil` AAD and zero-length AAD are equivalent.
+- `DecryptBytesWithAAD` accepts only v1 envelopes (payloads produced by
+  `EncryptBytesWithAAD`). Legacy v0 payloads are rejected up-front with
+  `crypto.ErrInvalidPayload` so a stray pre-v1 payload cannot surface as a
+  fake AAD mismatch.
+- Any GCM auth failure on the AAD path collapses to `crypto.ErrAADMismatch`
+  by design. GCM tag check cannot distinguish wrong key, wrong AAD, tamper,
+  or AAD-vs-no-AAD payload mixing.
+- AAD is never written to disk. Existing `Encrypt` / `Decrypt` callers are
+  unaffected; the wire format for non-AAD payloads is unchanged.
+
 ### Custom Encryptor Instances
 
 ```go
@@ -386,11 +461,15 @@ func handleEncryption() {
 
     plaintext, err := crypto.Decrypt(encrypted)
     if err != nil {
-        switch err {
-        case crypto.ErrInvalidPayload:
+        switch {
+        case errors.Is(err, crypto.ErrInvalidPayload):
             log.Error("Invalid encrypted payload format")
-        case crypto.ErrDecryptionFailed:
+        case errors.Is(err, crypto.ErrDecryptionFailed):
             log.Error("Decryption failed - wrong key or corrupted data")
+        case errors.Is(err, crypto.ErrAADMismatch):
+            log.Error("AAD mismatch - payload not bound to expected context")
+        case errors.Is(err, crypto.ErrInvalidCipher):
+            log.Error("Unsupported cipher (AAD methods require GCM)")
         default:
             log.Error("Decryption failed", "error", err)
         }

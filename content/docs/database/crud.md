@@ -137,6 +137,77 @@ affected, err := User{}.
 
 `updated_at` is stamped automatically with the driver-appropriate `NOW()` / `CURRENT_TIMESTAMP` sentinel; pass `orm.NOW` (or any other `orm.RawSQL` value) explicitly when you need a column other than `updated_at` to take the server's clock.
 
+### Bulk write hooks (post-commit)
+
+Per-row `AfterCommit` / `AfterRollback` hooks fire on `Save` / `Create` but
+NOT on bulk `Update` / `Delete` / `ForceDelete`: the bulk path never
+hydrates row instances. Models that need to react to a bulk write once the
+surrounding tx commits implement `BulkAfterCommitHook`:
+
+```go
+type Post struct {
+    orm.Model[Post]
+    Title string `orm:"column:title"`
+}
+
+func (Post) BulkAfterCommit(ctx context.Context, ids []any, op orm.BulkOp) error {
+    // op is BulkOpUpdate, BulkOpDelete, or BulkOpForceDelete
+    // ids is the affected primary-key set (possibly empty)
+    return cache.ForgetTags(ctx, "posts")
+}
+```
+
+The hook fires exactly once per bulk statement, even when zero rows
+matched (`len(ids) == 0`). The receiver is the zero value; do NOT touch it.
+Composite primary keys are unsupported on this path; reach for
+`Query.WithRowHooks()` instead, which materialises rows and falls back to
+the per-row `AfterCommitHook` contract.
+
+#### ID-capture by driver
+
+| Driver | Strategy | Race window | QueryExecuted events |
+|---|---|---|---|
+| PostgreSQL | `RETURNING <pk>` appended to the write | none (atomic) | one per statement |
+| MySQL / SQLite | Pre-SELECT before the write | yes (rows may shift) | two per statement (SELECT + write) |
+
+The Postgres path captures ids atomically inside the write itself. MySQL and
+SQLite issue a SELECT first, then the write; rows can shift between the two
+under concurrent traffic.
+
+#### `WithBulkLock` for race-free capture on the pre-SELECT path
+
+When the bulk hook MUST observe exactly the rows that committed, chain
+`WithBulkLock` to issue the pre-SELECT with `FOR UPDATE`:
+
+```go
+mgr.Transaction(ctx, func(ctx context.Context) error {
+    _, err := orm.Model[Post]{}.
+        Where("status = ?", "draft").
+        Where("created_at < ?", cutoff).
+        WithBulkLock().
+        Delete(ctx)
+    return err
+})
+```
+
+Contract:
+
+- **Only meaningful inside `Manager.Transaction`.** Outside a tx the
+  auto-commit releases the lock immediately, making the call a no-op.
+- **No-op on the atomic RETURNING path** (Postgres today, plus any adapter
+  that opts in via `drivers.ReturningGrammar`). The write IS the capture,
+  so there is no pre-SELECT to lock.
+- **No-op on SQLite.** Its grammar accepts the `LockForUpdate` flag but
+  never emits `FOR UPDATE` (SQLite has no row-level locking).
+- **Cost: lock contention.** Concurrent writers that touch the same rows
+  block for the duration of the surrounding tx.
+- Propagates through `Query.Clone` and the soft-delete `Delete -> Update`
+  delegation; `q.WithBulkLock().Delete(ctx)` locks the pre-SELECT for
+  soft-deletable models on the pre-SELECT path.
+
+Reach for `WithBulkLock` only when exact fidelity between captured ids and
+committed rows matters more than throughput, and only on MySQL.
+
 ### Increment / Decrement
 
 ```go

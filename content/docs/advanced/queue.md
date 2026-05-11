@@ -273,6 +273,36 @@ Practical implications:
 - A `Handle()`-only job already running when `Stop()` is called runs to completion; the worker waits for the pump goroutines to drain. Long-running `Handle()` work blocks shutdown.
 - Per-job timeouts (`WithTimeout`) **are** real failures and consume retry budget. Reach for `HandleCtxer` if you want the timeout to actually interrupt the work rather than just mark it failed in the background.
 
+## Trace propagation
+
+Every push stamps the producer ctx's trace ids onto the payload before serialisation:
+
+```go
+type Payload struct {
+    // ...
+    TraceID  string `json:"trace_id,omitempty"`
+    SpanID   string `json:"span_id,omitempty"`
+    ParentID string `json:"parent_id,omitempty"`
+}
+```
+
+All three bundled drivers (memory, database, redis) implement the optional
+`TraceAwareDriver` interface (`PopCtxWithTrace`) and recover the producer trace
+when popping a job. `Worker.processJob` then rebuilds the per-job ctx with
+`trace.WithFullContext` so `HandleCtxer` handlers and the `JobProcessing` /
+`JobProcessed` / `JobFailed` / `JobRetrying` events observe the same
+`TraceID` / `SpanID` / `ParentID` as the originating request.
+
+**Backwards compat:** legacy rows pushed by older producers lack the three
+fields; the worker skips the `WithFullContext` call and runs the job with no
+injected trace. `omitempty` keeps the marshalled bytes unchanged for legacy
+producers, so signed payloads still verify across the upgrade.
+
+Third-party drivers that want the same behaviour must implement
+`PopCtxWithTrace` and persist the three fields on the payload at push time.
+Drivers that only implement `PopCtx` fall through the worker's non-trace
+branch and run jobs without producer-side trace context.
+
 ## Retry control
 
 Three optional interfaces let a job tune retry behavior without touching the global worker config.

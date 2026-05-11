@@ -149,6 +149,63 @@ users, _ := orm.Model[User]{}.
     Get(ctx)
 ```
 
+### Dialect-specific operators (JSONB, FTS, array)
+
+Drivers can extend the `Where` allowlist with dialect-specific operators via
+an `OperatorRegistry`. PostgreSQL registers JSONB containment / key existence,
+full-text search, and array overlap out of the box. The typed chain admits
+them with no Raw escape hatch, so scopes, soft-delete filters, and chain
+composition keep working.
+
+```go
+// JSONB containment: WHERE "metadata" @> $1::jsonb
+rows, _ := orm.Model[App]{}.
+    Where("metadata @> ?", `{"key":"value"}`).
+    Get(ctx)
+
+// JSONB key existence (one key): WHERE "metadata" ? $1
+rows, _ := orm.Model[App]{}.
+    Where("metadata ? ?", "feature").
+    Get(ctx)
+
+// JSONB any-of keys: WHERE "metadata" ?| ($1, $2, $3)
+rows, _ := orm.Model[App]{}.
+    Where("metadata ?| ?", []any{"a", "b", "c"}).
+    Get(ctx)
+
+// Full-text search: WHERE "search_vector" @@ to_tsquery($1)
+rows, _ := orm.Model[Post]{}.
+    Where("search_vector @@ ?", "velocity & framework").
+    Get(ctx)
+
+// Array overlap: WHERE "tags" && ARRAY[$1, $2]
+rows, _ := orm.Model[Post]{}.
+    Where("tags && ?", []any{"go", "orm"}).
+    Get(ctx)
+```
+
+Built-in scalar operators (`=`, `!=`, `<`, `>`, `LIKE`, ...) keep working
+without any registry. Registered operators are matched only when the
+built-in allowlist misses, and `cond.Value` is validated against the spec's
+`ParamShape` at parse time, so misuse surfaces as a parse error instead of a
+runtime SQL syntax error.
+
+PostgreSQL ships these operators today:
+
+| Op | Shape | Example template |
+|---|---|---|
+| `@>` | JSON | `{{lhs}} @> {{rhs}}::jsonb` |
+| `<@` | JSON | `{{lhs}} <@ {{rhs}}::jsonb` |
+| `?`  | Scalar | `{{lhs}} ? {{rhs}}` |
+| `?|` | Array | `{{lhs}} ?| {{rhs}}` |
+| `?&` | Array | `{{lhs}} ?& {{rhs}}` |
+| `@@` | Scalar | `{{lhs}} @@ to_tsquery({{rhs}})` |
+| `&&` | Array | `{{lhs}} && {{rhs}}` |
+
+SQLite and MySQL return `nil` from `OperatorRegistry()` today; the seam is in
+place for `json1` / `fts5` and `JSON_CONTAINS` / `JSON_OVERLAPS` follow-ups.
+Use Raw expressions for those dialects until the registrations land.
+
 ### Grouped Predicates
 
 `WhereGroup` and `OrWhereGroup` wrap a sub-builder's conditions in parentheses so they bind tighter than the surrounding `AND`/`OR`. Reach for it whenever an `OR` group needs to be scoped by an outer predicate, typically a multi-column free-text search restricted to the current tenant or team.
