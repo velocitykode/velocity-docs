@@ -23,6 +23,26 @@ A typical layout: `.proto` files under `api/proto/<pkg>/<version>/`,
 generated stubs under `api/gen/go/...`, service implementations under
 `internal/grpc/services/`, server lifecycle in a service provider.
 
+{{< callout type="tip" title="Scaffold it instead" >}}
+The console ships three generators that produce the layout below in one
+call - proto + impl + provider wiring, then `buf generate`:
+
+```bash
+vel make:grpc:service Foo                   # proto + impl + provider (idempotent)
+vel make:grpc:rpc Foo Hello                 # unary
+vel make:grpc:rpc Foo Tail   --stream       # server-stream
+vel make:grpc:rpc Foo Upload --client-stream
+vel make:grpc:rpc Foo Chat   --bidi
+vel make:grpc:gen                           # cd api/proto && buf generate
+```
+
+Subsequent `make:grpc:service` calls inject at `// vel:grpc:imports` and
+`// vel:grpc:services` markers in the generated provider. See
+[CLI commands - make:grpc:*](/docs/cli/commands/#vel-makegrpcservice) for the
+full reference. The rest of this page documents the runtime API that the
+generated files use.
+{{< /callout >}}
+
 ### Proto + buf
 
 `api/proto/foo/v1/foo.proto`:

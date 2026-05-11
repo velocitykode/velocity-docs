@@ -300,6 +300,89 @@ vel make:listener SendWelcomeEmail
 vel make:policy PostPolicy
 ```
 
+### vel make:grpc:service
+
+```bash
+vel make:grpc:service <Name>
+```
+
+Scaffolds a gRPC service end-to-end in one call:
+
+- `api/proto/<name>/v1/<name>.proto` - empty service block
+- `api/proto/buf.yaml` + `api/proto/buf.gen.yaml` (first run only)
+- `internal/grpc/services/<name>.go` - `*<Name>Service` impl with `UnimplementedXXXServer` embed
+- `internal/providers/grpc_provider.go` - created on first call, then **injected at** `// vel:grpc:imports` and `// vel:grpc:services` markers on every subsequent call
+
+Name normalisation: `vel make:grpc:service Foo`, `FooService`, `foo`, and `fooService` all produce `FooService` with proto package `foo.v1` and Go alias `foov1`. The proto file uses `option go_package = "<module>/api/gen/go/<name>/v1;<name>v1"` derived from the host project's `go.mod`.
+
+`buf.yaml` / `buf.gen.yaml` are written **before** the proto file, so a config-write failure leaves no partial scaffold on disk. The generated `GRPCProvider` does **not** hard-code `WithReflection(true)`; the framework default (toggled by `GRPC_REFLECTION` env) reaches the file so the generated app boots cleanly in production.
+
+If `internal/providers/grpc_provider.go` already exists **without** the marker comments (legacy hand-written provider), the command prints a manual wire snippet instead of mutating user code.
+
+```bash
+vel make:grpc:service Foo
+vel make:grpc:service ChatService
+```
+
+After scaffolding, register `providers.GRPCProvider{}` in `internal/app/bootstrap.go` (printed as a hint on first run).
+
+### vel make:grpc:rpc
+
+```bash
+vel make:grpc:rpc <Service> <RPC> [--stream | --client-stream | --bidi]
+```
+
+Appends a new rpc to an existing service's `.proto` and a matching method stub on the Go impl. The service must already exist; run `vel make:grpc:service <Name>` first.
+
+| Flag              | Aliases             | RPC shape produced                                |
+| ----------------- | ------------------- | ------------------------------------------------- |
+| _(none)_          |                     | Unary: `rpc X(XRequest) returns (XResponse)`      |
+| `--stream`        | `--server-stream`   | Server-streaming: `returns (stream XResponse)`    |
+| `--client-stream` |                     | Client-streaming: `(stream XRequest) returns (X)` |
+| `--bidi`          | `--bidirectional`   | Bidi: `(stream XRequest) returns (stream X)`      |
+
+Only one streaming flag may be set per invocation; combining them errors out.
+
+The proto scanner walks the file with brace counting that respects `//` line comments, `/* block */` comments, and `"..."` string literals at every position (header keyword, between keyword and name, between name and `{`, and inside the body). That means rpc-with-options blocks (grpc-gateway HTTP annotations) and commented-out draft headers do not corrupt insertion.
+
+On the Go side, the generated method signature matches the RPC shape:
+
+| Shape         | Signature                                                                 |
+| ------------- | ------------------------------------------------------------------------- |
+| Unary         | `func (s *Foo) X(ctx context.Context, req *foov1.XRequest) (*foov1.XResponse, error)` |
+| Server stream | `func (s *Foo) X(req *foov1.XRequest, stream foov1.Foo_XServer) error`    |
+| Client stream | `func (s *Foo) X(stream foov1.Foo_XServer) error`                         |
+| Bidi          | `func (s *Foo) X(stream foov1.Foo_XServer) error`                         |
+
+`context` is added to the impl's imports for unary only; streaming variants pull ctx from `stream.Context()` and do not need the import.
+
+Idempotent: re-running with the same `<Service> <RPC>` pair detects the existing rpc and skips.
+
+```bash
+vel make:grpc:rpc Foo Hello
+vel make:grpc:rpc Foo Tail --stream
+vel make:grpc:rpc Foo Upload --client-stream
+vel make:grpc:rpc Foo Chat --bidi
+```
+
+### vel make:grpc:gen
+
+```bash
+vel make:grpc:gen
+```
+
+Runs `buf generate` inside `api/proto`. Streams buf's stdout and stderr to your terminal so plugin errors are visible in real time. Fails with a clear message when:
+
+- `api/proto/` does not exist (run `make:grpc:service` first)
+- `buf` is not on `PATH` (links to install docs)
+- `buf generate` exits non-zero
+
+```bash
+vel make:grpc:gen
+# cd api/proto && buf generate
+# Generated Go code in api/gen/go/
+```
+
 ## Help
 
 ```bash
