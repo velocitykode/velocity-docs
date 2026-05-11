@@ -285,6 +285,37 @@ register the service with `srv.RegisterService`, the bundled interceptors
 trace both unary and stream RPCs via paired `Unary` + `Stream`
 implementations.
 
+**Three things change per shape, one thing stays the same:**
+
+| Concern | Unary | Server stream | Client stream | Bidi stream |
+|---|---|---|---|---|
+| Proto `stream` keyword | none | on response | on request | on both |
+| Generated handler signature | `(ctx, *Req) (*Resp, error)` | `(*Req, Stream) error` | `(Stream) error` | `(Stream) error` |
+| Where ctx comes from | parameter | `stream.Context()` | `stream.Context()` | `stream.Context()` |
+| How responses flow | `return resp, nil` | `stream.Send(resp)` N times | `stream.SendAndClose(resp)` | `stream.Send(resp)` N times |
+| How requests arrive | parameter | parameter | `stream.Recv()` until EOF | `stream.Recv()` until EOF |
+| `srv.RegisterService` wiring | identical | identical | identical | identical |
+
+Same proto file declares all four with the `stream` keyword in the right
+position:
+
+```proto
+service FooService {
+  rpc Hello(HelloRequest)        returns (HelloResponse);          // unary
+  rpc Tail(HelloRequest)         returns (stream HelloResponse);   // server stream
+  rpc Upload(stream HelloRequest) returns (HelloResponse);         // client stream
+  rpc Chat(stream HelloRequest)  returns (stream HelloResponse);   // bidi
+}
+```
+
+`buf generate` produces matching server-side handler signatures; the
+service impl below has one method per RPC, each with the signature shape
+its row prescribes. Registration is unchanged:
+
+```go
+foov1.RegisterFooServiceServer(srv, fooImpl) // same call regardless of mix
+```
+
 ### Unary
 
 One request, one response. Standard request/response RPC.
