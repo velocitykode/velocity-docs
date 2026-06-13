@@ -93,9 +93,10 @@ hook) so every code path can call `flags.Enabled` without threading
 the provider explicitly:
 
 ```go
-func (p *AppProvider) Boot(v *velocity.Velocity) error {
+func (p *AppServiceProvider) Boot(s *app.Services) error {
+    on, _ := strconv.ParseBool(os.Getenv("FLAGS_CHECKOUT_V2"))
     flags.SetDefault(flags.NewMemoryProvider(map[string]bool{
-        "checkout.v2": v.Config.GetBool("flags.checkout_v2"),
+        "checkout.v2": on,
     }))
     return nil
 }
@@ -117,17 +118,19 @@ attribute should flip flags for the duration of one request - useful
 for QA overrides or staff dogfooding:
 
 ```go
-func StaffOverrides() router.Middleware {
-    return func(next router.Handler) router.Handler {
+func StaffOverrides() router.MiddlewareFunc {
+    return func(next router.HandlerFunc) router.HandlerFunc {
         return func(ctx *router.Context) error {
-            if user := auth.User(ctx); user != nil && user.IsStaff {
-                p := flags.NewMemoryProvider(map[string]bool{
-                    "checkout.v2": true,
-                    "new-search":  true,
-                })
-                ctx.Request = ctx.Request.WithContext(
-                    flags.WithProvider(ctx.Request.Context(), p),
-                )
+            if m := auth.FromContext(ctx); m != nil {
+                if user := m.User(ctx.Request); user != nil && m.Gate().HasRole(user, "staff") {
+                    p := flags.NewMemoryProvider(map[string]bool{
+                        "checkout.v2": true,
+                        "new-search":  true,
+                    })
+                    ctx.Request = ctx.Request.WithContext(
+                        flags.WithProvider(ctx.Request.Context(), p),
+                    )
+                }
             }
             return next(ctx)
         }

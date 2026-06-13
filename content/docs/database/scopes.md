@@ -43,21 +43,23 @@ Velocity's built-in soft-delete predicate is auto-registered under the reserved 
 
 ## Opting out per query
 
-Two escape hatches let a single query bypass scopes without disturbing the registry. They are chained onto a `*Query[T]` and the terminal carries `ctx`:
+Two escape hatches let a single query bypass scopes without disturbing the registry. `WithoutGlobalScope` and `WithoutGlobalScopes` are methods on `*Query[T]`, not on `Model[T]`. Start a query with any `*Query[T]`-returning builder method (`Where`, `WhereIn`, `WhereNull`, `WhereNotNull`, `OrderBy`, `With`), then chain the opt-out and a terminal that carries `ctx`:
 
 ```go
 // Skip one named scope (e.g. show drafts to admins)
 posts, err := orm.Model[Post]{}.
+    Where("author_id = ?", authorID).
     WithoutGlobalScope("published_only").
     Get(ctx)
 
 // Skip every scope (e.g. an admin export tool)
 posts, err := orm.Model[Post]{}.
+    OrderBy("created_at", "desc").
     WithoutGlobalScopes().
     Get(ctx)
 ```
 
-Both methods return `*Query[T]`, so they compose with the rest of the builder.
+Both methods return the same `*Query[T]`, so they compose with the rest of the builder.
 
 {{< callout type="warning" title="Cross-tenant leak warning" >}}
 `WithoutGlobalScopes()` disables every registered scope, including the multi-tenant predicate. Reach for `WithoutGlobalScope(name)` when you only need to bypass one. Audit every call site, scopes are how the framework keeps you safe by default.
@@ -123,7 +125,10 @@ projects, err := orm.Model[Project]{}.
     Get(ctx)
 
 // Admin export across tenants: explicit opt-out, grep-friendly for review.
+// WithoutGlobalScope lives on *Query[T], so start the chain with a
+// builder method (here OrderBy) before opting out.
 all, err := orm.Model[Project]{}.
+    OrderBy("id", "asc").
     WithoutGlobalScope("tenant").
     Get(ctx)
 ```

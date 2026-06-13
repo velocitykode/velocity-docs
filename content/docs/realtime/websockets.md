@@ -22,8 +22,10 @@ cfg.Path = "/ws"
 
 srv := websocket.New(cfg)
 
+// The server already enqueues a built-in "welcome" message on connect
+// (see below); send your own app-level greeting under a distinct type.
 srv.OnConnect(func(c *websocket.Client) {
-    c.SendJSON("welcome", map[string]any{
+    c.SendJSON("ready", map[string]any{
         "client_id": c.ID,
         "message":   "connected",
     })
@@ -46,6 +48,28 @@ if err := srv.Start(); err != nil {
 connections, mount `srv.HandleConnection` on an HTTP route - see
 [Mounting](#mounting-on-an-http-route) below.
 
+On registration the server automatically enqueues a `welcome`
+message to each client carrying its assigned ID:
+
+```json
+{ "type": "welcome", "data": { "id": "<client-id>", "version": "1.0.0" } }
+```
+
+To stop the server, call `Shutdown` with a context that bounds how
+long it waits for the dispatcher and every per-client read/write
+pump to drain:
+
+```go
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
+if err := srv.Shutdown(ctx); err != nil {
+    log.Error("ws shutdown timed out", "err", err)
+}
+```
+
+`Shutdown` is safe to call more than once; subsequent calls are
+no-ops that return nil.
+
 ## Configuration
 
 `DefaultConfig()` provides reasonable defaults. Override what you
@@ -64,8 +88,8 @@ cfg := websocket.Config{
     PingInterval:     30 * time.Second,
     PongTimeout:      60 * time.Second,
     WriteTimeout:     10 * time.Second,
-    MessageRateLimit: 100, // msgs/sec per client (0 = unlimited)
-    MessageBurstSize: 200,
+    MessageRateLimit: 100, // msgs/sec per client (0 = secure default, -1 = unlimited)
+    MessageBurstSize: 200, // 0 defaults to 2x MessageRateLimit
     AuthFunc: func(r *http.Request) error {
         if r.URL.Query().Get("token") == "" {
             return errors.New("missing token")
@@ -77,6 +101,29 @@ cfg := websocket.Config{
 
 `AuthFunc` runs **before** the WebSocket upgrade - return a non-nil
 error to reject the handshake.
+
+{{% callout type="warning" %}}
+Rate limiting is **opt-out**, not opt-in. Leaving `MessageRateLimit`
+at its zero value installs the secure default
+(`websocket.DefaultMessageRateLimit`, 10 msgs/sec) so an
+unconfigured deployment is never silently unthrottled. To run with no
+rate limit, set `MessageRateLimit` to a negative value (e.g. `-1`).
+See [Rate limiting](#rate-limiting).
+{{% /callout %}}
+
+### Origin checks
+
+When `AllowedOrigins` is empty (the default), only **same-origin**
+upgrades are accepted: the request's `Origin` host must match its
+`Host`, case-insensitively, and the scheme must be `http`/`https`.
+Set `AllowedOrigins: []string{"*"}` to allow every origin, or list
+specific origins to allow them exactly.
+
+Browsers always send an `Origin` header on WebSocket upgrades, so a
+missing `Origin` almost always means a non-browser client (curl, a
+custom Go/Python client). Such requests are rejected by default. Set
+`AllowEmptyOrigin: true` to admit them for trusted non-browser
+integrations.
 
 ## Mounting on an HTTP route
 
@@ -98,6 +145,25 @@ Or attach to a stdlib mux:
 
 ```go
 http.HandleFunc("/ws", srv.HandleConnection)
+```
+
+### Taking over the raw connection
+
+`HandleRaw` upgrades the HTTP request to a WebSocket and hands back
+the raw `*websocket.Conn` without registering a managed client,
+starting read/write pumps, or entering the message-routing system.
+The caller owns the connection - reading, writing, and closing it:
+
+```go
+web.Get("/ws/raw", func(c *router.Context) error {
+    conn, err := srv.HandleRaw(c.Response, c.Request)
+    if err != nil {
+        return err
+    }
+    defer conn.Close()
+    // drive conn directly...
+    return nil
+})
 ```
 
 ## Messages
@@ -133,8 +199,13 @@ srv.On("join", func(c *websocket.Client, msg websocket.Message) error {
 })
 ```
 
-Unknown message types are silently dropped - register handlers for
-everything you expect to receive.
+When a message arrives with no registered handler, the server replies
+to that client with a generic `error` message (`{"message": "unknown
+message type"}`) - register handlers for everything you expect to
+receive. Likewise, if a handler returns a non-nil error and no
+`OnError` callback is set, the client receives a generic `error`
+message (`{"message": "internal error"}`); internal error details are
+never reflected back to the client.
 
 ### Sending to one client
 
@@ -151,8 +222,20 @@ client.SendMessage(websocket.Message{
 })
 ```
 
-`SendJSON` is non-blocking - it queues the message on the client's
-send channel.
+`SendJSON` and `SendMessage` are non-blocking - they enqueue on the
+client's bounded send channel and return immediately. If that channel
+is full they return `websocket.ErrSendChannelFull` rather than
+blocking, so check the error when delivery matters:
+
+```go
+if err := client.SendJSON("ping", nil); err != nil {
+    // websocket.ErrSendChannelFull - slow consumer, message dropped
+}
+```
+
+The package also exports `ErrServerNotRunning`, `ErrClientNotFound`,
+`ErrGroupNotFound`, `ErrConnectionLimit`, and `ErrInvalidMessage` for
+matching with `errors.Is`.
 
 ### Broadcast to everyone
 
@@ -231,6 +314,22 @@ srv.OnError(func(c *websocket.Client, err error) {
 })
 ```
 
+`OnConnect`, `OnDisconnect`, and `OnError` each hold a single
+callback; calling them again replaces the previous one (pass `nil`
+to clear). When you need *several* disconnect observers - for example
+an adapter that purges its own state - register them with
+`AddOnDisconnect`:
+
+```go
+srv.AddOnDisconnect(func(c *websocket.Client) {
+    metrics.ClientGone(c.ID)
+})
+```
+
+Added listeners fire in registration order, alongside the single
+`OnDisconnect` callback, **before** the client's send channel is
+closed.
+
 ## Per-client metadata
 
 Stash request-scoped data on the client itself:
@@ -307,11 +406,20 @@ Built into the config - no external code needed:
 
 ```go
 cfg.MessageRateLimit = 50  // msgs/sec
-cfg.MessageBurstSize  = 100
+cfg.MessageBurstSize  = 100 // 0 defaults to 2x the rate limit
 ```
 
-When a client exceeds the burst, the server closes their connection.
-Set `MessageRateLimit = 0` to disable.
+When a client exceeds the burst within a one-second window, the
+server sends it a final `error` message (`{"message": "rate limit
+exceeded"}`) and closes the connection.
+
+The zero value of `MessageRateLimit` installs the secure default
+(`websocket.DefaultMessageRateLimit`, 10 msgs/sec). To turn rate
+limiting **off**, set a negative value:
+
+```go
+cfg.MessageRateLimit = -1 // explicit opt-out, no rate limit
+```
 
 ## Stats
 
@@ -328,6 +436,42 @@ log.Info("ws stats",
 
 Read-only snapshot. Useful for `/health` endpoints and Prometheus
 exporters.
+
+`RecoveredPanics()` returns how many times the dispatcher's internal
+recover has caught a panic in a single handler dispatch - a useful
+gauge to alert on:
+
+```go
+if n := srv.RecoveredPanics(); n > 0 {
+    log.Warn("ws handler panics recovered", "count", n)
+}
+```
+
+## Logging
+
+The server stays decoupled from the framework's `log` package: it
+logs operational events (connects, disconnects, rate-limit
+violations, recovered panics) through a minimal interface. Install a
+logger with `SetLogger`; the framework's `log.Logger` satisfies it
+directly. Logging is off until a logger is set, and passing `nil`
+disables it again:
+
+```go
+// logger satisfies websocket.Logger (Info/Warn/Error(msg, kvs ...any)).
+srv.SetLogger(logger)
+```
+
+Any value implementing `websocket.Logger` works:
+
+```go
+type Logger interface {
+    Info(msg string, kvs ...any)
+    Warn(msg string, kvs ...any)
+    Error(msg string, kvs ...any)
+}
+```
+
+`SetLogger` is safe to call concurrently.
 
 ## Inspecting clients
 
@@ -354,7 +498,11 @@ ws.onmessage = (ev) => {
     const msg = JSON.parse(ev.data);
     switch (msg.type) {
         case 'welcome':
-            console.log('connected as', msg.data.client_id);
+            // built-in welcome envelope: { id, version }
+            console.log('connected as', msg.data.id);
+            break;
+        case 'ready':
+            console.log('app ready for', msg.data.client_id);
             break;
         case 'chat':
             renderChat(msg.from, msg.data.text);
@@ -394,7 +542,7 @@ func TestEcho(t *testing.T) {
     if err := srv.Start(); err != nil {
         t.Fatal(err)
     }
-    defer srv.Stop()
+    defer srv.Shutdown(context.Background())
 
     ts := httptest.NewServer(http.HandlerFunc(srv.HandleConnection))
     defer ts.Close()

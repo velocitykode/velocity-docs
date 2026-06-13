@@ -9,7 +9,7 @@ Velocity ships its own ORM: a hand-rolled, generics-aware query builder with com
 ## Requirements
 
 - **Go 1.26.3 or newer.** The framework's `go.mod` pins `go 1.26.3`. The ORM uses `weak.Pointer` (Go 1.24+) for its per-instance state side-channel; older toolchains will not compile.
-- A driver registered with `orm.Drivers()`. Built-ins (`sqlite`, `sqlite3`, `postgres`, `mysql`) self-register from `orm/init.go` on import.
+- A driver registered with `orm.Drivers()`. The pure-Go SQLite default (`sqlite`, `sqlite3`) self-registers from `orm`'s own `init()` on import, so a zero-config app has a working database. Postgres and MySQL live in the heavy leaf packages `orm/postgres` and `orm/mysql` (and the cgo SQLite backend in `orm/sqlite`); blank-import the leaf you need, or `orm/standard` for the full set.
 
 ## Quick Start
 
@@ -32,11 +32,13 @@ func main() {
         log.Fatal(err)
     }
 
-    // app.DB is *orm.Manager; orm.SetDefault has already been called.
+    // app.DB is a contract.Database backed by *orm.Manager;
+    // orm.SetDefault has already been called, so pass nil to Save/queries.
+    _ = app
     ctx := context.Background()
 
     user := &User{Name: "Ada", Email: "ada@example.com"}
-    if err := orm.Save(ctx, app.DB, user); err != nil {
+    if err := orm.Save(ctx, nil, user); err != nil {
         log.Fatal(err)
     }
 
@@ -85,15 +87,33 @@ orm.SetDefault(m)
 
 | Driver | Registered name | Notes |
 |--------|-----------------|-------|
-| PostgreSQL | `postgres` | JSONB, arrays, `RETURNING`-aware insert path |
-| MySQL | `mysql` | TLS via the `tls` config knob |
-| SQLite | `sqlite`, `sqlite3` | In-memory mode for tests (`:memory:`) |
+| PostgreSQL | `postgres` | JSONB, arrays, `RETURNING`-aware insert path. Blank-import `orm/postgres` (or `orm/standard`) to register. |
+| MySQL | `mysql` | TLS via the `TLS` config knob (`DB_MYSQL_TLS`). Blank-import `orm/mysql` (or `orm/standard`). |
+| SQLite | `sqlite`, `sqlite3` | Pure-Go default, self-registered from `orm`. In-memory mode for tests (`:memory:`). |
 
-Add a third-party backend by registering a factory with `orm.Drivers()`:
+The light SQLite default is always available; the heavier backends register from their leaf packages' `init()`:
 
 ```go
+import (
+    _ "github.com/velocitykode/velocity/orm/postgres" // registers "postgres"
+    _ "github.com/velocitykode/velocity/orm/mysql"    // registers "mysql"
+    // or, for everything at once:
+    _ "github.com/velocitykode/velocity/orm/standard"
+)
+```
+
+Add a third-party backend by registering a factory with `orm.Drivers()`. The factory receives a `drivers.ConnectionConfig` and returns a connected `drivers.Driver`:
+
+```go
+import (
+    "context"
+
+    "github.com/velocitykode/velocity/orm"
+    "github.com/velocitykode/velocity/orm/drivers"
+)
+
 func init() {
-    orm.Drivers().Register("clickhouse", func(ctx context.Context, cfg drivers.ConnectionConfig) (drivers.Driver, error) {
+    orm.Drivers().Register("clickhouse", func(_ context.Context, cfg drivers.ConnectionConfig) (drivers.Driver, error) {
         d := newClickhouseDriver()
         if err := d.Connect(cfg); err != nil {
             return nil, err
@@ -149,11 +169,12 @@ type User struct {
     Role     string  `orm:"column:role;type:varchar(50)"`
     Active   bool    `orm:"column:active"`
 
-    Profile *Profile `orm:"relation:hasOne"`
-    Posts   []Post   `orm:"relation:hasMany"`
+    Profile *Profile `orm:"relation:hasOne,user_id,id"`
+    Posts   []Post   `orm:"relation:hasMany,user_id,id"`
 }
 
-// Optional: override the inferred table name (snake_case + "s").
+// Optional: override the inferred table name (snake_case of the model
+// name, then pluralized via str.Plural - e.g. Category -> categories).
 func (User) TableName() string { return "users" }
 ```
 
@@ -173,7 +194,8 @@ type AuditEntry struct {
     Actor  string
 }
 
-// Captured-at column instead of CreatedAt; promoted name wins, the trait emission is dropped.
+// No timestamp trait embedded, so this CreatedAt is a plain column with
+// no auto-stamping; the column:captured_at tag renames it.
 type Snapshot struct {
     orm.IDInt[Snapshot]
     orm.SoftDeletes[Snapshot]
@@ -232,15 +254,14 @@ Velocity's tag namespace is `orm:"..."` with directives separated by `;`. The re
 | Tag | Purpose | Example |
 |-----|---------|---------|
 | `column:<name>` | Override the snake_case-of-field default | `column:user_name` |
-| `type:<sql>` | SQL type hint (consumed by migrations and JSON detection) | `type:varchar(255)` |
+| `type:<sql>` | SQL type hint; `type:json` / `type:jsonb` also flags the column for JSON marshaling | `type:varchar(255)` |
 | `primaryKey` | Mark a custom field as PK (rare; PK traits cover the common case) | `primaryKey` |
 | `autoIncrement` | Combine with `primaryKey` for auto-increment integers | `primaryKey;autoIncrement` |
 | `autoCreateTime` | Stamp on insert | `autoCreateTime` |
 | `autoUpdateTime` | Refresh on every save | `autoUpdateTime` |
-| `index` | Mark column for indexing (consumed by migrations) | `index` |
-| `relation:<kind>` | `hasOne`, `hasMany`, `belongsTo` | `relation:hasMany` |
-| `manyToMany:<table>` | Many-to-many through a join table | `manyToMany:post_tags` |
-| `polymorphic:<type>,<id>` | Polymorphic morph pair | `polymorphic:morphable_type,morphable_id` |
+| `relation:<kind>,<fk>,<localKey>` | `hasOne`, `hasMany`, `belongsTo`; foreign key and local key are required | `relation:hasMany,user_id,id` |
+| `manyToMany:<pivot>,<fkLocal>,<fkRelated>` | Many-to-many through a pivot table | `manyToMany:post_tags,post_id,tag_id` |
+| `polymorphic:<typeCol>,<idCol>` | Polymorphic morph pair | `polymorphic:morphable_type,morphable_id` |
 | `-` | Skip this field entirely | `-` |
 
 There is no `gorm:` tag; pre-existing GORM-style annotations such as `not null`, `unique`, or `default:` are not parsed by the ORM. Express column constraints in your migration instead.
@@ -267,9 +288,14 @@ For predicates that should apply to **every** read (multi-tenancy, soft-delete, 
 
 ## Testing
 
-SQLite in-memory plus a fresh manager per test gives a clean slate without touching disk:
+SQLite in-memory plus a fresh manager per test gives a clean slate without touching disk. Database assertions live in the `orm/testing` package and take the manager explicitly:
 
 ```go
+import (
+    "github.com/velocitykode/velocity/orm"
+    ormtesting "github.com/velocitykode/velocity/orm/testing"
+)
+
 func TestMain(m *testing.M) {
     mgr, err := orm.NewManagerWithContext(context.Background(), orm.ManagerConfig{
         Driver:   "sqlite",
@@ -298,12 +324,14 @@ func TestUserUpdate(t *testing.T) {
         t.Fatal(err)
     }
 
-    orm.AssertDatabaseHas(t, "users", map[string]any{
+    ormtesting.AssertDatabaseHas(t, orm.Default(), "users", map[string]any{
         "id":   user.ID,
         "role": "admin",
     })
 }
 ```
+
+`ormtesting` also exposes `AssertDatabaseMissing` and `AssertDatabaseCount`, all of which take the `*orm.Manager` as the second argument.
 
 The same `orm.Save(ctx, nil, &m)` call inserts on a fresh struct and updates an existing row; the side-channel decides which.
 

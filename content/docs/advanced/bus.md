@@ -38,6 +38,13 @@ bus.Register(b, handleCreateInvoice)
 `Register` is a package-level function (not a method) because Go
 generics don't allow type parameters on methods.
 
+`Register` panics with `*contract.RegistrationError` if the handler is
+nil, a handler for the same command type is already registered, or the
+command type is not JSON-serializable. Serializability is probed at
+registration time (a zero value is round-tripped through
+`encoding/json`) so that async dispatch can never fail later with an
+obscure marshal error.
+
 ## Dispatching
 
 ```go
@@ -92,12 +99,64 @@ Push commands to the queue to run later in a worker:
 b.SetQueue(v.Queue)            // anything implementing QueuePusher
 b.SetQueueName("notifications") // optional - otherwise default queue
 
-b.DispatchAsync(SendReminder{UserID: 42})
+b.DispatchAsync(CreateInvoice{UserID: 1, Amount: 5000})
 ```
+
+`QueuePusher` is the single-method slice of the queue driver that async
+dispatch needs:
+
+```go
+type QueuePusher interface {
+    PushCtx(ctx context.Context, job contract.QueueJob, queue ...string) error
+}
+```
+
+Every shipped driver (memory, database, Redis) and the `queuetest`
+fakes satisfy it directly.
 
 The command is wrapped as a queue job; when the worker picks it up it
 calls `Dispatch` internally so the same handler + middleware chain
 runs.
+
+The command **must be registered with `bus.Register` on this bus** before
+it can be dispatched asynchronously - the registration installs the
+factory the worker uses to rehydrate the command from its serialized
+payload. `DispatchAsync` refuses to enqueue (returning an error) when no
+factory is registered for the command type, so a missing `Register` call
+is caught at the producer instead of silently routing the job to
+`failed_jobs`. Self-handling commands with no `Register` call therefore
+cannot be dispatched asynchronously.
+
+`DispatchAsync` enqueues with a background context. Prefer
+`DispatchAsyncCtx` so that a client disconnect, deadline, or graceful
+shutdown aborts the enqueue before it reaches the backing store:
+
+```go
+b.DispatchAsyncCtx(ctx, CreateInvoice{UserID: 1, Amount: 5000})
+```
+
+### Cross-process workers
+
+Every bus has a stable id (`b.ID()`) that is written onto every queued
+job. The consumer side uses it to route hydration back through the
+originating bus, which prevents cross-bus contamination when several
+buses are in play (multi-tenant apps, plugin systems, per-test buses).
+
+`bus.New()` assigns a random UUID, which is sufficient when the worker
+runs in the same process as the producer (the memory driver, or a
+same-process consumer of a durable driver). When the worker runs in a
+**separate process** from the producer, pin a deterministic id with
+`bus.NewWithID` on both sides so producer and consumer agree:
+
+```go
+b := bus.NewWithID("orders-bus")
+```
+
+`NewWithID` panics with `*contract.RegistrationError` if the id is empty
+or another bus is already registered under the same id. Call `b.Close()`
+to remove the bus from the registry when you are done with it; this is
+optional, as the registry entry otherwise lives for the process
+lifetime.
 
 ## Events
 

@@ -157,6 +157,8 @@ func (p *GRPCProvider) Register(s *velocity.Services) error {
         velgrpc.WithReflection(true),
         velgrpc.WithLogger(s.Log),
     )
+    // In production, attach transport credentials with WithCreds (see TLS
+    // below) or set GRPC_INSECURE=true; otherwise Build returns an error.
 
     foo := services.NewFooService()
     p.server.RegisterService(func(srv interface{}) {
@@ -189,13 +191,54 @@ drains in-flight RPCs with the supplied ctx deadline.
 ```go
 srv := grpc.NewServer(
     grpc.WithPort("50051"),
-    grpc.WithEnvironment("production"),   // force-disables reflection
-    grpc.WithReflection(true),            // enable reflection in dev
+    grpc.WithEnvironment("production"),   // production guards: TLS required, reflection refused
+    grpc.WithReflection(true),            // enable reflection in dev (Build errors in production)
     grpc.WithMaxRecvMsgSize(4<<20),
     grpc.WithMaxSendMsgSize(4<<20),
+    grpc.WithCreds(creds),                // transport credentials (see TLS below)
     grpc.WithLogger(v.Log),
 )
 ```
+
+`NewServer` seeds its defaults from the environment via `LoadConfig` -
+`GRPC_PORT`, `GRPC_REFLECTION`, `GRPC_MAX_RECV_SIZE`, `GRPC_MAX_SEND_SIZE`
+- and the explicit options above override them. `WithMaxRecvMsgSize` /
+`WithMaxSendMsgSize` clamp their argument: a non-positive size (which
+grpc-go reads as unlimited) falls back to the 4&nbsp;MB default, and an
+oversize value is clamped to a 1&nbsp;GiB ceiling.
+
+### TLS
+
+Build enforces a production TLS guard. When the environment is
+`production` (`APP_ENV=production` or `WithEnvironment("production")`) and
+no transport credentials were attached, `Build` returns an error:
+
+```go
+srv := grpc.NewServer(
+    grpc.WithEnvironment("production"),
+    grpc.WithCreds(creds),  // credentials.TransportCredentials
+)
+```
+
+- `WithCreds(creds)` attaches credentials (from `credentials.NewTLS`,
+  `credentials.NewServerTLSFromFile`, ...) and marks the server as
+  TLS-configured in one step.
+- `WithServerOption(grpc.Creds(...))` routes credentials through the raw
+  option hook, but the guard cannot inspect it - pair it with
+  `WithExplicitTLS()` so the guard recognises the opt-in.
+- Setting `GRPC_INSECURE=true` opts a deployment out of the guard for a
+  known-internal mTLS mesh or sidecar-terminated mesh.
+
+Outside production, a missing credentials configuration only logs a
+one-shot warning.
+
+### Default recovery
+
+`Build` installs a panic-recovery interceptor outermost by default
+(grpc-go does not auto-recover interceptor or handler panics, so without
+it the first panic crashes the serve loop). Pass `WithoutDefaultRecovery()`
+only when you wire your own outermost recovery interceptor first in the
+chain.
 
 ### Interceptors
 
@@ -564,23 +607,38 @@ gw.StartAsync()
 `gw.Mux()` returns the underlying `runtime.ServeMux` if you need to
 attach custom handlers alongside the generated ones.
 
+Like the server, the gateway enforces a production TLS guard: in
+`production` it refuses to start unless dial credentials were configured
+via `GatewayWithTLS(caCertFile)`, `GatewayWithTransportConfig(cfg)` (typed
+mTLS config with `TLSCert` / `TLSKey` / `CACert`), or `GatewayWithInsecure()`
+to opt out for a known-internal mesh. Outside production an unconfigured
+gateway defaults to insecure credentials and logs a one-shot warning. The
+gateway's HTTP server ships conservative read / write / idle timeouts and a
+header-size bound by default; override them with `GatewayWithReadTimeout`,
+`GatewayWithWriteTimeout`, `GatewayWithIdleTimeout`, and
+`GatewayWithMaxHeaderBytes`. Defaults for `GatewayWithPort` /
+`GatewayWithGRPCEndpoint` come from `GATEWAY_PORT` / `GRPC_ENDPOINT`.
+
 ## Context helpers
 
 ### Claims
 
-A `Claims` value carries authenticated user data:
+`Claims` is an interface (`GetUserID() uint` / `GetTeamID() uint`); apps
+implement it with their own claims type, or use the bundled `BasicClaims`:
 
 ```go
-ctx = grpc.ContextWithClaims(ctx, Claims{UserID: 42, TeamID: 7})
+ctx = grpc.ContextWithClaims(ctx, &grpc.BasicClaims{UserID: 42, TeamID: 7})
 
-claims := grpc.ClaimsFromContext(ctx)       // safe: returns zero value if absent
+claims := grpc.ClaimsFromContext(ctx)       // returns nil if absent
 claims := grpc.MustClaimsFromContext(ctx)   // panics if absent - use in auth'd handlers
 
-userID := grpc.UserIDFromContext(ctx)       // shortcut
+userID := grpc.UserIDFromContext(ctx)       // shortcut, 0 if no claims
 teamID := grpc.TeamIDFromContext(ctx)
 ```
 
-Attach them in an auth interceptor before the handler runs.
+Attach them in an auth interceptor before the handler runs. The bundled
+`interceptors.Auth` does this for you: its `AuthValidator.ValidateToken`
+returns the resolved `Claims`, which the interceptor stores on the context.
 
 ### Request ID
 
@@ -654,15 +712,30 @@ return nil, grpc.WrapErrorWithCode(err, codes.FailedPrecondition)
 
 ## Reflection in production
 
-When `WithEnvironment("production")` is set, `WithReflection(true)` is
-silently ignored - reflection is force-disabled so gRPC service
-introspection isn't exposed to untrusted callers.
+When the environment is `production` (`APP_ENV=production` or
+`WithEnvironment("production")`), `Build` hard-fails if reflection is
+enabled - it returns an error rather than silently downgrading, so a
+misconfigured deployment cannot ship thinking reflection is on while it
+is off (or vice versa). Disable it (`GRPC_REFLECTION=false` or drop
+`WithReflection(true)`) for production builds. `"prod"` and `"staging"`
+fold into the same locked-down branch, so a typo'd `APP_ENV` cannot
+re-enable introspection.
 
 ## Health checks
 
-The package includes a standard gRPC health service registration
-helper - see `health.go` for `RegisterHealthService(s *Server)`. Pair
-it with your load balancer's gRPC health probes.
+The package ships a standard gRPC health service. Construct one with
+`grpc.NewHealthService()` and register it via the server's
+`RegisterService`:
+
+```go
+health := grpc.NewHealthService()
+srv.RegisterService(health.RegistrationFunc())
+```
+
+Drive the reported status with `health.SetServing(service)` /
+`health.SetNotServing(service)`, or register a dynamic probe with
+`health.RegisterChecker(service, func(ctx) error { ... })` that runs on
+each check. Pair it with your load balancer's gRPC health probes.
 
 ## Events
 
@@ -708,7 +781,7 @@ dur := converters.ProtoToDuration(req.GetTimeout())
 
 // Offset pagination
 page := converters.NormalizePagination(req.GetPage(), req.GetPageSize())
-resp := converters.NewPaginationResponse(page.Page, page.PageSize, totalItems)
+resp := converters.NewPaginationResponse(int32(page.Page), int32(page.Size), totalItems)
 
 // Cursor pagination
 cp := converters.NormalizeCursorPagination(req.GetCursor(), req.GetLimit())

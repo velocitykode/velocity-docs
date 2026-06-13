@@ -33,7 +33,7 @@ velocity (global)          vel (per-project)
                            ├── down / up
                            ├── route:list
                            ├── key:generate
-                           └── make:* (12 generators)
+                           └── make:* (16 generators)
 ```
 
 **Why two CLIs?**

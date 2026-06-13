@@ -9,7 +9,7 @@ Velocity provides a unified caching interface supporting multiple drivers. The f
 ## Quick Start
 
 {{% callout type="info" %}}
-**No global cache.** All cache operations are methods on `*cache.Manager`. Reach for `app.Cache` outside of requests, `ctx.Cache()` inside a handler. The package-level helpers are limited to `cache.NewManager`, `cache.RememberT`, `cache.RememberTWithContext`, and `cache.Drivers()` (the pluggable driver registry).
+**No global cache.** All cache operations are methods on `*cache.Manager`. Reach for `app.Cache` outside of requests, `ctx.Cache()` inside a handler. The package-level helpers are limited to `cache.NewManager`, `cache.RememberT`, `cache.RememberTWithContext`, `cache.GetAs`, `cache.GetAsWithContext`, and `cache.Drivers()` (the pluggable driver registry).
 
 Inside a handler always prefer the `*WithContext` variant of every method (`PutWithContext`, `GetWithContext`, `RememberEWithContext`, `StoreWithContext`, ...) so the request's deadline flows through to Redis dials, S3 reaches, and DB connects.
 {{% /callout %}}
@@ -148,27 +148,37 @@ return result.(*User), nil
 
 ## Context propagation
 
-Stores that talk to a remote backend (Redis) implement the `ContextStore` interface. The manager threads `context.Context` through to the driver when available so a slow Redis lookup is cancelled with the request.
+Every cache `Store` exposes a `Ctx`-suffixed variant of each operation (`GetCtx`, `PutCtx`, `AddCtx`, `ForeverCtx`, `ForgetCtx`, `FlushCtx`, `HasCtx`, `IncrementCtx`, `DecrementCtx`, `ManyCtx`, `PutManyCtx`) alongside the non-ctx form. The manager threads `context.Context` through to the driver so a slow Redis lookup is cancelled with the request; memory and file drivers honour the ctx where it affects blocking behaviour and otherwise ignore it transparently.
+
+These methods are declared on the `contract.Cache` interface (aliased into the cache package as `cache.Cache`); `cache.Store` is `contract.CacheStore`, which embeds `Cache` plus `GetPrefix() string`.
 
 ```go
-// ContextStore is satisfied by the Redis driver. Memory and file drivers
-// fall back to the plain Store methods automatically.
-type ContextStore interface {
-    Store
+// Store is contract.CacheStore: every driver exposes both the plain and the
+// Ctx-suffixed form of each operation. The non-ctx methods are deprecated
+// shims that call the Ctx variant with context.Background().
+type Store interface {
     GetCtx(ctx context.Context, key string) (interface{}, bool)
+    GetStringCtx(ctx context.Context, key string) (string, bool)
     PutCtx(ctx context.Context, key string, value interface{}, ttl time.Duration) error
+    AddCtx(ctx context.Context, key string, value interface{}, ttl time.Duration) (bool, error)
     ForeverCtx(ctx context.Context, key string, value interface{}) error
     ForgetCtx(ctx context.Context, key string) error
     FlushCtx(ctx context.Context) error
-    HasCtx(ctx context.Context, key string) bool
     IncrementCtx(ctx context.Context, key string, value int64) (int64, error)
     DecrementCtx(ctx context.Context, key string, value int64) (int64, error)
     ManyCtx(ctx context.Context, keys []string) map[string]interface{}
     PutManyCtx(ctx context.Context, items map[string]interface{}, ttl time.Duration) error
+    HasCtx(ctx context.Context, key string) bool
+    GetPrefix() string
+    // ... plus the deprecated non-ctx shims (Get, Put, Add, ...)
 }
 ```
 
-Every `Manager` operation has a `*WithContext` counterpart: `GetWithContext`, `PutWithContext`, `ForeverWithContext`, `ForgetWithContext`, `RememberWithContext`, `RememberEWithContext`, `RememberForeverWithContext`, `RememberForeverEWithContext`, plus `StoreWithContext(ctx, name)` and `DefaultStoreWithContext(ctx)` for resolving named stores under the caller's deadline. Use them from any handler that already has a `ctx`.
+{{% callout type="info" %}}
+`ContextStore` is now a deprecated alias for `Store`. The ctx-aware methods that once lived on a separate extension interface have been promoted onto `Store` itself, so every driver satisfies them. Use `Store` directly; the alias is kept for one release so existing type assertions keep compiling.
+{{% /callout %}}
+
+Every `Manager` operation has a `*WithContext` counterpart: `GetWithContext`, `PutWithContext`, `AddWithContext`, `ForeverWithContext`, `ForgetWithContext`, `RememberWithContext`, `RememberEWithContext`, `RememberForeverWithContext`, `RememberForeverEWithContext`, plus `StoreWithContext(ctx, name)` and `DefaultStoreWithContext(ctx)` for resolving named stores under the caller's deadline. Use them from any handler that already has a `ctx`.
 
 The ctx threads end-to-end: the first call that materialises a store (Redis dial, file mkdir, S3 endpoint check) sees the caller's ctx through the registry's `Resolve(ctx, name, cfg)` path, and every subsequent read/write on a `ContextStore` honours the same ctx. A handler with a 200 ms deadline cancels both the Redis dial AND the Redis `GET` if either runs long.
 
@@ -207,14 +217,20 @@ REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
 REDIS_PASSWORD=
 REDIS_DATABASE=0
+REDIS_TLS=false            # set true to dial Redis over TLS (min TLS 1.2)
 
-# Multiple stores (optional)
-CACHE_STORES=session:memory,api:redis
+# Memory driver bounds (optional)
+CACHE_MEMORY_MAX_ENTRIES=0  # 0 applies the 1,000,000 default; negative disables the bound
+CACHE_MAX_VALUE_BYTES=0     # 0 = unlimited; caps a single serialized value (memory + file)
 ```
+
+{{% callout type="info" %}}
+The framework wires a single `default` store from `CACHE_DRIVER`. There is no `CACHE_STORES` env var: extra named stores require building a `cache.Config` with multiple `Stores` entries yourself (see [Multiple Cache Stores](#multiple-cache-stores)).
+{{% /callout %}}
 
 ## Drivers
 
-The framework ships four built-in factories (`memory`, `file`, `redis`, `database`) that self-register from `cache/init.go` at package import time. Any extra factory you install via `cache.Drivers().Register(...)` joins the same registry and becomes selectable through `CACHE_DRIVER` like a built-in.
+The cache core self-registers its light drivers (`memory`, `file`) from `cache/init.go` at package import time, plus a `database` placeholder whose factory currently returns `velocity/cache: database driver not yet implemented`. The `redis` driver lives in the heavy `cache/redis` leaf (it carries the go-redis dependency) and self-registers from its own `init()`. Blank-import `github.com/velocitykode/velocity/cache/redis`, or `github.com/velocitykode/velocity/cache/standard` to pull in the full set, before selecting `CACHE_DRIVER=redis`. Any extra factory you install via `cache.Drivers().Register(...)` joins the same registry and becomes selectable through `CACHE_DRIVER` like a built-in.
 
 ### Memory Driver
 
@@ -259,23 +275,30 @@ REDIS_HOST=localhost
 REDIS_PORT=6379
 REDIS_PASSWORD=
 REDIS_DATABASE=0
+REDIS_TLS=false
 ```
 
-The Redis factory takes the caller's ctx and uses it for the initial `PING`, so a misconfigured cluster fails under the request deadline rather than the go-redis default dial timeout. Construct one directly when you need to bypass the manager:
+Because the Redis driver lives in the `cache/redis` leaf, it is not compiled into the core. Add a blank import somewhere in your binary so its factory is registered before the manager resolves `CACHE_DRIVER=redis`:
+
+```go
+import _ "github.com/velocitykode/velocity/cache/redis"
+```
+
+The Redis factory takes the caller's ctx and uses it for the initial `Ping`, so a misconfigured cluster fails under the request deadline rather than the go-redis default dial timeout. Construct one directly when you need to bypass the manager:
 
 ```go
 import (
     "context"
-    "github.com/velocitykode/velocity/cache/drivers"
+    "github.com/velocitykode/velocity/cache/redis"
 )
 
-store, err := drivers.NewRedisStore(ctx, "myapp", "127.0.0.1", 6379, "", 0, false)
+store, err := redis.NewRedisStore(ctx, "myapp", "127.0.0.1", 6379, "", 0, false)
 if err != nil {
     return err
 }
 ```
 
-`NewRedisStore` validates host non-empty / port positive in the factory itself; `cache.StoreConfig.Validate` no longer enforces driver-specific fields, so third-party drivers stay free to define their own config shape.
+`NewRedisStore` validates host non-empty / port positive in the factory itself; `cache.StoreConfig.Validate` no longer enforces driver-specific fields, so third-party drivers stay free to define their own config shape. Note that a Redis store configured with an empty prefix disables `Flush` (returning `cache.ErrCannotFlushUnprefixed`) to avoid wiping an entire shared Redis database, and connecting to a non-loopback host without `REDIS_TLS=true` logs a cleartext-traffic warning.
 
 ## Custom Drivers
 
@@ -360,6 +383,38 @@ if found {
 username, found := app.Cache.GetString("username")
 if found {
     fmt.Println("Username:", username)
+}
+```
+
+#### GetAs
+
+The serializing drivers (redis, file) round-trip values through JSON, so a struct comes back as `map[string]interface{}` and an integer as `float64`. `cache.GetAs[T]` (and its ctx-aware sibling `cache.GetAsWithContext[T]`) re-decodes the stored value into the concrete `T` regardless of driver. These are package-level functions that take a `Store`, not `*Manager` methods (Go 1.26 method generics have not shipped):
+
+```go
+import "github.com/velocitykode/velocity/cache"
+
+store, _ := app.Cache.DefaultStoreWithContext(ctx)
+user, found := cache.GetAsWithContext[User](ctx, store, "user:123")
+if found {
+    fmt.Println(user.Name)
+}
+```
+
+On the serializing drivers an integer larger than 2^53 may already have lost precision before `GetAs` runs; store such values as strings if you need exact large integers.
+
+#### Add
+
+Atomically store a value only if the key does not already exist (the SETNX primitive). Returns `(true, nil)` on insert and `(false, nil)` on contention; an error is returned only on a backend failure:
+
+```go
+import "time"
+
+inserted, err := app.Cache.AddWithContext(ctx, "lock:job:42", "1", 30*time.Second)
+if err != nil {
+    return err
+}
+if !inserted {
+    // another caller already holds the slot
 }
 ```
 
@@ -522,6 +577,25 @@ if app.Cache.Has("user:123") {
 }
 ```
 
+#### Distributed Locks
+
+`Lock(key string, ttl ...time.Duration)` returns a `cache.Lock` backed by the default store. The TTL auto-expires the lock so a crashed holder cannot pin the key forever; it must be positive (a zero or negative TTL is rejected with `cache.ErrInvalidLockTTL`). `Lock` returns `nil` when the default store does not implement locking.
+
+```go
+lock := app.Cache.Lock("report:nightly", 5*time.Minute)
+if lock == nil {
+    return fmt.Errorf("store does not support locking")
+}
+
+// Run acquires the lock, invokes the callback, then releases it. Returns
+// cache.ErrLockNotAcquired if the lock is already held.
+err := lock.Run(ctx, func() {
+    generateNightlyReport()
+})
+```
+
+The `Lock` interface also exposes `Get(ctx)` / `GetWithErr(ctx)` to acquire, `Release(ctx)`, `Block(ctx, timeout, callback)` to wait for the lock, `Owner()`, and `ForceRelease(ctx)`. `RestoreLock(key, owner)` rebuilds a lock handle from a previously issued owner token so a different goroutine or process can release it.
+
 ### Bulk Operations
 
 #### PutMany
@@ -564,17 +638,25 @@ func getUserBatch(app *velocity.App, userIDs []int) map[string]interface{} {
 
 ## Multiple Cache Stores
 
-Use different cache stores for different purposes:
+Use different cache stores for different purposes. The framework's `.env` wiring only builds a single `default` store from `CACHE_DRIVER`; to register additional named stores, construct a `cache.Manager` yourself with a multi-store `cache.Config`.
 
 ### Configuration
 
-```env
-# Default store
-CACHE_DRIVER=memory
+```go
+import "github.com/velocitykode/velocity/cache"
 
-# Additional stores
-CACHE_STORES=session:memory,api:redis
+mgr := cache.NewManager(&cache.Config{
+    Default: "default",
+    Prefix:  "velocity_cache",
+    Stores: map[string]cache.StoreConfig{
+        "default": {Driver: cache.DriverMemory},
+        "session": {Driver: cache.DriverMemory},
+        "api":     {Driver: cache.DriverRedis, Host: "127.0.0.1", Port: 6379},
+    },
+})
 ```
+
+Stores are created lazily on first access, so an unreferenced store never dials its backend.
 
 ### Using Named Stores
 
@@ -822,7 +904,7 @@ func (c *ProductHandler) Show(ctx *router.Context) error {
         return fetchProduct(ctx.Context(), productID)
     })
     if err != nil {
-        return ctx.Error("Product not found", 404)
+        return ctx.Error(404, "Product not found")
     }
 
     return ctx.JSON(200, product)
@@ -832,8 +914,8 @@ func (c *ProductHandler) Update(ctx *router.Context) error {
     productID := ctx.Param("id")
 
     // Update product in database
-    if err := updateProduct(ctx.Context(), productID, ctx.Body); err != nil {
-        return ctx.Error("Failed to update product", 500)
+    if err := updateProduct(ctx.Context(), productID, ctx.Request.Body); err != nil {
+        return ctx.Error(500, "Failed to update product")
     }
 
     // Invalidate cache under the request ctx

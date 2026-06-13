@@ -75,7 +75,7 @@ A notifiable is anything that implements `Notifiable.NotificationRoute(channel s
 | `"slack"` | A full Slack incoming-webhook URL | `SlackChannel` POSTs the rendered payload here; URLs that resolve to private/internal addresses are rejected |
 | custom | Whatever your channel needs (push token, phone number, etc.) | Your channel implementation |
 
-Return `""` for any channel the notifiable does not support; the channel will surface "no route" as a delivery error rather than silently dropping the send.
+Return `""` for any channel the notifiable does not support. Channels differ in how they treat an empty route: the Slack channel returns a "no Slack webhook URL for notifiable" error, while the mail, database, and broadcast channels do not error - mail sends with no recipient, database stores an empty `notifiable_id`, and broadcast skips delivery and returns nil. Only list a channel in `Via()` when the notifiable can route it.
 
 ```go
 type User struct {
@@ -169,29 +169,34 @@ mgr.Send(ctx, n.User, &SignupReceived{User: n.User})
 
 ## Channels
 
-The package ships four built-in channels. Blank-import `allchannels`
-to register all of them at once via their `init()` side effects:
+The package ships four built-in channels, each in its own sub-package.
+Blank-import `notification/standard` to register all of them at once
+via their `init()` side effects:
 
 ```go
-import _ "github.com/velocitykode/velocity/notification/allchannels"
+import _ "github.com/velocitykode/velocity/notification/standard"
 ```
 
 This pulls in mail, database, broadcast, and slack.
 
-Or cherry-pick by importing only the channel packages you want. Each
-channel's `init()` calls `RegisterChannel` exactly once, so importing
-`notification/channels` is enough; calling `RegisterChannel` for an
-already-registered name panics.
+Or cherry-pick by blank-importing only the channel packages you want.
+Each channel's `init()` calls `notification.Drivers().Register(...)`
+exactly once. Registering the same name twice panics, so import each
+channel package only once.
 
 ```go
-import _ "github.com/velocitykode/velocity/notification/channels"
+import (
+    _ "github.com/velocitykode/velocity/notification/mail"
+    _ "github.com/velocitykode/velocity/notification/database"
+)
 ```
 
 After registration, `mgr.Channel("mail")` lazily instantiates the
 driver and returns it; the manager uses this internally when a
 notification lists `"mail"` in `Via()`. Use `mgr.SetChannel(name, ch)`
-to inject a pre-configured channel instance (e.g. a `*MailChannel`
-with `SetMailer(...)` already called).
+to inject a pre-configured channel instance (e.g. a `*mail.MailChannel`
+with `SetMailer(...)` already called). `notification.RegisteredChannels()`
+returns the names of all registered drivers.
 
 ### Mail channel
 
@@ -241,8 +246,11 @@ The `Type` field is a logical name; `Data` is serialized as JSON.
 ### Broadcast channel
 
 Delivers to real-time WebSocket subscribers via the `broadcast`
-package. The notifiable's route should be a channel name
-(`"private-user.42"`, `"orders"`).
+package. Set the target channels explicitly with `On(...)`. When `On(...)`
+is omitted, the channel falls back to the notifiable's
+`NotificationRoute("broadcast")` value and prefixes it with `private-`
+(so a route of `42` broadcasts on `private-42`); pass a bare identifier
+there, not an already-prefixed channel name.
 
 ```go
 return notification.NewBroadcastMessage("order.shipped").
@@ -278,8 +286,8 @@ Every send emits one of two events:
 Wire them up via the manager:
 
 ```go
-mgr.SetEventDispatcher(func(event any) error {
-    return v.Events.Dispatch(event)
+mgr.SetEventDispatcher(func(ctx context.Context, event any) error {
+    return v.Events.Dispatch(ctx, event)
 })
 ```
 
@@ -299,9 +307,11 @@ func (c *PushChannel) Send(ctx context.Context, notifiable any, n notification.N
     return nil
 }
 
-notification.RegisterChannel("push", func() (notification.Channel, error) {
-    return &PushChannel{/* ... */}, nil
-})
+func init() {
+    notification.Drivers().Register("push", func(_ context.Context, _ notification.ChannelConfig) (notification.Channel, error) {
+        return &PushChannel{/* ... */}, nil
+    })
+}
 ```
 
 From then on, any notification listing `"push"` in `Via()` goes through

@@ -21,17 +21,27 @@ engine, err := view.NewEngine(view.Config{
     RootTemplate: rootHTML,   // string: the HTML shell with <div id="app">
     Version:      "1.0.3",    // asset version for Inertia cache busting
     SSREnabled:   false,      // flip to true to enable SSR
-    SSRURL:       "http://127.0.0.1:13714",
-    SSRTimeout:   3 * time.Second,
-    SSRExcept:    []string{"/admin"},  // paths to skip SSR on
+    SSRURL:       "http://127.0.0.1:13714",  // defaults to this when blank
+    SSRTimeout:   3 * time.Second,           // defaults to 3s; must be > 0 when SSR is on
+    SSRExcept:    []string{"/admin"},        // URL prefixes to skip SSR on
 })
 ```
 
-Load the root template from disk:
+`RootTemplate` and `Version` are optional: when blank, `NewEngine` fills
+in a built-in default shell and a `Version` of `"1"`. The root template
+content is a plain string - load it however you like (an embedded
+`//go:embed` file, `os.ReadFile`, etc.) and pass the result.
+
+`Config.Funcs` registers `template.FuncMap` helpers callable from the
+root template. The canonical use is the Vite tag helper:
 
 ```go
-root, _ := view.LoadTemplateFromFile("resources/views/app.html")
-engine, _ := view.NewEngine(view.Config{RootTemplate: root})
+helper := vite.New()
+engine, _ := view.NewEngine(view.Config{
+    RootTemplate: root,
+    Funcs:        template.FuncMap{"vite": helper.Tags},
+})
+// app.go.html can then call {{ vite "resources/js/app.tsx" }}
 ```
 
 Assign it so other services (handlers, CSRF middleware) can reach it:
@@ -81,7 +91,16 @@ engine.ShareFunc("user", func(r *http.Request) (any, error) {
 })
 ```
 
-Bulk replace:
+Several static props at once:
+
+```go
+engine.ShareMultiple(view.Props{
+    "appName": "Acme",
+    "locale":  "en",
+})
+```
+
+Bulk replace via a single per-request function:
 
 ```go
 engine.SetSharePropsFunc(func(r *http.Request) (view.Props, error) {
@@ -116,6 +135,12 @@ view.Props{"heavyReport": view.Lazy(func() (any, error) {
 
 Skipped on partial reloads unless explicitly requested.
 
+{{% callout type="warning" %}}
+`view.Lazy` (and the `view.LazyProp` type) is deprecated - use
+`view.Optional` instead. The two behave the same way; the name change
+follows the broader Inertia ecosystem's own sunset of `lazy`.
+{{% /callout %}}
+
 ### Optional - evaluated, but only sent on explicit partial request
 
 ```go
@@ -141,11 +166,42 @@ computations you don't want to block first paint.
 
 ## Redirect helpers
 
+On the engine directly:
+
 ```go
-engine.Redirect(w, r, "/dashboard")   // Inertia-aware redirect
+engine.Redirect(w, r, "/dashboard")             // Inertia-aware redirect
 engine.Location(w, r, "https://acme.com/docs")  // external redirect
-engine.Back(w, r)                    // redirect to previous URL
+engine.Back(w, r)                               // redirect to the Referer (or "/")
 ```
+
+From a handler, the package-level helpers pull the engine off the router
+context for you and are nil-safe (no-op when no engine is wired):
+
+```go
+view.Redirect(ctx, "/dashboard")
+view.Location(ctx, "https://acme.com/docs")
+view.Back(ctx)
+```
+
+### Flash and chained terminals
+
+`view.For(ctx)` returns a request-bound handle for chaining flash data
+into a redirect or render. The flash bag is persisted onto the encrypted
+session cookie when a terminal method (`Redirect` / `Location` / `Back` /
+`Render`) runs, so the next page can drain it onto its props:
+
+```go
+view.For(ctx).Flash("error", "Save failed").Redirect("/posts")
+
+view.For(ctx).
+    FlashMany(map[string]any{"status": "saved", "id": id}).
+    Render("Posts/Index", view.Props{"posts": posts})
+```
+
+`For` returns `nil` when no view engine is wired, and every chain method
+is a no-op on a nil receiver, so the calls are always safe. Flash silently
+no-ops when there is no auth manager on the context or the active guard is
+not session-backed (for example a JWT-only deployment).
 
 ## Middleware
 
@@ -167,25 +223,25 @@ When `SSREnabled` is true:
 Emit an SSR failure event to monitor fallbacks:
 
 ```go
-engine.SetEventDispatcher(func(event any) error {
-    return v.Events.Dispatch(event)
+engine.SetEventDispatcher(func(ctx context.Context, event any) error {
+    return v.Events.Dispatch(ctx, event)
 })
 ```
 
-Listen for `*bond.SSRRenderFailed` to count, alert, or log.
+Listen for `bond.SSRRenderFailed` to count, alert, or log. The event
+carries the failing `Component`, `URL`, `Error` message, and a typed
+`Type` (`bond.SSRErrorConnection`, `SSRErrorRender`,
+`SSRErrorComponentResolution`, `SSRErrorBrowserAPI`, or
+`SSRErrorUnknown`), plus optional `Hint`, `BrowserAPI`, `Stack`, and
+`SourceLocation` fields.
 
-## Flash and validation helpers
+## Escape hatch
 
-Two simple providers ship with the package for server-flashed data:
+`engine.Bond()` returns the underlying `*bond.Bond` instance for the rare
+case you need a protocol primitive the view API does not re-export. Reach
+for it sparingly - application code should stay on the `view` surface so
+the rendering adapter can evolve without breaking you.
 
-```go
-flash := view.NewSimpleFlashProvider()
-flash.Success(w, r, "Saved!", "/dashboard")
-flash.Error(w, r, "Something went wrong", "/dashboard")
-
-val := view.NewSimpleValidationProvider()
-// populated by validation/form-requests
-```
-
-Use these if you're not plugging in the session-backed flashers from
-`validation` / `validate`.
+`engine.Shutdown(ctx)` is a no-op: the engine holds no long-lived
+resources, but it satisfies the framework's shutdown contract so the
+engine can be registered as a managed service.

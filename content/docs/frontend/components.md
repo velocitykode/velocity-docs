@@ -221,6 +221,7 @@ Recommended structure:
 
 ```
 resources/js/
+├── app.tsx             # React/Inertia entry point
 ├── pages/              # Page components (route-mapped)
 │   ├── Auth/
 │   │   ├── Login.tsx

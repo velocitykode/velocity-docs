@@ -61,7 +61,7 @@ use `WithFullContext`:
 ctx = trace.WithFullContext(ctx, payload.TraceID, payload.SpanID, payload.ParentID)
 ```
 
-The queue worker and gRPC interceptor entry points already call this internally
+The queue worker and the ORM transaction manager already call this internally
 when a payload carries the three fields. Reach for it manually only when writing
 a new transport that persists trace state across a process boundary.
 
@@ -98,21 +98,58 @@ call on any context.
 ## Generating IDs manually
 
 ```go
-tid := trace.GenerateTraceID()  // 32 hex chars
-sid := trace.GenerateSpanID()   // 16 hex chars
+tid, err := trace.GenerateTraceID()  // 32 hex chars
+if err != nil {
+    // crypto/rand unavailable
+}
+sid, err := trace.GenerateSpanID()   // 16 hex chars
 ```
 
-Backed by `crypto/rand`. Falls back to zero bytes only if the system
-RNG fails (extremely unlikely).
+Backed by `crypto/rand`. `GenerateTraceID`/`GenerateSpanID` return an
+error when the system entropy source is unavailable - they never
+silently substitute zero bytes, which would collapse every concurrent
+trace onto the same ID and break correlation.
+
+### Infallible generation for hot paths
+
+Request-path code (HTTP middleware, gRPC interceptors) often cannot
+fail a request just because entropy is momentarily unavailable. Use the
+`Must*` variants, which retry once and then fall back to a
+distinguishable non-hex marker:
+
+```go
+tid := trace.MustGenerateTraceID()  // never errors
+sid := trace.MustGenerateSpanID()
+```
+
+On an entropy outage these return per-call fallback IDs of the form
+`velocity_trace_norand_<processStartNs>_<counter>` (and
+`velocity_span_norand_...` for spans), exposed as the constants
+`trace.FallbackTraceIDPrefix` and `trace.FallbackSpanIDPrefix`. The
+markers are:
+
+- non-hex, so APM tooling matching `^[0-9a-f]{32}$` filters them out
+  and never conflates them with real trace IDs,
+- unique per call (monotonic atomic counter) so concurrent in-flight
+  traces stay correlated even during the outage,
+- unique across restarts (the process-start nanosecond timestamp
+  varies).
+
+A single WARN log line is emitted (once per process) when the fallback
+path first triggers. `StartTrace`, `ContinueTrace`, and `WithNewSpan`
+all use the `Must*` helpers internally, so request-path callers degrade
+gracefully rather than failing.
 
 ## Where trace values surface
 
 - **APM events** - `httpclient.RequestSent`, `httpclient.RequestFailed`,
   router events (`RequestStarted`, `RequestHandled`, `RequestFailed`),
   ORM events (`QueryExecuted`, `TransactionExecuted`, `QueryFailed`),
-  bus events, grpcevents, and queue events all carry `TraceID`, `SpanID`,
-  and `ParentID` fields - the standard 3-field convention.
-  `trace.GetTraceContext(ctx)` is the read path.
+  grpcevents, and queue events all carry `TraceID`, `SpanID`,
+  and `ParentID` fields - the standard 3-field convention. Bus command
+  events (`CommandDispatching`, `CommandCompleted`, `CommandFailed`,
+  `CommandQueued`) instead embed the request `Context`, from which
+  trace values are read. `trace.GetTraceContext(ctx)` is the read path.
 - **Logs** - attach the trace fields to every log line to correlate
   request activity across systems.
 - **Outbound requests** - inject the trace IDs into upstream headers

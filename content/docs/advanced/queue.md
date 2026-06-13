@@ -36,12 +36,18 @@ QUEUE_REDIS_PORT=6379
 QUEUE_REDIS_DB=0
 QUEUE_REDIS_PASSWORD=
 
-# Database settings (when using database driver)
-QUEUE_TABLE=jobs
-QUEUE_FAILED_TABLE=failed_jobs
+# Payload integrity / encryption (optional)
+QUEUE_SIGNING_KEY=        # HMAC-SHA256 key (>= 32 bytes); falls back to APP_KEY
+QUEUE_ENCRYPT=false       # Encrypt job payload data at rest with the app encryptor
 ```
 
-The framework wires a `queue.Driver` into the service container as `s.Queue`. Application code dispatches through that handle; only worker bootstraps construct drivers directly.
+The framework wires a `queue.Driver` into the service container as `s.Queue` (a `contract.QueueDriver`). Application code dispatches through that handle; only worker bootstraps construct drivers directly.
+
+The database driver always reads and writes the fixed `jobs` and `failed_jobs` tables; those names are not configurable via environment variables.
+
+{{% callout type="info" %}}
+The `redis` driver lives in a separate leaf package so the framework core does not pull in the go-redis client. Setting `QUEUE_DRIVER=redis` only resolves once you blank-import the leaf: `import _ "github.com/velocitykode/velocity/queue/redis"` (or `import _ "github.com/velocitykode/velocity/queue/standard"` to wire every built-in driver at once). The `memory` and `database` drivers register from the queue package's own `init()` and need no extra import.
+{{% /callout %}}
 
 ## Creating Jobs
 
@@ -357,7 +363,7 @@ Returning `false` permanently fails the job on this error without consuming furt
 Two more optional interfaces round out the set:
 
 - `OnQueuer.OnQueue() string`: declares a default queue name; used when the caller does not pass one to `PushCtx`.
-- `Identifiable.JobID() string`: provides a stable key for attempt tracking across serialization boundaries (Redis, database). Without it the worker falls back to pointer identity, which only works on the memory driver.
+- `Identifiable.JobID() string`: provides a stable key for attempt tracking across serialization boundaries (Redis, database). Without it the worker derives a stable key by hashing the marshalled job payload (sha256), so two byte-identical jobs share one attempt counter; raw pointer identity is only the last-resort fallback when marshalling fails. Implement `JobID()` when distinct jobs can share identical content but must track attempts independently.
 
 ## Batches
 
@@ -408,21 +414,29 @@ err = s.Queue.Shutdown(ctx)              // drain in-flight work, honor ctx dead
 - Lists for ready queues, sorted sets for delayed jobs
 
 ### Database driver
-- Transactional dispatch (push inside a `*sql.Tx` works without a sidecar table)
+- Reservation-based leasing: rows are leased (`reserved_at`/`reserved_by`) to a worker for the duration of handler execution and reclaimed after the lease expires, so a crashed worker's job redelivers
 - Row-level locking for concurrent workers
-- Failed-job tracking via the configured `QUEUE_FAILED_TABLE`
+- Failed-job tracking in the fixed `failed_jobs` table
 
 Construct drivers directly when wiring outside the framework's bootstrap:
 
 ```go
+// Memory driver: call Start() to launch the background delayed-job processor.
 d := queue.NewMemoryDriver()
-// or
+d.Start()
+
+// Or resolve through the registry. NewQueue defaults an empty Driver to
+// "memory"; "redis" requires the leaf package to be blank-imported first
+// (see Configuration above).
 d, err := queue.NewQueue(queue.QueueConfig{Driver: "redis", Redis: redisCfg})
+
+// Database driver: pass a *sql.DB and the dialect name.
+d := queue.NewDatabaseDriver(db, "postgres")
 ```
 
 ### Registering a third-party driver
 
-The built-in drivers (`memory`, `redis`, `database`) self-register through Velocity's unified driver registry. Third-party backends plug in the same way: call `queue.Drivers().Register(name, factory)` from your driver package's `init()` and the name resolves through `queue.NewQueue` / `queue.NewQueueWithContext` like any built-in.
+The built-in drivers self-register through Velocity's unified driver registry: `memory` and `database` from the queue package's own `init()`, and `redis` from its leaf package's `init()` once blank-imported. Third-party backends plug in the same way: call `queue.Drivers().Register(name, factory)` from your driver package's `init()` and the name resolves through `queue.NewQueue` / `queue.NewQueueWithContext` like any built-in.
 
 ```go
 package kafkaqueue

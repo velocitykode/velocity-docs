@@ -18,20 +18,20 @@ Velocity ORM supports five relation types: `hasOne`, `hasMany`, `belongsTo`, `ma
 
 ## Tag Syntax
 
-Every relation tag uses **comma-separated** values inside a single `relation:` key. The shape depends on the type:
+Each relation type uses **comma-separated** values inside an orm tag directive. The three single-key relations share the `relation:` directive; many-to-many and polymorphic each use their own directive (`manyToMany:`, `polymorphic:`):
 
 ```
 orm:"relation:hasOne,<foreignKey>,<localKey>"
 orm:"relation:hasMany,<foreignKey>,<localKey>"
 orm:"relation:belongsTo,<foreignKey>,<localKey>"
-orm:"relation:manyToMany,<pivotTable>,<localFK>,<relatedFK>"
-orm:"relation:polymorphic,<typeColumn>,<idColumn>"
+orm:"manyToMany:<pivotTable>,<localFK>,<relatedFK>"
+orm:"polymorphic:<typeColumn>,<idColumn>"
 ```
 
-- `<type>`: one of `hasOne`, `hasMany`, `belongsTo`, `manyToMany`, `polymorphic` (case-sensitive).
+- `relation:` accepts only `hasOne`, `hasMany`, or `belongsTo` (case-sensitive). Many-to-many and polymorphic are NOT values of `relation:`; they are distinct directives.
 - `hasOne` / `hasMany` / `belongsTo`: `<foreignKey>` is the column on the **child** table; `<localKey>` is the column on the **parent** (almost always `id`).
-- `manyToMany`: `<pivotTable>` is the join table; `<localFK>` and `<relatedFK>` are its two FK columns. See [Many-to-Many](#many-to-many).
-- `polymorphic`: `<typeColumn>` and `<idColumn>` live on the **child** and identify the parent row. See [Polymorphic Relations](#polymorphic-relations).
+- `manyToMany:`: `<pivotTable>` is the join table; `<localFK>` and `<relatedFK>` are its two FK columns. See [Many-to-Many](#many-to-many).
+- `polymorphic:`: `<typeColumn>` and `<idColumn>` live on the **child** and identify the parent row. See [Polymorphic Relations](#polymorphic-relations).
 
 All parts are required for each shape. There are no convention-based defaults: the parser will not infer key names from the field name.
 
@@ -498,6 +498,8 @@ The `relation:` directive itself accepts only `hasOne`, `hasMany`, and `belongsT
 ## Error Reference
 
 Errors emitted by `parseRelationTag` (in `orm/relation.go`):
+
+The error strings below render the separator before `expected` as a plain hyphen for readability; the source uses a unicode em-dash (U+2014) in that exact spot, so grep for the rest of the string rather than the dash.
 
 | Error | Cause |
 |-------|-------|

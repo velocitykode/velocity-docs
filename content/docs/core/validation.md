@@ -117,18 +117,7 @@ func validateWithCustomMessages(c *router.Context) error {
 
 ## Configuration
 
-The validation package works out of the box with no configuration required. However, you can customize behavior through environment variables:
-
-```env
-# Stop validation on first error (default: false)
-VALIDATION_STOP_ON_FIRST=false
-
-# Default locale for error messages
-VALIDATION_DEFAULT_LOCALE=en
-
-# Bail on first rule failure per field (default: true)
-VALIDATION_BAIL_ON_ERROR=true
-```
+The validation package works out of the box with no configuration required and reads no environment variables. Behavior is fixed by the engine: rules for a field run in declared order and evaluation **bails on the first failing rule per field** (the field stops accumulating errors once one rule fails), while every other field is still evaluated. Custom messages and custom rules are configured per `Validator` instance in code (see [Custom Validation Rules](#custom-validation-rules) and [Custom Error Messages](#custom-error-messages)), not through global settings.
 
 ## Available Rules
 
@@ -230,7 +219,7 @@ rules := validation.Rules{
 
 #### min / max / size / between
 
-These rules adapt to the value's type. On strings they measure character length; on numbers they compare values; on slices they count elements.
+These rules adapt to the value's type. On strings they measure byte length (Go's `len`, not rune count, so multi-byte UTF-8 characters count as more than one); on numbers they compare values; on slices they count elements.
 
 ```go
 rules := validation.Rules{
@@ -317,7 +306,7 @@ rules := validation.Rules{"sku": {"regex:^[A-Z]{3}-\\d{4}$"}}
 
 #### file / mimes / image
 
-`file` confirms the value carries `*multipart.FileHeader`-shaped metadata. `mimes` checks the filename's extension (no content sniffing) against a comma-separated allowlist. `image` is a shortcut for the common image extensions (`jpg`, `jpeg`, `png`, `gif`, `webp`, `bmp`, `svg`, `heic`, `heif`, `avif`).
+`file` confirms the value carries `*multipart.FileHeader`-shaped metadata (any type exposing a `Filename` and `Size`, plus `Open() (multipart.File, error)` for sniffing). `mimes` checks the filename's extension against a comma-separated allowlist **and** sniffs the first 512 bytes so a renamed payload (e.g. `payload.php.jpg`) is rejected. `image` is a shortcut for the common raster image extensions (`jpg`, `jpeg`, `png`, `gif`, `webp`, `bmp`, `heic`, `heif`, `avif`); SVG is **excluded by default** because SVG is XML and can carry `<script>`. Opt in with `image:svg` (alias `image:allow_svg`), or for `mimes` pass the `allow_svg` flag alongside `svg` (e.g. `mimes:jpg,svg,allow_svg`).
 
 ```go
 rules := validation.Rules{
@@ -328,7 +317,7 @@ rules := validation.Rules{
 
 #### unique / exists (database rules)
 
-Registered only when validation has access to an `orm.Database`. `vform.Form[T]` wires this automatically from `ctx.Services.DB`; with the lower-level entry points use `validation.CheckWithDB` / `validation.CheckDataWithDB`.
+Registered only when validation has access to an `orm.Database`. `vform.Form[T]` wires this automatically from `ctx.Services().DB`; with the lower-level entry points use `validation.CheckWithDB` / `validation.CheckDataWithDB`.
 
 ```go
 rules := validation.Rules{
@@ -391,7 +380,7 @@ if err := result.Err(); err != nil {
 Same as above but with `unique` and `exists` rules registered against an `orm.Database`:
 
 ```go
-result := validation.CheckWithDB(c.Request, rules, c.Services.DB)
+result := validation.CheckWithDB(c.Request, rules, c.Services().DB)
 ```
 
 ### Result methods
@@ -403,7 +392,7 @@ result := validation.CheckWithDB(c.Request, rules, c.Services.DB)
 | `All()` | `map[string]string`, first message per field (Inertia-friendly shape) |
 | `Messages()` | `map[string][]string`, all messages per field |
 | `Err()` | `error` wrapping `ErrValidationFailed`; `nil` on success. Satisfies `errors.As(&ValidationErrors{})` |
-| `Old()` | `map[string]interface{}` of original input with `password` / `secret` / `token` fields stripped, suitable for flashing |
+| `Old()` | `map[string]interface{}` of original input with sensitive fields stripped (case-insensitive substring match on `password`, `passwd`, `passcode`, `secret`, `token`, `pin`, `cvv`, `cvc`, `card`, `ssn`, `otp`, `credential`, `credentials`, `api_key`, `apikey`, `private_key`, `privatekey`), suitable for flashing |
 
 ### ValidationErrors
 
@@ -595,7 +584,7 @@ func (uc *UserHandler) Register(c *router.Context) error {
         "terms.accepted":     "You must accept the terms of service",
     }
 
-    result := validation.CheckWithDB(c.Request, rules, c.Services.DB, messages)
+    result := validation.CheckWithDB(c.Request, rules, c.Services().DB, messages)
     if result.HasErrors() {
         return c.JSON(422, map[string]interface{}{
             "message": "Validation failed",

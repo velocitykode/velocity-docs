@@ -110,7 +110,7 @@ only   := collect.Diff(teamA, teamB)
 ```go
 result := collect.From(users).
     Filter(func(u User) bool { return u.Active }).
-    SortBy(func(u User) string { return u.Name }).
+    Sort(func(a, b User) bool { return a.Name < b.Name }).
     Take(10).
     All()
 ```

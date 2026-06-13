@@ -59,7 +59,7 @@ Building an API without a frontend? Use `velocity new myapi --api` to create an 
 ```
 myapp/
 ├── internal/
-│   ├── app/             # Bootstrap: CSRF, view engine, middleware stacks
+│   ├── app/             # app.Bootstrap: middleware, providers, event listeners
 │   ├── handlers/        # HTTP handlers
 │   ├── middleware/      # Custom middleware
 │   └── models/          # Database models
@@ -90,16 +90,11 @@ package main
 
 import (
     "log"
-    "os"
 
     "myapp/internal/app"
     "myapp/routes"
 
     "github.com/velocitykode/velocity"
-
-    // Blank import so each migration file's init() runs - otherwise
-    // `vel migrate` finds nothing.
-    _ "myapp/database/migrations"
 )
 
 func main() {
@@ -108,32 +103,33 @@ func main() {
         log.Fatal(err)
     }
 
-    chain := v.
-        Providers(app.Configure).      // auth, CSRF, view engine setup
-        Middleware(app.Middleware).    // global / web / API stacks
-        Routes(routes.Register).       // your route definitions
-        Events(app.Events(v.Log))      // your event listeners
-
-    // With CLI args - dispatch a `vel ...` command.
-    if len(os.Args) > 1 {
-        if err := chain.Run(); err != nil {
-            log.Fatal(err)
-        }
-        return
+    if err := app.Bootstrap(v); err != nil {
+        log.Fatal(err)
     }
 
-    // Otherwise - start the HTTP server.
-    if err := chain.Serve(); err != nil {
+    routes.Register(v)
+
+    if err := v.Serve(); err != nil {
         log.Fatal(err)
     }
 }
 ```
 
-The four callbacks (`app.Configure`, `app.Middleware`, `app.Events`,
-`routes.Register`) live in your own `app` and `routes` packages -
-`velocity new` scaffolds them for you. See
-[Routing](/docs/core/routing) and [Middleware](/docs/core/middleware)
-for the shapes.
+`velocity.New()` builds the application container (logger, crypto, DB,
+cache, queue, router, …) and returns an `*velocity.App`.
+`app.Bootstrap(v)` is your own bootstrap function (scaffolded into
+`internal/app`) where you configure middleware, providers, and event
+listeners. `routes.Register(v)` registers your routes against
+`v.Router`, and `v.Serve()` starts the HTTP server.
+
+{{< callout type="info" >}}
+`*velocity.App` also exposes a fluent bootstrap chain -
+`v.Providers(...)`, `v.Middleware(...)`, `v.Routes(...)`,
+`v.Events(...)`, `v.Schedule(...)`, `v.Commands(...)`, and
+`v.Exceptions(...)` - if you prefer to wire everything from `main.go`.
+Call `v.Run()` to dispatch a `vel ...` command from `os.Args`, or
+`v.Serve()` to start the server.
+{{< /callout >}}
 
 Define routes in `routes/web.go`:
 
@@ -141,17 +137,29 @@ Define routes in `routes/web.go`:
 package routes
 
 import (
+    "myapp/internal/handlers"
+
     "github.com/velocitykode/velocity"
+)
+
+func Register(v *velocity.App) {
+    r := v.Router
+
+    r.Get("/", handlers.Home)
+}
+```
+
+Handlers have the signature `func(ctx *router.Context) error`:
+
+```go
+package handlers
+
+import (
     "github.com/velocitykode/velocity/router"
 )
 
-func Register(r *velocity.Routing) {
-    r.Web(func(web router.Router) {
-        web.Get("/", func(ctx *router.Context) error {
-            ctx.Response.Write([]byte("Welcome to Velocity!"))
-            return nil
-        })
-    })
+func Home(ctx *router.Context) error {
+    return ctx.String(200, "Welcome to Velocity!")
 }
 ```
 
@@ -225,13 +233,13 @@ APP_PORT=4000
 
 # Logging
 LOG_DRIVER=console      # console, file
-LOG_LEVEL=info
+LOG_LEVEL=debug
 
 # Encryption / signing - installer populates these at scaffold time
 APP_KEY=
 QUEUE_SIGNING_KEY=
-JWT_SECRET=
-CRYPTO_CIPHER=AES-256-CBC
+AUTH_JWT_SECRET=
+CRYPTO_CIPHER=AES-256-GCM
 
 # Database
 DB_CONNECTION=sqlite    # postgres, mysql, sqlite
@@ -242,7 +250,7 @@ DB_USERNAME=
 DB_PASSWORD=
 
 # Cache
-CACHE_DRIVER=memory     # redis, memory
+CACHE_DRIVER=memory     # memory, file, redis, database
 ```
 
 `APP_KEY` doubles as the crypto key. Set `CRYPTO_KEY` explicitly only
@@ -254,9 +262,10 @@ if you want a dedicated encryption key separate from the app key.
 vel key:generate
 ```
 
-This generates a fresh 32-byte base64 key and writes it to `.env` -
-useful if you need to rotate the key or the installer didn't run
-`key:generate` for you.
+This generates a fresh 32-byte key, base64-encodes it with a `base64:`
+prefix, and writes it to `APP_KEY` in `.env` (creating the file if it
+doesn't exist) - useful if you need to rotate the key or the installer
+didn't run `key:generate` for you.
 
 ## Next Steps
 

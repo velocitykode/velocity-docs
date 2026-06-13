@@ -15,10 +15,14 @@ Import path: `github.com/velocitykode/velocity/exceptions`
 
 `*exceptions.Handler` is the central type. Velocity constructs one in
 `velocity.New()` and stores it at `app.Services.Exceptions`. You can
-reconfigure it via `v.Exceptions(...)` during bootstrap.
+reconfigure it via `v.Exceptions(...)` during bootstrap. The callback
+receives the handler as an `exceptions.ExceptionHandler` interface,
+which exposes the configuration methods (`AddReporter`,
+`AddRenderer`, `SetReporters`, `DontReport`, `SetAPIMode`,
+`SetAPIPrefixes`, `RegisterCustomHandler`, `SetDebug`, ...).
 
 ```go
-v.Exceptions(func(h *exceptions.Handler) {
+v.Exceptions(func(h exceptions.ExceptionHandler) {
     // add reporters, renderers, custom handlers
 })
 ```
@@ -43,10 +47,11 @@ exposing stack traces.
 | `WithDebug(bool)`               | Include stack traces and source context in responses                   |
 | `WithEnvironment(string)`       | Environment name; `"production"` force-disables debug                  |
 | `WithReporters(...Reporter)`    | Replace the default log reporter                                       |
-| `WithRenderers(map[string]Renderer)` | Replace HTML/JSON renderers                                       |
+| `WithRenderers(map[string]Renderer)` | Merge in renderers by content type (overrides the `"html"`/`"json"` defaults) |
 | `WithDontReport(...string)`     | Exception type names that should be silenced                           |
 | `WithAPIMode(bool)`             | Always respond with JSON                                               |
 | `WithAPIPrefixes(...string)`    | URL prefixes treated as API routes (JSON by default)                   |
+| `WithTrustedProxies([]*net.IPNet)` | Proxy networks whose forwarded headers may be honoured when capturing the client IP (nil = ignore forwarded headers) |
 | `WithHandlerLogger(Logger)`     | Logger used for internal handler warnings                              |
 
 ## The Exception interface
@@ -160,27 +165,34 @@ The handler picks a renderer based on the request:
 1. `WithAPIMode(true)` - always JSON.
 2. Request path matches any `WithAPIPrefixes` entry - JSON.
 3. `Accept` header contains `application/json` - JSON.
-4. `X-Requested-With: XMLHttpRequest` - JSON.
-5. Otherwise - HTML.
+4. `Content-Type` contains `application/json` - JSON.
+5. `X-Requested-With: XMLHttpRequest` - JSON.
+6. Request path starts with `/api` - JSON.
+7. Otherwise - HTML.
 
 Swap the defaults with `WithRenderers(...)` if you need a custom
 serialization (protobuf, XML) or a templated HTML error page.
 
 ## Custom handlers per type
 
-Register behavior for specific error types:
+Register behavior for specific error types with
+`RegisterCustomHandler(exceptionType any, handler func(RenderContext, error, *ExceptionContext))`.
+The first argument is matched by runtime type (`reflect.TypeOf`), so
+pass a value of the concrete error type you want to intercept:
 
 ```go
-v.Exceptions(func(h *exceptions.Handler) {
-    h.Register(&sql.ErrNoRows, func(ctx exceptions.RenderContext, err error, ec *exceptions.ExceptionContext) {
+v.Exceptions(func(h exceptions.ExceptionHandler) {
+    h.RegisterCustomHandler(&mypkg.RecordNotFoundError{}, func(ctx exceptions.RenderContext, err error, ec *exceptions.ExceptionContext) {
         ctx.WriteHeader(http.StatusNotFound)
         ctx.Write([]byte(`{"error":"not found"}`))
     })
 })
 ```
 
-The handler consults this map before falling back to the default
-renderer.
+The handler consults this registration before falling back to the
+default renderer. Note that the type is matched exactly: an error must
+be of the same concrete type (after `Renderable` is checked) for its
+custom handler to fire.
 
 ## Reporters
 
@@ -200,15 +212,20 @@ Build your own by implementing the interface:
 type SentryReporter struct { /* ... */ }
 
 func (s *SentryReporter) Report(err error, ctx *exceptions.ExceptionContext) {
-    sentry.CaptureException(err, sentry.WithExtras(ctx.Extras))
+    sentry.CaptureException(err, sentry.WithExtras(ctx.Extra))
 }
 
-v.Exceptions(func(h *exceptions.Handler) {
+v.Exceptions(func(h exceptions.ExceptionHandler) {
     h.AddReporter(&SentryReporter{})
 })
 ```
 
-For lightweight side-effects, use `NewCallbackReporter(fn)`.
+For lightweight side-effects, use `NewCallbackReporter(fn)` where `fn`
+has the signature `func(err error, ctx *exceptions.ExceptionContext)`.
+`NewMultiReporter(...Reporter)` fans a single error out to several
+reporters. The built-in `LogReporter` accepts options:
+`WithLogger(log.Logger)`, `WithContextKeys(...string)`, and
+`WithoutContext()`.
 
 ### ExceptionContext
 
@@ -228,17 +245,20 @@ queue worker).
 
 ## Silencing exception types
 
-`WithDontReport(types...)` matches on the runtime type name:
+`WithDontReport(types...)` matches on the runtime type name. The name
+is the bare type identifier with the package prefix and pointer marker
+stripped (e.g. a `*NotFoundHttpException` matches `"NotFoundHttpException"`):
 
 ```go
 h := exceptions.NewHandler(
     exceptions.WithDontReport(
-        "*exceptions.NotFoundHttpException",
-        "*mypkg.ClientCanceledError",
+        "NotFoundHttpException",
+        "ClientCanceledError",
     ),
 )
 ```
 
+The same list can be appended at runtime with `h.DontReport(name)`.
 Reporter calls are skipped; the response is still rendered normally.
 
 ## Dev-mode pages
@@ -247,7 +267,7 @@ When `WithDebug(true)` is set outside production, the HTML renderer
 includes:
 
 - Exception type, message, and code
-- Stack trace with source context (3 lines either side of each frame)
+- Stack trace with source context (5 lines either side of each frame)
 - Request method, path, IP, user-agent
 - Attached context from `WithContext` / `WithExtra`
 

@@ -15,7 +15,7 @@ Configure authentication in your `.env` file:
 ```env
 # Crypto settings (required for session encryption)
 CRYPTO_KEY=base64:your-32-byte-base64-encoded-key
-CRYPTO_CIPHER=AES-256-CBC
+CRYPTO_CIPHER=AES-256-GCM
 
 # Auth settings
 AUTH_GUARD=web
@@ -149,9 +149,9 @@ func (c *AuthHandler) Login(ctx *router.Context) error {
     success, _ := m.Attempt(ctx.Response, ctx.Request, credentials, formData.Remember)
 
     if success {
-        view.Location(ctx.Response, ctx.Request, "/dashboard")
+        view.Location(ctx, "/dashboard")
     } else {
-        view.Render(ctx.Response, ctx.Request, "Auth/Login", view.Props{
+        view.Render(ctx, "Auth/Login", view.Props{
             "errors": map[string]string{
                 "email": "These credentials do not match our records.",
             },
@@ -220,7 +220,7 @@ func LogoutHandler(ctx *router.Context) error {
     if err := m.Logout(ctx.Response, ctx.Request); err != nil {
         return err
     }
-    view.Location(ctx.Response, ctx.Request, "/login")
+    view.Location(ctx, "/login")
     return nil
 }
 ```
@@ -292,15 +292,17 @@ func (u *User) SetRememberToken(token string) {}
 
 ### Custom User Providers
 
+The `auth.UserProvider` interface threads a `context.Context` through every method that does I/O so a cancelled request (client disconnect, timeout middleware) aborts the lookup. Each I/O method comes in a pair: a `Ctx`-suffixed variant that does the real work, and a deprecated non-`Ctx` shim that delegates with `context.Background()`. Implement all six methods plus `ValidateCredentials` (pure CPU, so no `Ctx` variant):
+
 ```go
 // Implement UserProvider interface for custom user retrieval
 type CustomUserProvider struct {
     db *sql.DB
 }
 
-func (p *CustomUserProvider) FindByID(id interface{}) (auth.Authenticatable, error) {
+func (p *CustomUserProvider) FindByIDCtx(ctx context.Context, id interface{}) (auth.Authenticatable, error) {
     var user User
-    err := p.db.QueryRow("SELECT id, email, password, name FROM users WHERE id = ?", id).
+    err := p.db.QueryRowContext(ctx, "SELECT id, email, password, name FROM users WHERE id = $1", id).
         Scan(&user.ID, &user.Email, &user.Password, &user.Name)
     if err != nil {
         return nil, err
@@ -308,15 +310,25 @@ func (p *CustomUserProvider) FindByID(id interface{}) (auth.Authenticatable, err
     return &user, nil
 }
 
-func (p *CustomUserProvider) FindByCredentials(credentials map[string]interface{}) (auth.Authenticatable, error) {
+// Deprecated: use FindByIDCtx with a request-scoped context.Context.
+func (p *CustomUserProvider) FindByID(id interface{}) (auth.Authenticatable, error) {
+    return p.FindByIDCtx(context.Background(), id)
+}
+
+func (p *CustomUserProvider) FindByCredentialsCtx(ctx context.Context, credentials map[string]interface{}) (auth.Authenticatable, error) {
     email := credentials["email"].(string)
     var user User
-    err := p.db.QueryRow("SELECT id, email, password, name FROM users WHERE email = ?", email).
+    err := p.db.QueryRowContext(ctx, "SELECT id, email, password, name FROM users WHERE email = $1", email).
         Scan(&user.ID, &user.Email, &user.Password, &user.Name)
     if err != nil {
         return nil, err
     }
     return &user, nil
+}
+
+// Deprecated: use FindByCredentialsCtx with a request-scoped context.Context.
+func (p *CustomUserProvider) FindByCredentials(credentials map[string]interface{}) (auth.Authenticatable, error) {
+    return p.FindByCredentialsCtx(context.Background(), credentials)
 }
 
 func (p *CustomUserProvider) ValidateCredentials(user auth.Authenticatable, credentials map[string]interface{}) bool {
@@ -324,18 +336,25 @@ func (p *CustomUserProvider) ValidateCredentials(user auth.Authenticatable, cred
     return auth.NewBcryptHasher(10).Verify(password, user.GetAuthPassword())
 }
 
-func (p *CustomUserProvider) UpdateRememberToken(user auth.Authenticatable, token string) error {
+func (p *CustomUserProvider) UpdateRememberTokenCtx(ctx context.Context, user auth.Authenticatable, token string) error {
     user.SetRememberToken(token)
-    _, err := p.db.Exec("UPDATE users SET remember_token = ? WHERE id = ?", token, user.GetAuthIdentifier())
+    _, err := p.db.ExecContext(ctx, "UPDATE users SET remember_token = $1 WHERE id = $2", token, user.GetAuthIdentifier())
     return err
 }
+
+// Deprecated: use UpdateRememberTokenCtx with a request-scoped context.Context.
+func (p *CustomUserProvider) UpdateRememberToken(user auth.Authenticatable, token string) error {
+    return p.UpdateRememberTokenCtx(context.Background(), user, token)
+}
 ```
+
+For atomic rotate-on-use of the remember-me credential, a provider may additionally implement `auth.RememberTokenCompareAndSwapper` (`CompareAndSwapRememberToken(ctx, user, oldToken, newToken) (swapped bool, err error)`); `SessionGuard` recall persists rotation exclusively through it. A provider that does not implement it fails remember-cookie recall closed.
 
 ## Middleware Integration
 
 ### Auth Middleware
 
-Use `auth.AuthMiddleware` to require authentication on a route. It returns 401 JSON for API requests and redirects to `/login?redirect=...` for HTML requests.
+Use `auth.AuthMiddleware` to require authentication on a route. It returns 401 JSON for API requests and redirects HTML requests to a clean `/login` (303 See Other). The originally requested GET URL is stashed server-side in the session rather than exposed as a `?redirect=` query parameter, so it cannot be tampered with; `ctx.RedirectToIntended(fallback)` pulls it back after a successful login.
 
 ```go
 import "github.com/velocitykode/velocity/auth"
@@ -388,6 +407,7 @@ type Session interface {
     Invalidate() error
     Flash(key string, value interface{})
     GetFlash(key string) interface{}
+    FlushFlash() map[string]interface{}
     Save(w http.ResponseWriter) error
 }
 
@@ -463,7 +483,7 @@ func (h *AccountHandler) ChangePassword(ctx *router.Context) error {
     m := auth.FromContext(ctx)
     user := m.User(ctx.Request)
     if user == nil {
-        return ctx.Error("unauthorized", http.StatusUnauthorized)
+        return ctx.Error(http.StatusUnauthorized, "unauthorized")
     }
 
     // ... validate current password, hash new one, persist ...
@@ -508,7 +528,9 @@ Contract:
 
 The default throttler is `auth.NoopLoginThrottler{}`, which permits every attempt. Install a real one with `guard.SetLoginThrottler(yourThrottler)` (passing `nil` reverts to the no-op).
 
-The framework also exposes `auth.ThrottleKey(r, credentials)`, which derives the rate-limit key as `"<identifier>|<ip>"`. The `identifier` is the first non-empty value among `email`, `username`, `name`, `login` in the credentials map, falling back to IP-only when no identifier is present. Use it so a custom guard wrapper produces keys consistent with the built-in guards.
+The framework also exposes `auth.ThrottleKey(r, credentials, trustedProxies)`, which derives the rate-limit key for the `(identifier, IP)` pair dimension as a length-bounded SHA-256 digest prefixed with `login:`. The `identifier` is the first non-empty value among `email`, `username`, `name`, `login` in the credentials map (normalised: trimmed, NFKC-folded, lowercased), and the client IP is resolved through the trusted-proxy list (pass `nil` to ignore forwarded headers, the secure default). Use it so a custom guard wrapper produces keys consistent with the built-in guards.
+
+The built-in guards actually consult `auth.ThrottleKeys(r, credentials, trustedProxies)`, which returns up to three keys, one per throttle dimension: the `(identifier, IP)` pair (always present, prefix `auth.ThrottleKeyPairPrefix`), the per-identifier key (prefix `auth.ThrottleKeyIdentifierPrefix`, omitted when no identifier is present), and the per-IP key (prefix `auth.ThrottleKeyIPPrefix`, omitted when the IP cannot be resolved). A throttler can branch on those prefixes to apply an independent cap per dimension.
 
 ## Two-factor authentication
 
@@ -660,7 +682,7 @@ func (h *TwoFactorHandler) Setup(ctx *router.Context) error {
         return err
     }
 
-    return view.Render(ctx.Response, ctx.Request, "Account/TwoFactor/Setup", view.Props{
+    return view.Render(ctx, "Account/TwoFactor/Setup", view.Props{
         "qr_url": qrURL,
         "secret": secret, // shown for manual entry
     })
@@ -678,7 +700,7 @@ func (h *TwoFactorHandler) Confirm(ctx *router.Context) error {
 
     matched, step := auth.TOTP.VerifyAndConsume(user.PendingTOTPSecret, body.Code, 0)
     if !matched {
-        return ctx.Error("invalid code", http.StatusUnprocessableEntity)
+        return ctx.Error(http.StatusUnprocessableEntity, "invalid code")
     }
 
     // Promote pending -> live, generate recovery codes, hash them.
@@ -705,7 +727,7 @@ func (h *TwoFactorHandler) Confirm(ctx *router.Context) error {
     }
 
     // Show recovery codes ONCE, plaintext, with a download / print prompt.
-    return view.Render(ctx.Response, ctx.Request, "Account/TwoFactor/Codes", view.Props{
+    return view.Render(ctx, "Account/TwoFactor/Codes", view.Props{
         "codes": plain,
     })
 }
@@ -733,7 +755,7 @@ func RegisterHandler(ctx *router.Context) error {
 
     // Validate passwords match
     if password != passwordConfirmation {
-        view.Render(ctx.Response, ctx.Request, "auth/register", view.Props{
+        view.Render(ctx, "auth/register", view.Props{
             "error": "Passwords do not match",
             "old": map[string]string{
                 "name": name,
@@ -746,7 +768,7 @@ func RegisterHandler(ctx *router.Context) error {
     // Hash password
     hashedPassword, err := m.Hash(password)
     if err != nil {
-        return ctx.Error("Internal Server Error", http.StatusInternalServerError)
+        return ctx.Error(http.StatusInternalServerError, "Internal Server Error")
     }
 
     // Create user (using your user model)
@@ -756,7 +778,7 @@ func RegisterHandler(ctx *router.Context) error {
         "password": hashedPassword,
     })
     if err != nil {
-        view.Render(ctx.Response, ctx.Request, "auth/register", view.Props{
+        view.Render(ctx, "auth/register", view.Props{
             "error": "Failed to create account",
         })
         return nil
@@ -770,9 +792,9 @@ func RegisterHandler(ctx *router.Context) error {
 
     success, _ := m.Attempt(ctx.Response, ctx.Request, credentials, false)
     if success {
-        view.Location(ctx.Response, ctx.Request, "/dashboard")
+        view.Location(ctx, "/dashboard")
     } else {
-        view.Location(ctx.Response, ctx.Request, "/login")
+        view.Location(ctx, "/login")
     }
     return nil
 }
@@ -811,7 +833,7 @@ func validatePassword(password string) []string {
 
 ### Rate Limiting
 
-Per-attempt throttling lives in the `LoginThrottler` seam (see above). For coarser route-level limits, for example capping requests to `/login` regardless of credentials, reach for `middleware.RateLimitByKey` from `core/middleware`, which composes cleanly with `auth.AuthMiddleware`.
+Per-attempt throttling lives in the `LoginThrottler` seam (see above). For coarser route-level limits, for example capping requests to `/login` regardless of credentials, reach for `router.RateLimitByKey`, which composes cleanly with `auth.AuthMiddleware`.
 
 ## Testing Authentication
 
@@ -871,24 +893,26 @@ type EmailIPThrottler struct {
 }
 
 func (t *EmailIPThrottler) Allow(r *http.Request, key string) bool {
-    n, _ := t.cache.Get("login:fail:" + key).(int)
+    v, _ := t.cache.GetCtx(r.Context(), "login:fail:"+key)
+    n, _ := v.(int)
     return n < 5
 }
 
 func (t *EmailIPThrottler) RecordFailure(r *http.Request, key string) {
-    n, _ := t.cache.Get("login:fail:" + key).(int)
-    t.cache.Put("login:fail:"+key, n+1, 15*time.Minute)
+    v, _ := t.cache.GetCtx(r.Context(), "login:fail:"+key)
+    n, _ := v.(int)
+    _ = t.cache.PutCtx(r.Context(), "login:fail:"+key, n+1, 15*time.Minute)
 }
 
 func (t *EmailIPThrottler) RecordSuccess(r *http.Request, key string) {
-    t.cache.Forget("login:fail:" + key)
+    _ = t.cache.ForgetCtx(r.Context(), "login:fail:"+key)
 }
 
 // during bootstrap, after building the SessionGuard:
 sessionGuard.SetLoginThrottler(&EmailIPThrottler{cache: cacheStore})
 ```
 
-**Why this shape:** The framework hands you the composite key for free via `auth.ThrottleKey(r, credentials)`, which produces `"<email>|<ip>"`. Keying on the composite means a single attacker IP cannot exhaust attempts for an unrelated user, and a shared IP (NAT, corporate egress) does not collectively lock out everyone behind it. The 5/15-minute window is a starting point: tune to your traffic. Keying on email-only invites enumeration; IP-only invites NAT lockout; the composite is the load-bearing detail. `RecordSuccess` clearing the counter is what lets a legitimate user recover after a typo storm.
+**Why this shape:** The framework hands you the composite key for free via `auth.ThrottleKey(r, credentials, trustedProxies)`, a length-bounded SHA-256 digest over the normalised identifier and the resolved client IP. Keying on the composite means a single attacker IP cannot exhaust attempts for an unrelated user, and a shared IP (NAT, corporate egress) does not collectively lock out everyone behind it. The 5/15-minute window is a starting point: tune to your traffic. Keying on email-only invites enumeration; IP-only invites NAT lockout; the composite is the load-bearing detail. `RecordSuccess` clearing the counter is what lets a legitimate user recover after a typo storm. For a throttler that caps each dimension independently, consult `auth.ThrottleKeys` instead and branch on the per-key prefix.
 
 **See also:**
 

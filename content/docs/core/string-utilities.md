@@ -115,8 +115,8 @@ Kebab case is commonly used for URL slugs, CSS class names, and HTML attributes.
 
 ```go
 str.Studly("hello_world_example") // "HelloWorldExample"
-str.Studly("camelCaseString")     // "CamelCaseString"
 str.Studly("kebab-case-string")   // "KebabCaseString"
+str.Studly("Mixed String Types")  // "MixedStringTypes"
 ```
 
 {{% callout type="note" %}}
@@ -159,33 +159,66 @@ str.StartsWith("Hello World", "World")      // false
 str.EndsWith("Hello World", "World")        // true
 str.EndsWith("Hello World", "Hello")        // false
 
-// Check if string is empty
-str.IsEmpty("")                             // true
-str.IsEmpty("   ")                          // false (whitespace counts)
+// Check if a string exactly matches another (case-sensitive)
+str.Exactly("Hello", "Hello")               // true
+str.Exactly("Hello", "hello")               // false
 ```
 
 ### String Transformations
 
 ```go
-// Limit string to specified length
-str.Limit("This is a long string", 10)      // "This is a..."
+// Limit string to specified length (default suffix "...")
+str.Limit("This is a long string", 10)      // "This is a ..."
 str.Limit("Short", 10)                      // "Short"
+str.Limit("This is a long string", 7, "")   // "This is"
 
-// Generate random string
-str.Random(8)                               // "aB3kL9mP" (random)
-str.Random(16)                              // 16 character random string
+// Generate a cryptographically random alphanumeric string.
+// Length defaults to 16; returns (string, error). The error is
+// non-nil only if the system entropy source fails.
+token, err := str.Random()                  // 16-character random string
+token, err = str.Random(8)                  // 8-character random string
 
 // Repeat string
 str.Repeat("Hello", 3)                      // "HelloHelloHello"
 str.Repeat("-=", 5)                         // "-=-=-=-=-="
 
-// Replace all occurrences
-str.Replace("Hello World World", "World", "Go") // "Hello Go Go"
+// Replace all occurrences. Signature is Replace(search, replace, subject)
+str.Replace("World", "Go", "Hello World World") // "Hello Go Go"
 
-// Reverse string
+// Reverse string (UTF-8 aware)
 str.Reverse("Hello")                        // "olleH"
 str.Reverse("12345")                        // "54321"
 ```
+
+### Formatting and Inflection
+
+```go
+// Title and headline casing
+str.Title("hello world")                    // "Hello World"
+str.Headline("steve_jobs")                  // "Steve Jobs"
+
+// Mask part of a string with a character (negative index counts from end)
+str.Mask("1234567890", '*', 3)              // "123*******"
+str.Mask("taylor@example.com", '*', 1, 3)   // "t***or@example.com"
+
+// Padding (default pad string is a single space)
+str.PadLeft("5", 3, "0")                    // "005"
+str.PadRight("5", 3, "0")                   // "500"
+str.PadBoth("5", 5, "-")                     // "--5--"
+
+// Collapse whitespace (Squish also folds Unicode spaces)
+str.Squish("  hello   world  ")             // "hello world"
+
+// Simple English inflection
+str.Plural("child")                         // "childs" (basic rules only)
+str.Plural("category")                      // "categories"
+str.Singular("categories")                  // "category"
+```
+
+{{% callout type="note" %}}
+`Plural` and `Singular` apply a small set of common English rules and are not
+a full inflection engine; verify irregular words before relying on them.
+{{% /callout %}}
 
 ## Fluent Interface (Stringable)
 
@@ -227,36 +260,31 @@ s.Limit(10)                   // Chain length limiting
 finalString := s.String()     // Convert back to string
 ```
 
-## Lazy Loading & Performance
+## Performance
 
-{{% callout type="warning" %}}
-**Important**: Only the functions you actually use are compiled into your binary, keeping it lightweight and fast.
-{{% /callout %}}
-
-The string utilities package uses lazy loading to ensure optimal performance:
-
-```go
-// Only the Snake function is compiled into your binary
-result := str.Snake("HelloWorldExample")
-```
+The string helpers are plain functions, so Go's linker strips any helper you
+never call from the final binary. Functions that rely on regular expressions
+share a bounded, thread-safe LRU cache of compiled patterns, so repeated calls
+do not recompile.
 
 {{% callout type="tip" %}}
-**Performance Benefits:**
-- **Reduced Binary Size**: Only used functions are included
-- **Fast Compilation**: Unused code is eliminated
-- **Optimal Performance**: No overhead from unused features
-- **Memory Efficient**: Minimal memory footprint
+**Performance notes:**
+- **Regex caching**: Compiled patterns are cached and reused across calls.
+- **Bounded memory**: The cache uses LRU eviction with a fixed cap (1024 entries), so user-controlled patterns cannot drive unbounded growth.
+- **UTF-8 aware**: Helpers like `Limit`, `Reverse`, `Length`, and `Substr` operate on runes, not bytes.
 {{% /callout %}}
 
 ## Advanced Usage
 
-### Custom Delimiters
+### Slugs and Custom Separators
+
+`Slug` produces a URL-friendly slug. The separator defaults to `-` but can
+be overridden with an optional second argument:
 
 ```go
-// Using custom separators in case conversion
-str.ToDelimited("HelloWorldExample", "_")  // "hello_world_example"
-str.ToDelimited("HelloWorldExample", "-")  // "hello-world-example"
-str.ToDelimited("HelloWorldExample", ".")  // "hello.world.example"
+str.Slug("Hello World!")        // "hello-world"
+str.Slug("Hello World!", "_")   // "hello_world"
+str.Slug("Café del Mar", ".")   // "caf.del.mar" (non-ASCII is collapsed)
 ```
 
 ### Regex Pattern Caching
@@ -265,12 +293,18 @@ The package automatically caches compiled regex patterns for better performance:
 
 ```go
 // First call compiles and caches the regex
-str.Snake("FirstString")
+str.Slug("First String")
 
 // Subsequent calls reuse the cached regex
-str.Snake("SecondString")  // Faster execution
-str.Snake("ThirdString")   // Even faster
+str.Slug("Second String")  // Faster execution
+str.Slug("Third String")   // Even faster
 ```
+
+{{% callout type="note" %}}
+Only regex-backed helpers (such as `Slug`, `IsUrl`, `IsUuid`, `Match`, and
+`Markdown`) touch this cache. Case converters like `Snake` and `Kebab` use
+plain string scanning and never compile a regex.
+{{% /callout %}}
 
 ## Testing String Functions
 
@@ -294,15 +328,9 @@ func TestStringUtilities(t *testing.T) {
 
 ## Configuration
 
-String utilities work without configuration, but you can customize behavior:
-
-```env
-# Enable debug mode for string operations (optional)
-STR_DEBUG=false
-
-# Cache regex patterns (enabled by default)
-STR_CACHE_REGEX=true
-```
+The string utilities require no configuration and read no environment
+variables. Regex pattern caching is always on (see below) and needs no
+setup.
 
 ## Best Practices
 

@@ -1,12 +1,15 @@
 ---
 title: HTTP Client
-description: Instrumented outbound HTTP client with APM events and trace propagation.
+description: Instrumented, secure-by-default outbound HTTP client with APM events and trace propagation.
 weight: 60
 ---
 
-The `httpclient` package is a thin wrapper around `net/http` that
-dispatches APM events on every outbound request. Latency, status, and
-body sizes flow into your observability stack automatically.
+The `httpclient` package wraps `net/http` and dispatches APM events on
+every outbound request. Latency, status, and body sizes flow into your
+observability stack automatically. Its defaults are hardened: TLS 1.2
+minimum, a capped redirect chain that strips credentials on cross-origin
+hops, an SSRF dial guard, a response-body size cap, and per-stage
+transport timeouts (see [Secure defaults](#secure-defaults)).
 
 Import path: `github.com/velocitykode/velocity/httpclient`
 
@@ -26,8 +29,9 @@ c := httpclient.New(
 )
 ```
 
-Default timeout is 30 seconds. The default transport rejects chains
-with more than 10 redirects.
+Default timeout is 30 seconds. The default transport caps redirect
+chains at 10 hops; tighten or disable that with `WithMaxRedirects` (see
+[Secure defaults](#secure-defaults)).
 
 ## Methods
 
@@ -117,13 +121,82 @@ automatically carries the incoming trace.
 
 ```go
 c := httpclient.New()
-c.SetEventDispatcher(func(event interface{}) error {
+c.SetEventDispatcher(func(ctx context.Context, event interface{}) error {
     return v.Events.Dispatch(event)
 })
 ```
 
+The dispatcher receives the request-scoped `context.Context` so
+listeners can observe request-scoped values; the `event` is one of the
+types above.
+
 Once wired, APM agents subscribing to `http.request.sent` and
 `http.request.failed` events will record every outbound request.
+
+## Secure defaults
+
+`httpclient.New()` is hardened out of the box. The defaults apply on the
+framework-built transport; when you supply your own via `WithHTTPClient`,
+transport-level fields stay under your control (the TLS minimum and dial
+guard are still applied in place when your transport is a plain
+`*http.Transport`).
+
+| Protection | Default | Tune with |
+|------------|---------|-----------|
+| Minimum TLS version | TLS 1.2 | `WithMinTLSVersion(tls.VersionTLS13)` |
+| Redirect cap | 10 hops | `WithMaxRedirects(n)` (`n <= 0` disables redirect following) |
+| Cross-origin credential stripping | `Authorization`, `Cookie`, `Proxy-Authorization` removed when an eTLD+1 host changes (or on an `https` to `http` downgrade) | always on |
+| SSRF dial guard | refuses loopback, RFC1918, link-local, CGNAT, and cloud-metadata IPs (IPv4 + IPv6); resolved IP is pinned to defeat DNS rebinding | `WithAllowedHosts(...)`, `WithoutPrivateIPDeny()` |
+| Env proxy | `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` ignored while the dial guard is on | `WithProxyAllowed()` |
+| Response body cap | 32 MiB; reads past it return `ErrResponseTooLarge` | `WithMaxResponseBytes(n)` (`n <= 0` disables) |
+| TLS handshake timeout | 10s | `WithTLSHandshakeTimeout(d)` |
+| Response header timeout | 30s | `WithResponseHeaderTimeout(d)` |
+| Idle connection timeout | 90s | `WithIdleConnTimeout(d)` |
+| Expect-continue timeout | 1s | `WithExpectContinueTimeout(d)` |
+
+The SSRF gate runs both at the URL-host level (so it covers proxy mode)
+and at dial time. To reach a known internal service while still blocking
+everything else, allowlist its eTLD+1 host:
+
+```go
+c := httpclient.New(httpclient.WithAllowedHosts("internal.svc.cluster.local"))
+```
+
+The response cap is enforced on the read stream, not the
+`Content-Length` header, so a server that lies about its length cannot
+bypass it. When the cap is hit, the read returns `httpclient.ErrResponseTooLarge`:
+
+```go
+resp, err := c.Get(ctx, "/big")
+if err != nil {
+    return err
+}
+defer resp.Body.Close()
+
+data, err := io.ReadAll(resp.Body)
+if errors.Is(err, httpclient.ErrResponseTooLarge) {
+    // payload exceeded WithMaxResponseBytes
+}
+```
+
+{{% callout type="warning" %}}
+`WithoutPrivateIPDeny()` disables the SSRF guard entirely, and
+`WithProxyAllowed()` re-enables honouring proxy environment variables.
+Use them only for tests or trusted egress paths. Prefer
+`WithAllowedHosts` for a targeted exception.
+{{% /callout %}}
+
+## Shutdown
+
+`Shutdown` closes idle keep-alive connections held by the underlying
+transport, honouring the context deadline. In-flight requests are not
+cancelled, so drive that through the request context:
+
+```go
+if err := c.Shutdown(ctx); err != nil {
+    return err
+}
+```
 
 ## Design notes
 

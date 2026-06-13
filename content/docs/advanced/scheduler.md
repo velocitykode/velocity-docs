@@ -468,7 +468,11 @@ func New() *Scheduler
 // Configuration
 func (s *Scheduler) SetTimezone(tz *time.Location) *Scheduler
 func (s *Scheduler) SetLogger(logger Logger) *Scheduler
+func (s *Scheduler) SetEnv(env string)
+func (s *Scheduler) SetLocker(l Locker) *Scheduler
+func (s *Scheduler) Locker() Locker
 func (s *Scheduler) MaintenanceMode(enabled bool) *Scheduler
+func (s *Scheduler) SetEventDispatcher(fn func(ctx context.Context, event interface{}) error)
 
 // Define jobs
 func (s *Scheduler) Call(callback func()) *Job
@@ -481,6 +485,7 @@ func (s *Scheduler) Add(job *Job) *Job
 // Lifecycle
 func (s *Scheduler) Run(ctx context.Context) error
 func (s *Scheduler) Shutdown(ctx context.Context) error
+func (s *Scheduler) ValidateJobs()
 
 // Global hooks
 func (s *Scheduler) Before(callback func()) *Scheduler
@@ -525,6 +530,7 @@ Saturdays() *Job
 
 // Execution constraints
 WithoutOverlapping() *Job
+WithoutOverlappingFor(ttl time.Duration) *Job
 OnOneServer() *Job
 EvenInMaintenanceMode() *Job
 RunInBackground() *Job
@@ -543,6 +549,7 @@ OnFailure(callback func(error)) *Job
 // Output
 SendOutputTo(filename string) *Job
 AppendOutputTo(filename string) *Job
+EmailOutputTo(email string) *Job
 
 // Metadata
 Name(name string) *Job
@@ -552,6 +559,7 @@ GetName() string
 GetLastRun() time.Time
 GetNextRun() time.Time
 IsRunning() bool
+IsDue(t time.Time) bool
 
 // Execution
 Run() error
@@ -567,15 +575,18 @@ ticker loop on its own. You have two deployment shapes:
 For single-process deployments, opt the loop in via the
 `WithSchedulerInProcess` option when constructing the app. The scheduler
 starts after `Router.Freeze()` and before `http.Server.ListenAndServe`,
-binds to the app's shutdown context, and drains in-flight jobs through
-`Scheduler.Shutdown` on signal-driven shutdown.
+and drains in-flight jobs through `App.Shutdown` -> `Scheduler.Shutdown`
+on signal-driven shutdown.
 
 ```go
 import "github.com/velocitykode/velocity"
 
-app := velocity.New(
+app, err := velocity.New(
     velocity.WithSchedulerInProcess(),
 )
+if err != nil {
+    log.Fatal(err)
+}
 
 if err := app.Serve(); err != nil {
     log.Fatal(err)
@@ -826,6 +837,10 @@ type CustomLogger struct{}
 
 func (l *CustomLogger) Info(msg string, keysAndValues ...interface{}) {
     log.Info(msg, keysAndValues...)
+}
+
+func (l *CustomLogger) Warn(msg string, keysAndValues ...interface{}) {
+    log.Warn(msg, keysAndValues...)
 }
 
 func (l *CustomLogger) Error(msg string, keysAndValues ...interface{}) {

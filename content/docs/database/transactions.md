@@ -117,9 +117,27 @@ mgr.Transaction(ctx, func(ctx context.Context) error {
 
 The slot is keyed by an unexported type, so external code cannot smuggle a forged `*sql.Tx` into the ORM via a hand-crafted ctx.
 
-## Nested transactions and savepoints
+## Nested transactions
 
-Nested `Transaction` calls reuse the outer transaction. The inner closure does not own the commit boundary: its rollback drops only events buffered inside the inner scope, its commit defers to the outer `tx.Commit()`. Callbacks registered inside a nested call accumulate onto the **outer** callback list and fire only when the outer tx commits / rolls back.
+Calling `Transaction` from inside another `Transaction` closure does **not**
+issue a SAVEPOINT or share the outer `*sql.Tx`. Each call to
+`Manager.Transaction` opens its own real transaction (`driver.BeginTx`),
+commits or rolls it back at the inner closure's boundary, and dispatches its own
+`TransactionExecuted` event. The SQL transactions are independent.
+
+What *is* shared across the nesting is the **bookkeeping**: the inner call
+detects the outer's per-tx event buffer and callbacks holder on ctx and reuses
+them. Concretely:
+
+- **Commit / rollback callbacks** (`OnCommit` / `OnRollback` /
+  `OnCommitFailure`) registered inside a nested call accumulate onto the
+  **outer** callback list and drain only when the **outermost** `Transaction`
+  settles. The inner call does not own the drain.
+- **Buffered events** (`events.Buffer(ctx).Dispatch(...)`) reuse the outer
+  buffer: an inner rollback drops only events emitted within the inner scope;
+  the outermost commit flushes the rest.
+- The inner tx span parents under the outer tx span so an APM exporter can
+  render the tree.
 
 ```go
 mgr.Transaction(ctx, func(ctx context.Context) error {
@@ -127,16 +145,25 @@ mgr.Transaction(ctx, func(ctx context.Context) error {
         return err
     }
     return mgr.Transaction(ctx, func(ctx context.Context) error {
-        // SAVEPOINT scope. OnCommit registered here fires when the
-        // OUTER tx commits, not when this nested call returns.
+        // OnCommit registered here accumulates onto the OUTER callback
+        // list and fires when the OUTERMOST Transaction commits, not when
+        // this nested call returns.
         return orm.OnCommit(ctx, func(ctx context.Context) error {
-            return cache.Forget(ctx, "orders:"+order.ID)
+            return invalidateOrderCache(ctx, order.ID)
         })
     })
 })
 ```
 
-Releasing a savepoint does **not** fire commit hooks. Only the outermost commit drains the queue.
+{{< callout type="warning" title="Nested Transaction is not true nested atomicity" >}}
+Because the inner call opens a separate `*sql.Tx`, its writes commit
+independently of the outer transaction. An outer rollback does **not** undo an
+already-committed inner transaction. When you need partial rollback within a
+single transaction, issue a real `SAVEPOINT` against the tx extracted with
+`TxFromContext` rather than nesting `Transaction` calls.
+{{< /callout >}}
+
+Only the outermost commit drains the callback queue.
 
 ## Commit / rollback / commit-failure callbacks
 
@@ -159,7 +186,7 @@ mgr.Transaction(ctx, func(ctx context.Context) error {
         return err
     }
     if err := orm.OnCommit(ctx, func(ctx context.Context) error {
-        return cache.Forget(ctx, "orders:"+order.ID)
+        return invalidateOrderCache(ctx, order.ID)
     }); err != nil {
         return err
     }
@@ -239,7 +266,7 @@ type Order struct {
 }
 
 func (o *Order) AfterCommit(ctx context.Context) error {
-    return cache.Forget(ctx, "orders:"+strconv.FormatUint(uint64(o.ID), 10))
+    return invalidateOrderCache(ctx, o.ID)
 }
 
 func (o *Order) AfterRollback(ctx context.Context) error {
@@ -326,8 +353,20 @@ Top-level callers without an incoming trace get a freshly minted `TraceID`
 and an empty `ParentID`; nested or downstream callers preserve and extend
 the surrounding trace.
 
+Register a listener against the canonical event name `transaction.executed`. A
+listener implements the `events.Listener` interface (`Handle` plus `ShouldQueue`)
+and type-asserts the event in its body:
+
 ```go
-events.Listen[*orm.TransactionExecuted](dispatcher, func(ctx context.Context, e *orm.TransactionExecuted) error {
+type txLogger struct{}
+
+func (txLogger) ShouldQueue() bool { return false }
+
+func (txLogger) Handle(ctx context.Context, event any) error {
+    e, ok := event.(*orm.TransactionExecuted)
+    if !ok {
+        return nil
+    }
     log.Info("tx",
         "trace_id", e.TraceID,
         "span_id", e.SpanID,
@@ -336,7 +375,9 @@ events.Listen[*orm.TransactionExecuted](dispatcher, func(ctx context.Context, e 
         "error", e.Error,
     )
     return nil
-})
+}
+
+dispatcher.Listen("transaction.executed", txLogger{})
 ```
 
 ## Related

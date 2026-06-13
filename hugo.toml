@@ -46,6 +46,8 @@ enableRobotsTXT = true
     ordered = false
 
 [params]
+  # Current velocity release, rendered in the navbar status strip. Bump on release.
+  velocityVersion = "0.61.0"
   # SEO
   description = "Velocity is a full-stack Go web framework with unified API, driver-based architecture, and zero configuration lock-in. Build faster, ship sooner."
   # Use vel.build's Next-rendered OG image. The relative `images/velocity-og.png`

@@ -237,23 +237,70 @@ reset('title', 'body')
 
 ## Validation Errors
 
-Errors come from Go validation and are keyed by field name:
+Errors come from Go validation and are keyed by field name. On the server,
+validate the request, then flash the errors and old input and redirect back.
+The view layer automatically injects an `errors` prop into the page on the
+next render:
 
 ```go
 // Go handler
+import (
+    "github.com/velocitykode/velocity/router"
+    "github.com/velocitykode/velocity/validation"
+    "github.com/velocitykode/velocity/view"
+)
+
 func (c *PostHandler) Store(ctx *router.Context) error {
-    errors := validate.Check(ctx.Request, validate.Rules{
+    result := validation.Check(ctx.Request, validation.Rules{
         "title": {"required", "min:3"},
         "body":  {"required", "min:10"},
     })
 
-    if errors.HasErrors() {
-        view.RenderWithErrors(ctx.Response, ctx.Request, "Posts/Create",
-            view.Props{}, errors)
+    if result.HasErrors() {
+        ctx.WithErrors(result.All())
+        ctx.WithInput(result.Old())
+        view.Back(ctx)
         return nil
     }
 
     // Create post...
+    return nil
+}
+```
+
+### vform.Form
+
+For the common case, `vform.Form[T]` binds the request body into a typed
+struct, validates it, and on failure flashes errors plus old input, redirects
+back, and returns `router.ErrValidationAborted` so the handler can return
+early without the router emitting an error response:
+
+```go
+import (
+    "github.com/velocitykode/velocity/router"
+    "github.com/velocitykode/velocity/validation"
+    "github.com/velocitykode/velocity/validation/vform"
+)
+
+type StorePost struct {
+    Title string `json:"title"`
+    Body  string `json:"body"`
+}
+
+func (p StorePost) Rules() validation.Rules {
+    return validation.Rules{
+        "title": {"required", "min:3"},
+        "body":  {"required", "min:10"},
+    }
+}
+
+func (c *PostHandler) Store(ctx *router.Context) error {
+    post, err := vform.Form[StorePost](ctx)
+    if err != nil {
+        return err // ErrValidationAborted is handled by the router
+    }
+
+    // Create post using post.Title / post.Body...
     return nil
 }
 ```

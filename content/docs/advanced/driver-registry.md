@@ -105,9 +105,13 @@ returns its concrete `*Registry[D, C]`:
 | Log            | `log.Drivers()`         | `log.Logger`            | `log.LogConfig`                |
 | ORM            | `orm.Drivers()`         | `drivers.Driver`        | `drivers.ConnectionConfig`     |
 
-Each subsystem's built-in factories register themselves from the
-package's `init()`, so the standard drivers are available the moment
-the subsystem is imported (no blank import required for the built-ins).
+Each subsystem's light built-in factories register themselves from the
+package's `init()`, so they are available the moment the subsystem is
+imported (no blank import required). Heavier drivers that carry their
+own dependencies live in leaf packages and self-register from there:
+`cache.DriverRedis` from `cache/redis`, the file/daily and `stack` log
+drivers from `log/file` and `log/stack` (or the `log/standard`
+aggregator). Blank-import the leaf to enable those.
 
 ## Registering a third-party driver
 
@@ -315,16 +319,20 @@ distinct from `contract.ShutdownAware`, which is for whole subsystems.
 
 ## Special case: the log stack driver
 
-The `log.stack` driver fans a single log call out to multiple child
-loggers (e.g. `console` plus `daily`). Its factory resolves each child
-through the same registry it lives in, and aggregates failures with
-`errors.Join`:
+The `stack` log driver fans a single log call out to multiple child
+loggers (e.g. `console` plus `daily`). It lives in its own leaf package
+(`github.com/velocitykode/velocity/log/stack`); blank-import that leaf,
+or the `log/standard` aggregator, to wire the factory. Its factory
+resolves each child through the same `log.Drivers()` registry, and
+aggregates failures with `errors.Join`:
 
 ```go
-// extracted from log/init.go
+// extracted from log/stack/stack.go
 for _, name := range channels {
-    if name == "stack" { continue } // prevent recursion
-    child, err := driverRegistry.Resolve(ctx, name, LogConfig{Driver: name, Config: cfg.Config})
+    if name == "stack" {
+        continue // prevent recursion
+    }
+    child, err := log.Drivers().Resolve(ctx, name, log.LogConfig{Driver: name, Config: cfg.Config})
     if err != nil {
         childErrs = append(childErrs, fmt.Errorf("velocity/log: stack driver: child %q: %w", name, err))
         continue
@@ -336,10 +344,12 @@ if len(childErrs) > 0 {
 }
 ```
 
-A typo in any entry of `LOG_STACK_CHANNELS` fails the whole stack at
-boot rather than silently dropping that destination. Continuing with
-surviving children would mask configuration errors that have to be
-fixed before the app keeps running.
+The child set comes from the driver config's `channels` key (or the
+legacy `stack` key), defaulting to `console` plus `daily` when absent.
+A typo in any entry fails the whole stack at boot rather than silently
+dropping that destination. Continuing with surviving children would
+mask configuration errors that have to be fixed before the app keeps
+running.
 
 ## Where validation lives
 

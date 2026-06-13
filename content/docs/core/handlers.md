@@ -33,10 +33,9 @@ func (c *UserHandler) Index(ctx *router.Context) error {
         return ctx.JSON(500, map[string]string{"error": "Failed to load users"})
     }
 
-    view.Render(ctx.Response, ctx.Request, "users/index", view.Props{
+    return view.Render(ctx, "users/index", view.Props{
         "users": users,
     })
-    return nil
 }
 
 func (c *UserHandler) Show(ctx *router.Context) error {
@@ -47,10 +46,9 @@ func (c *UserHandler) Show(ctx *router.Context) error {
         return ctx.JSON(404, map[string]string{"error": "User not found"})
     }
 
-    view.Render(ctx.Response, ctx.Request, "users/show", view.Props{
+    return view.Render(ctx, "users/show", view.Props{
         "user": user,
     })
-    return nil
 }
 ```
 
@@ -82,10 +80,9 @@ func (c *PostHandler) Index(ctx *router.Context) error {
         return ctx.JSON(500, map[string]string{"error": "Failed to load posts"})
     }
 
-    view.Render(ctx.Response, ctx.Request, "posts/index", view.Props{
+    return view.Render(ctx, "posts/index", view.Props{
         "posts": posts,
     })
-    return nil
 }
 
 // Show single post
@@ -97,16 +94,14 @@ func (c *PostHandler) Show(ctx *router.Context) error {
         return ctx.JSON(404, map[string]string{"error": "Post not found"})
     }
 
-    view.Render(ctx.Response, ctx.Request, "posts/show", view.Props{
+    return view.Render(ctx, "posts/show", view.Props{
         "post": post,
     })
-    return nil
 }
 
 // Show create form
 func (c *PostHandler) Create(ctx *router.Context) error {
-    view.Render(ctx.Response, ctx.Request, "posts/create", view.Props{})
-    return nil
+    return view.Render(ctx, "posts/create", view.Props{})
 }
 
 // Store new post
@@ -122,7 +117,7 @@ func (c *PostHandler) Store(ctx *router.Context) error {
     }
 
     // Get authenticated user
-    user := auth.User(ctx.Request).(*models.User)
+    user := auth.FromContext(ctx).User(ctx.Request).(*models.User)
 
     // Create post
     post, err := models.Post{}.Create(map[string]any{
@@ -134,7 +129,7 @@ func (c *PostHandler) Store(ctx *router.Context) error {
         return ctx.JSON(500, map[string]string{"error": "Failed to create post"})
     }
 
-    view.Location(ctx.Response, ctx.Request, fmt.Sprintf("/posts/%d", post.ID))
+    view.Location(ctx, fmt.Sprintf("/posts/%d", post.ID))
     return nil
 }
 
@@ -147,10 +142,9 @@ func (c *PostHandler) Edit(ctx *router.Context) error {
         return ctx.JSON(404, map[string]string{"error": "Post not found"})
     }
 
-    view.Render(ctx.Response, ctx.Request, "posts/edit", view.Props{
+    return view.Render(ctx, "posts/edit", view.Props{
         "post": post,
     })
-    return nil
 }
 
 // Update post
@@ -176,7 +170,7 @@ func (c *PostHandler) Update(ctx *router.Context) error {
         "body":  input.Body,
     })
 
-    view.Location(ctx.Response, ctx.Request, fmt.Sprintf("/posts/%d", post.ID))
+    view.Location(ctx, fmt.Sprintf("/posts/%d", post.ID))
     return nil
 }
 
@@ -193,7 +187,7 @@ func (c *PostHandler) Destroy(ctx *router.Context) error {
         return ctx.JSON(500, map[string]string{"error": "Failed to delete post"})
     }
 
-    view.Location(ctx.Response, ctx.Request, "/posts")
+    view.Location(ctx, "/posts")
     return nil
 }
 ```
@@ -256,17 +250,19 @@ func (c *BaseHandler) Redirect(ctx *router.Context, url string, status ...int) e
     if len(status) > 0 {
         statusCode = status[0]
     }
-    return ctx.Redirect(url, statusCode)
+    return ctx.Redirect(statusCode, url)
 }
 
 // Render with validation errors
+// ctx.WithErrors flashes the errors so they survive a redirect and are
+// available to the next view render.
 func (c *BaseHandler) WithErrors(ctx *router.Context, errors map[string][]string) {
-    view.WithErrors(ctx.Response, errors)
+    ctx.WithErrors(errors)
 }
 
 // Authorization helper
 func (c *BaseHandler) authorize(ctx *router.Context, action string, resource interface{}) bool {
-    user := auth.User(ctx.Request)
+    user := auth.FromContext(ctx).User(ctx.Request)
     if user == nil {
         return false
     }
@@ -278,7 +274,7 @@ func (c *BaseHandler) authorize(ctx *router.Context, action string, resource int
 
 // Get authenticated user
 func (c *BaseHandler) user(ctx *router.Context) *models.User {
-    return auth.User(ctx.Request).(*models.User)
+    return auth.FromContext(ctx).User(ctx.Request).(*models.User)
 }
 ```
 
@@ -296,7 +292,6 @@ import (
 
     "github.com/velocitykode/velocity/router"
     "github.com/velocitykode/velocity/auth"
-    "github.com/velocitykode/velocity/validation"
 )
 
 type UserHandler struct {
@@ -335,23 +330,30 @@ func (c *UserHandler) Show(ctx *router.Context) error {
 
 // POST /api/users
 func (c *UserHandler) Store(ctx *router.Context) error {
-    data, err := validation.Validate(ctx.Request, validation.Rules{
-        "name":     "required|string|max:255",
-        "email":    "required|email|unique:users,email",
-        "password": "required|string|min:8",
-    })
+    var input struct {
+        Name     string `json:"name"`
+        Email    string `json:"email"`
+        Password string `json:"password"`
+    }
+    if err := ctx.Bind(&input); err != nil {
+        return ctx.JSON(400, map[string]string{"error": "Invalid input"})
+    }
 
-    if err != nil {
+    if err := ctx.Validate(map[string][]string{
+        "name":     {"required", "string", "max:255"},
+        "email":    {"required", "email", "unique:users,email"},
+        "password": {"required", "string", "min:8"},
+    }); err != nil {
         return ctx.JSON(422, map[string]interface{}{
-            "errors": err.Errors(),
+            "error": err.Error(),
         })
     }
 
-    hashedPassword, _ := auth.Hash(data["password"].(string))
+    hashedPassword, _ := auth.FromContext(ctx).Hash(input.Password)
 
     user := models.User{
-        Name:     data["name"].(string),
-        Email:    data["email"].(string),
+        Name:     input.Name,
+        Email:    input.Email,
         Password: hashedPassword,
     }
 
@@ -371,18 +373,27 @@ func (c *UserHandler) Update(ctx *router.Context) error {
         return c.NotFound(ctx)
     }
 
-    data, err := validation.Validate(ctx.Request, validation.Rules{
-        "name":  "sometimes|string|max:255",
-        "email": "sometimes|email|unique:users,email," + strconv.Itoa(int(user.ID)),
-    })
+    var input struct {
+        Name  string `json:"name"`
+        Email string `json:"email"`
+    }
+    if err := ctx.Bind(&input); err != nil {
+        return ctx.JSON(400, map[string]string{"error": "Invalid input"})
+    }
 
-    if err != nil {
+    if err := ctx.Validate(map[string][]string{
+        "name":  {"sometimes", "string", "max:255"},
+        "email": {"sometimes", "email", "unique:users,email," + strconv.Itoa(int(user.ID))},
+    }); err != nil {
         return ctx.JSON(422, map[string]interface{}{
-            "errors": err.Errors(),
+            "error": err.Error(),
         })
     }
 
-    if err := user.Update(data); err != nil {
+    if err := user.Update(map[string]any{
+        "name":  input.Name,
+        "email": input.Email,
+    }); err != nil {
         return c.Error(ctx, "Failed to update user")
     }
 
@@ -422,7 +433,7 @@ import (
     "github.com/velocitykode/velocity/router"
 )
 
-func WebRoutes(r *router.Router) {
+func WebRoutes(r router.Router) {
     // Public routes
     homeHandler := &handlers.HomeHandler{}
     postHandler := &handlers.PostHandler{}
@@ -431,8 +442,9 @@ func WebRoutes(r *router.Router) {
     r.Get("/posts", postHandler.Index)
     r.Get("/posts/{id}", postHandler.Show)
 
-    // Protected routes
-    r.Group(func(r *router.Router) {
+    // Protected routes. Group takes a path prefix ("" for none) and an
+    // optional closure that receives the group's router.
+    r.Group("", func(r router.Router) {
         r.Use(middleware.Auth)
 
         r.Get("/posts/create", postHandler.Create)
@@ -484,45 +496,38 @@ func (c *PostHandler) Store(ctx *router.Context) error {
         return c.Error(ctx, "Failed to create post")
     }
 
-    // Flash success message
-    view.Flash(ctx.Response, "success", "Post created successfully")
-    return c.Redirect(ctx, fmt.Sprintf("/posts/%d", post.ID))
+    // Flash a success message and redirect. view.For binds the view
+    // engine to this request so flash and the terminal redirect chain.
+    view.For(ctx).
+        Flash("success", "Post created successfully").
+        Redirect(fmt.Sprintf("/posts/%d", post.ID))
+    return nil
 }
 ```
 
 ## File Uploads
 
-Handle file uploads in handlers:
+Handle file uploads with the Context helpers. `ctx.FormFile` parses the
+multipart form (under the router's body-size limit) and returns the
+`*multipart.FileHeader`; `ctx.SaveFile` writes it under the router's
+configured `FileRoot` with kernel-enforced path containment, so a
+traversal or symlinked `dst` cannot escape the upload directory. Pass
+`FileValidationOption` values to enforce size, extension, and MIME limits
+before any bytes are written:
 
 ```go
 func (c *UserHandler) UpdateAvatar(ctx *router.Context) error {
-    // Parse multipart form
-    if err := ctx.Request.ParseMultipartForm(10 << 20); err != nil { // 10MB max
-        return c.Error(ctx, "File too large")
-    }
-
-    file, header, err := ctx.Request.FormFile("avatar")
+    header, err := ctx.FormFile("avatar")
     if err != nil {
         return c.Error(ctx, "No file uploaded")
     }
-    defer file.Close()
 
-    // Validate file type
-    if !strings.HasPrefix(header.Header.Get("Content-Type"), "image/") {
-        return c.Error(ctx, "File must be an image")
-    }
-
-    // Save file
+    // Save under FileRoot, validating size and type before writing.
     fileName := fmt.Sprintf("avatars/%d_%s", c.user(ctx).ID, header.Filename)
-    filePath := filepath.Join("storage", fileName)
-
-    dst, err := os.Create(filePath)
-    if err != nil {
-        return c.Error(ctx, "Failed to save file")
-    }
-    defer dst.Close()
-
-    if _, err := io.Copy(dst, file); err != nil {
+    if err := ctx.SaveFile(header, fileName,
+        router.MaxFileSize(10<<20), // 10MB max
+        router.AllowedMIMETypes("image/jpeg", "image/png", "image/gif"),
+    ); err != nil {
         return c.Error(ctx, "Failed to save file")
     }
 
@@ -544,18 +549,19 @@ func (c *UserHandler) UpdateAvatar(ctx *router.Context) error {
 Useful helpers for handlers:
 
 ```go
-// Get query parameters
+// Get query parameters. The framework also exposes ctx.QueryDefault,
+// ctx.QueryInt, ctx.QueryInt64, ctx.QueryFloat64, and ctx.QueryBool for
+// typed access.
 func (c *BaseHandler) getQuery(ctx *router.Context, key string, defaultValue ...string) string {
-    value := ctx.Query(key)
-    if value == "" && len(defaultValue) > 0 {
-        return defaultValue[0]
+    if len(defaultValue) > 0 {
+        return ctx.QueryDefault(key, defaultValue[0])
     }
-    return value
+    return ctx.Query(key)
 }
 
 // Get form value
 func (c *BaseHandler) getForm(ctx *router.Context, key string, defaultValue ...string) string {
-    value := ctx.Request.FormValue(key)
+    value := ctx.FormValue(key)
     if value == "" && len(defaultValue) > 0 {
         return defaultValue[0]
     }
@@ -567,13 +573,11 @@ func (c *BaseHandler) parseJSON(ctx *router.Context, v interface{}) error {
     return ctx.Bind(v)
 }
 
-// Get client IP
+// Get client IP. Prefer ctx.IP(): it resolves the real client address
+// through the router's trusted-proxy policy instead of blindly trusting
+// X-Forwarded-For, which a client can spoof.
 func (c *BaseHandler) getClientIP(ctx *router.Context) string {
-    forwarded := ctx.Request.Header.Get("X-Forwarded-For")
-    if forwarded != "" {
-        return strings.Split(forwarded, ",")[0]
-    }
-    return ctx.Request.RemoteAddr
+    return ctx.IP()
 }
 ```
 
@@ -588,33 +592,31 @@ package handlers
 import (
     "github.com/velocitykode/velocity/router"
     "github.com/velocitykode/velocity/view"
-    "github.com/velocitykode/velocity/log"
 )
 
 type ErrorHandler struct{}
 
 func (c *ErrorHandler) NotFound(ctx *router.Context) error {
     ctx.Response.WriteHeader(404)
-    view.Render(ctx.Response, ctx.Request, "errors/404", view.Props{
+    return view.Render(ctx, "errors/404", view.Props{
         "url": ctx.Request.URL.Path,
     })
-    return nil
 }
 
 func (c *ErrorHandler) InternalError(ctx *router.Context, err error) error {
-    log.Error("Internal server error", "error", err, "url", ctx.Request.URL.Path)
+    // ctx.Log() returns the request-scoped logger; it logs structured
+    // key/value pairs after the message.
+    ctx.Log().Error("Internal server error", "error", err, "url", ctx.Request.URL.Path)
 
     ctx.Response.WriteHeader(500)
-    view.Render(ctx.Response, ctx.Request, "errors/500", view.Props{
+    return view.Render(ctx, "errors/500", view.Props{
         "error": err.Error(),
     })
-    return nil
 }
 
 func (c *ErrorHandler) Forbidden(ctx *router.Context) error {
     ctx.Response.WriteHeader(403)
-    view.Render(ctx.Response, ctx.Request, "errors/403", view.Props{})
-    return nil
+    return view.Render(ctx, "errors/403", view.Props{})
 }
 ```
 

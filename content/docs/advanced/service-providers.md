@@ -9,8 +9,12 @@ applications. A provider bundles registration for services, routes,
 middleware, event listeners, and scheduled jobs behind a single type;
 you install it with one line of wiring.
 
-Import paths: `github.com/velocitykode/velocity` (types) and
-`github.com/velocitykode/velocity/app` (the underlying interface).
+Import paths: `github.com/velocitykode/velocity` (the `velocity.*`
+aliases used by application code) and `github.com/velocitykode/velocity/app`
+(the underlying `ServiceProvider` interface and `Services` container). The
+optional provider interfaces and the `ProviderRegistry` live in
+`github.com/velocitykode/velocity/chain`, re-exported under the root
+`velocity` package for ergonomics.
 
 ## The core interface
 
@@ -29,33 +33,63 @@ registered by others.
 ## The Services container
 
 Providers read and mutate `*velocity.Services` (alias for
-`app.Services`). It holds every core service instance:
+`app.Services`). It holds every core service instance, typed as
+`contract` interfaces so the leaf `app` package avoids import cycles:
 
 ```go
 type Services struct {
-    Log          log.Logger
-    Exceptions   *exceptions.Handler
-    Crypto       crypto.Encryptor
-    DB           *orm.Manager
-    Auth         contract.AuthManager
-    CSRF         contract.CSRFProtector
-    View         contract.ViewEngine
+    Log        contract.Logger
+    Exceptions contract.ExceptionHandler
+    Crypto     contract.Encryptor
+    DB         contract.Database
+    Auth       contract.AuthManager
+    CSRF       contract.CSRFProtector
+    View       contract.ViewEngine
 
-    Cache        *cache.Manager
-    Events       events.Dispatcher
-    Queue        queue.Driver
-    Storage      *storage.Manager
-    Scheduler    *scheduler.Scheduler
-    Mail         mail.Mailer
-    Notification *notification.Manager
-    Validator    validation.Validator
+    Cache        contract.CacheManager
+    Events       contract.Dispatcher
+    Queue        contract.QueueDriver
+    Storage      contract.StorageManager
+    Scheduler    scheduler.TaskScheduler
+    Mail         contract.Mailer
+    Notification contract.Notifier
+    Validator    contract.Validator
 
-    Extensions map[string]any  // bag for third-party services
+    // ... plus internal fields (RedirectAllowlist, the component
+    // registry) not meant for direct provider use.
 }
 ```
 
-Use `Extensions` to attach your own services without touching core
-fields - keyed by a stable string.
+To attach your own services, use the **type-keyed component registry**
+rather than mutating core fields. Register a value with `app.Register`
+and retrieve it later (typically from a `From(s)` accessor) with
+`app.Get`:
+
+```go
+// during Register/Boot
+if err := app.Register(s, p.client); err != nil {
+    return err
+}
+
+// elsewhere - exact-type lookup, no string keys
+client, err := app.Get[*billing.Client](s)
+```
+
+Lookup is by **exact type**: `app.Get[T]` only finds an entry registered
+under that same `T`, never a value that merely satisfies it. Because a
+Go type's identity includes its import path, two modules can never
+collide. For multiple instances of the same type, use
+`app.RegisterFor[T, Q]` / `app.GetFor[T, Q]` with an integrator-owned
+marker type `Q` instead of a string key.
+
+{{% callout type="info" %}}
+The registry owns teardown of registered values. A provider that
+registers a value into the registry MUST NOT also close that value in
+its own `Shutdown` - the registry sweep during `App.Shutdown` runs
+immediately after provider `Shutdown` and closes anything implementing
+`contract.ShutdownAware` exactly once. Closing it in both places is a
+double-close.
+{{% /callout %}}
 
 ## A minimal provider
 
@@ -64,6 +98,7 @@ package billing
 
 import (
     "context"
+    "os"
 
     "github.com/velocitykode/velocity/app"
 )
@@ -74,11 +109,7 @@ type Provider struct {
 
 func (p *Provider) Register(s *app.Services) error {
     p.client = NewClient(os.Getenv("STRIPE_KEY"))
-    if s.Extensions == nil {
-        s.Extensions = map[string]any{}
-    }
-    s.Extensions["billing"] = p.client
-    return nil
+    return app.Register(s, p.client)
 }
 
 func (p *Provider) Boot(s *app.Services) error {
@@ -125,7 +156,8 @@ of these:
 | `RouteProvider`        | `Routes(r *velocity.Routing)`                  | During route registration                       |
 | `MiddlewareProvider`   | `Middleware(m *velocity.MiddlewareStack)`      | During middleware registration                  |
 | `EventProvider`        | `Events(d events.Dispatcher)`                  | During event listener registration              |
-| `ScheduleProvider`     | `Schedule(s *scheduler.Scheduler)`             | During scheduled job registration               |
+| `ScheduleProvider`     | `Schedule(s scheduler.TaskScheduler)`          | During scheduled job registration               |
+| `CommandProvider`      | `Commands(r *velocity.Commands)`               | During custom CLI command registration          |
 
 Example - a provider that adds its own routes and middleware:
 
@@ -141,9 +173,10 @@ func (p *Provider) Middleware(m *velocity.MiddlewareStack) {
 }
 ```
 
-`Routes`, `Middleware`, `Events`, `Schedule` run alongside the
-equivalent chain callbacks (`v.Routes(...)`, `v.Middleware(...)`, etc.)
-- your provider contributes to the same stacks.
+`Routes`, `Middleware`, `Events`, `Schedule`, and `Commands` run
+alongside the equivalent chain callbacks (`v.Routes(...)`,
+`v.Middleware(...)`, etc.) - your provider contributes to the same
+stacks.
 
 ## Lifecycle order
 
@@ -155,11 +188,15 @@ During `v.Run()` or `v.Serve()`:
 4. **Routes** - provider `Routes` callbacks, then `v.Routes(...)`
 5. **Events** - provider `Events` callbacks, then `v.Events(...)`
 6. **Schedule** - provider `Schedule` callbacks, then `v.Schedule(...)`
-7. **Exceptions** - `v.Exceptions(...)`
-8. Serve / run
+7. **Commands** - provider `Commands` callbacks, then `v.Commands(...)`
+8. **Exceptions** - `v.Exceptions(...)`
+9. Serve / run
 
 On shutdown, providers' `Shutdown` methods run in reverse registration
 order so later providers can tear down cleanly before earlier ones.
+Immediately after the provider sweep, the component registry tears down
+every registered value implementing `contract.ShutdownAware`, also in
+reverse registration order.
 
 ## When to write a provider
 

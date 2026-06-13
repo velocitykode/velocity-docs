@@ -146,7 +146,7 @@ type Order struct {
 }
 
 func (o *Order) AfterCommit(ctx context.Context) error {
-    return events.Dispatch(ctx, OrderPlaced{ID: o.ID, Customer: o.Customer})
+    return dispatcher.Dispatch(ctx, OrderPlaced{ID: o.ID, Customer: o.Customer})
 }
 
 func (o *Order) AfterRollback(ctx context.Context) error {
@@ -204,7 +204,7 @@ relay := orm.NewRelay(manager, orm.RelayCallbacks{
         return queueDriver.Push(ctx, payload)
     },
     OnEvent: func(ctx context.Context, payload any, payloadType, idempotencyKey string) error {
-        return events.Dispatch(ctx, payload)
+        return dispatcher.Dispatch(ctx, payload)
     },
 }, orm.RelayConfig{
     PollInterval:  time.Second,
@@ -349,8 +349,8 @@ func PlaceOrder(ctx context.Context, mgr *orm.Manager, customer string, total in
         // Ambiguous commit: log only. NEVER re-enqueue here, the DB may
         // have committed the order row even though Commit returned err.
         return orm.OnCommitFailure(ctx, func(ctx context.Context, commitErr error) error {
-            log.Warn(ctx, "order commit ambiguous; outbox NOT re-enqueued",
-                "customer", customer, "error", commitErr)
+            log.Printf("order commit ambiguous; outbox NOT re-enqueued: customer=%s error=%v",
+                customer, commitErr)
             return nil
         })
     })

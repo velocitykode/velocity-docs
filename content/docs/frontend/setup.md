@@ -19,7 +19,7 @@ The flow works like this:
 
 1. User visits `/posts`
 2. Go router calls `PostHandler.Index()`
-3. Handler fetches data and calls `view.Render("Posts/Index", props)`
+3. Handler fetches data and calls `view.Render(ctx, "Posts/Index", props)`
 4. Inertia sends props to React component at `resources/js/pages/Posts/Index.tsx`
 5. React renders the page with full SPA navigation
 
@@ -203,8 +203,16 @@ Go serves pre-built assets from `public/build/`.
 
 ## HTML Template
 
+The root template is a Go `html/template`. Instead of hardcoding the Vite
+dev-server URLs, render asset tags with the `vite` template helper: in
+development (when the Vite dev server has written the `public/hot` marker)
+it emits the `@vite/client` script and the dev-server entry; in production it walks
+the build manifest and emits the hashed `<link>`/`<script>` tags. The
+`viteReactRefresh` helper emits the React Fast Refresh preamble in dev and
+nothing in production.
+
 ```html
-<!-- resources/views/app.go.html -->
+<!-- resources/views/app.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -212,18 +220,12 @@ Go serves pre-built assets from `public/build/`.
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ .csrfToken }}">
 
-    <title>{{ .title | default "Velocity App" }}</title>
+    <title>Velocity App</title>
 
     {{ .inertiaHead }}
 
-    <!-- Development: Vite dev server -->
-    <script type="module" src="http://localhost:5173/@vite/client"></script>
-    <script type="module" src="http://localhost:5173/resources/js/app.tsx"></script>
-
-    <!-- Production: Compiled assets
-    <link rel="stylesheet" href="/build/app.css">
-    <script type="module" src="/build/app.js"></script>
-    -->
+    {{ viteReactRefresh }}
+    {{ vite "resources/js/app.tsx" }}
 </head>
 <body class="font-sans antialiased">
     {{ .inertia }}
@@ -231,25 +233,87 @@ Go serves pre-built assets from `public/build/`.
 </html>
 ```
 
-The template includes:
+The template variables come from the renderer:
 
-- **`{{ .csrfToken }}`** - CSRF token from Go, updated on each navigation
-- **`{{ .inertiaHead }}`** - Inertia head content (title, meta from React)
-- **`{{ .inertia }}`** - Inertia page data for React hydration
+- **`{{ .inertia }}`** - Inertia page data container for React hydration
+- **`{{ .inertiaHead }}`** - Inertia head content (title, meta from React; populated during SSR)
+- **`{{ .csrfToken }}`** - CSRF token published per request via middleware (see Template Data below)
+
+The `vite` and `viteReactRefresh` helpers are registered on the engine
+through `view.Config.Funcs` (see below).
+
+## Registering the Vite Helpers
+
+The `vite` and `viteReactRefresh` template helpers are not built in. Wire
+them onto the view engine by passing a `template.FuncMap` in `view.Config.Funcs`:
+
+```go
+import (
+    "html/template"
+
+    "github.com/velocitykode/velocity/bond/vite"
+    "github.com/velocitykode/velocity/view"
+)
+
+helper := vite.New() // defaults: public/, build/, hot file "hot"
+
+engine, err := view.NewEngine(view.Config{
+    Funcs: template.FuncMap{
+        "vite":             helper.Tags,
+        "viteReactRefresh": helper.ReactRefreshTag,
+    },
+})
+```
+
+`vite.New` accepts options to override the defaults:
+
+- `vite.WithPublicPath("public")` - directory containing built assets and the hot file
+- `vite.WithBuildDirectory("build")` - subdirectory of public/ where Vite writes output
+- `vite.WithHotFile("hot")` - dev-server marker file (its contents are the dev origin)
+- `vite.WithManifestFilename("manifest.json")` - manifest filename
+- `vite.WithManifestSubdir("")` - manifest subdirectory under the build directory
 
 ## Template Data and Functions
 
+Static template helpers are registered once when the engine is built, via
+`view.Config.Funcs` (shown above for the Vite helpers). To add your own:
+
 ```go
-// Share template data
-view.ShareTemplateData("app_name", "My Velocity App")
-view.ShareTemplateData("version", "1.0.0")
+import "html/template"
 
-// Share template functions
-view.ShareTemplateFunc("formatDate", func(date time.Time) string {
-    return date.Format("January 2, 2006")
+engine, err := view.NewEngine(view.Config{
+    Funcs: template.FuncMap{
+        "vite": helper.Tags,
+        "formatDate": func(date time.Time) string {
+            return date.Format("January 2, 2006")
+        },
+    },
 })
+```
 
-view.ShareTemplateFunc("asset", func(path string) string {
-    return "/build/" + path
+Per-request root-template variables (CSP nonce, CSRF token, etc.) are
+published onto the request context with `bond.WithTemplateData`, then read by
+name in the template (e.g. `{{ .csrfToken }}`):
+
+```go
+import "github.com/velocitykode/velocity/bond"
+
+ctx := bond.WithTemplateData(r.Context(), "csrfToken", token)
+r = r.WithContext(ctx)
+```
+
+To share data with React components (not the root template), use the engine's
+shared-props API. These become Inertia props on every page:
+
+```go
+// Static shared prop on every response
+engine.Share("app_name", "My Velocity App")
+
+// Multiple static props at once
+engine.ShareMultiple(view.Props{"version": "1.0.0", "env": "production"})
+
+// Dynamic prop evaluated per request
+engine.ShareFunc("user", func(r *http.Request) (any, error) {
+    return currentUser(r), nil
 })
 ```

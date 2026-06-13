@@ -27,11 +27,14 @@ value, err := result.Get()
 {{< tab >}}
 ```go
 // Execute multiple functions in parallel
-results := async.All(
+results, err := async.All(
     func() any { return fetchUser(id) },
     func() any { return fetchPosts(id) },
     func() any { return fetchComments(id) },
 )
+if err != nil {
+    // A closure panicked; values slice is undefined
+}
 
 user := results[0].(User)
 posts := results[1].([]Post)
@@ -66,6 +69,7 @@ Reach for the helper that matches the situation. Skim this table before writing 
 | Bounded fan-out across a slice, blocking | `ForEach` |
 | Bounded fan-out across a slice, fire-and-forget | `GoForEach` |
 | Per-item errors collected | `TryForEach` |
+| Parallel fan-out with an explicit concurrency cap | `AllN` / `MapN` / `AllWithErrorN` |
 | Need a result back | `Run` / `RunWithTimeout` / `RunWithContext` |
 
 ## Core Functions
@@ -123,15 +127,30 @@ value, err := result.Get()
 
 ### All
 
-Run multiple functions in parallel and wait for all to complete:
+Run multiple functions in parallel and wait for all to complete. `All` returns the collected values in submission order plus the first non-nil error. Errors here come from recovered panics inside the closures, so a panicking `fn` surfaces as an error instead of a silent zero value. Check `err` before reading the values slice; when `err != nil` the slice is undefined.
 
 ```go
-results := async.All(
+results, err := async.All(
     func() any { return db.Find[User]() },
     func() any { return db.Find[Post]() },
     func() any { return db.Find[Comment]() },
 )
+if err != nil {
+    // A closure panicked
+}
 ```
+
+`All` applies an internal concurrency cap (1024) so a caller passing an attacker-controlled slice cannot trigger unbounded goroutine fan-out. Use `AllN` when you need an explicit cap:
+
+```go
+// Cap parallelism at 8 regardless of how many closures are submitted.
+results, err := async.AllN(8,
+    func() any { return fetchA() },
+    func() any { return fetchB() },
+)
+```
+
+A `concurrency <= 0` passed to `AllN` means "use the internal default cap".
 
 ### AllWithError
 
@@ -146,6 +165,8 @@ if err != nil {
     // Handle first error
 }
 ```
+
+A recovered panic inside a closure is checked before any normal error, so a panicking `fn` cannot be masked by a later closure's returned error. On any panic or error, `AllWithError` returns nil values and that error. Like `All`, it caps fan-out at 1024; use `AllWithErrorN(concurrency, fns...)` for an explicit cap.
 
 ### Race
 
@@ -318,12 +339,23 @@ async.ForEach(users, 3, func(user User) {
 
 ### Map
 
-Transform items in parallel:
+Transform items in parallel. `Map` returns the results in input order plus the first non-nil error (panics recovered inside `fn` are surfaced as that error). Check `err` before consuming the values; indices for panicked calls hold zero values.
 
 ```go
 userIDs := []int{1, 2, 3, 4, 5}
 
-users := async.Map(userIDs, func(id int) User {
+users, err := async.Map(userIDs, func(id int) User {
+    return userRepo.Find(id)
+})
+if err != nil {
+    // A transform panicked
+}
+```
+
+`Map` caps fan-out at 1024. Use `MapN` for an explicit concurrency limit:
+
+```go
+users, err := async.MapN(4, userIDs, func(id int) User {
     return userRepo.Find(id)
 })
 ```
@@ -357,6 +389,16 @@ async.SetPanicHook(func(p any) {
 
 The hook itself is panic-safe: a panic inside the hook is swallowed so observability sinks cannot take down the goroutine they are observing.
 
+## Package Logger
+
+Recovered panics are logged through a package-level logger that satisfies `async.Logger` (a single `Error(msg string, kvs ...any)` method). Wire your application logger once at startup so panic backtraces land in your structured sink:
+
+```go
+async.SetLogger(appLogger) // appLogger.Error(msg, kvs...)
+```
+
+`async.GetLogger()` returns the current logger, useful when you want to emit messages tagged with the same sink the async helpers use for panic logs.
+
 ## Examples
 
 ### Dashboard Handler
@@ -366,7 +408,7 @@ func GetDashboard(w http.ResponseWriter, r *http.Request) {
     userID := auth.UserID(r)
 
     // Fetch all dashboard data in parallel
-    data := async.All(
+    data, _ := async.All(
         func() any { return models.User{}.Find(userID) },
         func() any { return models.GetRecentPosts(userID) },
         func() any { return models.GetNotifications(userID) },
@@ -426,7 +468,8 @@ func SearchProducts(query string) []Product {
 2. **Handle panics**: Use `GoWithRecover` for critical operations
 3. **Limit concurrency**: Use `ForEach` with concurrency limit for large datasets
 4. **Check readiness**: Use `Ready()` for non-blocking status checks
-5. **Error handling**: Use `AllWithError` when you need error propagation
+5. **Error handling**: Always check the error returned by `All`, `Map`, and their `N`-suffixed variants - a recovered panic surfaces there, and the values slice is undefined when it is non-nil. Use `AllWithError` when closures return their own `error` values
+6. **Cap fan-out**: Prefer `AllN` / `MapN` / `AllWithErrorN` (or `ForEach` with a limit) over the unbounded variants when the input size is caller-controlled - the unbounded helpers cap internally at 1024 but an explicit cap is clearer
 
 ## Related
 

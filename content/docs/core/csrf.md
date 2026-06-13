@@ -11,25 +11,45 @@ Velocity provides comprehensive CSRF (Cross-Site Request Forgery) protection to 
 {{< tabs items="Basic Setup,Middleware,Template Usage,API Protection" >}}
 
 {{< tab >}}
+`velocity.New` builds the CSRF instance for you from `Config.CSRF`
+(seeded from `csrf.DefaultConfig()` and overridable via `CSRF_*`
+environment variables) and exposes it on the app as `v.CSRF`
+(type `contract.CSRFProtector`, concrete `*csrf.CSRF`). It also installs
+a `SessionIDResolver` that decrypts the session cookie - the token store
+is keyed by the plaintext session ID, never by the raw cookie value.
+
+To build an instance by hand (custom middleware stacks, tests), use the
+error-returning constructor and supply a `SessionIDResolver` - it is
+**required**:
+
 ```go
 import (
+    "net/http"
+
     "github.com/velocitykode/velocity/csrf"
     "github.com/velocitykode/velocity/csrf/stores"
 )
 
-// Build a CSRF instance with the default configuration and a session store.
 config := csrf.DefaultConfig()
-config.Store = stores.NewSessionStore()
+config.Store = stores.NewSessionStore(config.TokenLifetime)
+config.SessionIDResolver = func(r *http.Request) (string, error) {
+    // Return the plaintext session ID, or csrf.ErrNoSession when the
+    // request carries no session. Keying tokens by an unauthenticated
+    // cookie value is rejected at construction time.
+    if c, err := r.Cookie("session_id"); err == nil && c.Value != "" {
+        return c.Value, nil
+    }
+    return "", csrf.ErrNoSession
+}
 
-protection := csrf.New(config)
+protection, err := csrf.NewE(config)
+if err != nil {
+    // ErrInsecureCSRFConfig: nil resolver or unsupported Mode.
+    panic(err)
+}
 ```
 
-Assign it to your Velocity app so other services (view engine, middleware)
-can reach it:
-
-```go
-v.CSRF = protection
-```
+`csrf.New(config)` is the panic-on-error variant of `NewE`.
 {{< /tab >}}
 
 {{< tab >}}
@@ -39,19 +59,20 @@ v.Middleware(func(m *velocity.MiddlewareStack) {
     csrfInstance := v.CSRF.(*csrf.CSRF)
 
     m.Web(
-        middleware.Session,               // must run before CSRF
-        csrfInstance.RouterMiddleware(),  // validates token on unsafe methods
+        csrfInstance.RouterMiddleware(), // validates token on unsafe methods
     )
 })
 ```
 
-`RouterMiddleware()` returns a `router.MiddlewareFunc` that reads the
-session cookie, looks up the token, and validates the request.
+`RouterMiddleware()` returns a `router.MiddlewareFunc` that resolves the
+session ID, looks up the token, and validates the request. The session
+middleware is installed globally by `velocity.New`, so it already runs
+ahead of the web stack.
 {{< /tab >}}
 
 {{< tab >}}
 ```html
-<!-- Meta tag: rendered by the view engine from shared props -->
+<!-- Meta tag: render the token your shared-props function published -->
 <head>
     <meta name="csrf-token" content="{{ .csrfToken }}">
 </head>
@@ -78,21 +99,26 @@ session cookie, looks up the token, and validates the request.
 </script>
 ```
 
-The token is obtained via `protection.GetToken(sessionID)`. Plug it into
-the view engine's shared props (or your own render pipeline) under the
-key your template reads:
+The token is obtained via `csrf.TokenForRequest(r)`, which returns the
+per-response **masked** form (memoized for the request so the meta tag,
+form field, and `XSRF-TOKEN` cookie all carry byte-identical values).
+Plug it into the view engine's shared props under the key your template
+reads:
 
 ```go
 engine.SetSharePropsFunc(func(r *http.Request) (view.Props, error) {
     props := view.Props{}
-    if cookie, err := r.Cookie("my_session"); err == nil {
-        if token, err := protection.GetToken(cookie.Value); err == nil {
-            props["csrf_token"] = token
-        }
+    if token, err := csrf.TokenForRequest(r); err == nil && token != "" {
+        props["csrfToken"] = token
     }
     return props, nil
 })
 ```
+
+`TokenForRequest` requires the CSRF middleware to have run on the request
+(it attaches the request-scoped token state); it returns
+`csrf.ErrNoTokenState` otherwise, which callers treat as "no token to
+embed".
 {{< /tab >}}
 
 {{< tab >}}
@@ -132,10 +158,14 @@ config := csrf.DefaultConfig()
 //     FormField:         "_token",
 //     CookieName:        "csrf_token",
 //     SessionCookieName: "session_id",
+//     MaxFormBodyBytes:  1 << 20, // csrf.DefaultMaxFormBodyBytes (1 MiB)
+//     Mode:              csrf.ModeSession,
 //     SameSite:          http.SameSiteLaxMode,
 //     Secure:            true,
-//     HTTPOnly:          true,
+//     HttpOnly:          true,
 //     SingleUse:         false,
+//     WriteXSRFCookie:   true,
+//     XSRFCookieName:    "XSRF-TOKEN",
 //     ErrorMessage:      "CSRF token validation failed. Please refresh and try again.",
 // }
 ```
@@ -150,15 +180,26 @@ config := &csrf.Config{
     FormField:         "_token",             // Form field name
     CookieName:        "csrf_token",         // Cookie name
     SessionCookieName: "velocity_session",   // Session cookie name
+    MaxFormBodyBytes:  1 << 20,              // urlencoded body cap (default 1 MiB)
+
+    // Binding mode (only ModeSession is implemented today)
+    Mode: csrf.ModeSession,
 
     // Security settings
     SameSite:  http.SameSiteStrictMode,     // CSRF protection level
     Secure:    true,                         // HTTPS only
-    HTTPOnly:  true,                         // No JavaScript access
+    HttpOnly:  true,                         // No JavaScript access (matches net/http casing)
     SingleUse: false,                        // Reusable tokens
 
+    // axios/Angular convenience cookie (non-HttpOnly XSRF-TOKEN)
+    WriteXSRFCookie: true,
+    XSRFCookieName:  "XSRF-TOKEN",
+
     // Storage
-    Store: csrf_stores.NewSessionStore(),    // Token storage
+    Store: stores.NewSessionStore(),         // Token storage
+
+    // Required: resolve the plaintext session ID tokens are keyed by.
+    SessionIDResolver: resolveSession,
 
     // Exception handling
     ExcludePaths: []string{                  // Paths to exclude
@@ -175,6 +216,47 @@ config := &csrf.Config{
     ErrorHandler: customErrorHandler,
 }
 ```
+
+{{% callout type="warning" %}}
+`SessionIDResolver` is required: `csrf.NewE` (and `csrf.New`) reject a nil
+resolver with `ErrInsecureCSRFConfig`. It must return the plaintext
+session ID, or `csrf.ErrNoSession` when the request carries no session.
+`velocity.New` installs an encrypted-session resolver automatically when
+the app encryptor, session cookie name, and `SessionCookieName` all align;
+otherwise it installs a strict-reject resolver so the deployment fails
+closed (419 on every unsafe request) instead of silently bypassing CSRF.
+{{% /callout %}}
+
+### Validation
+
+`Config.Validate(env)` rejects insecure configurations at boot.
+`velocity.New` calls it for you. The rules:
+
+- `Mode` must be `ModeSession` (`ModeDoubleSubmit` is reserved).
+- `HttpOnly` must be `true` unless `AllowJSAccess` is set.
+- `Secure` must be `true` outside a dev/test profile (`APP_ENV` one of
+  `development`, `dev`, `test`, `testing`, `local`).
+- `SameSite` must be explicit (not the zero/default value).
+- `SameSite=None` requires `Secure=true`.
+
+### Environment variables
+
+`velocity.New` overrides the package defaults from these variables:
+
+| Variable | Field |
+|----------|-------|
+| `CSRF_TOKEN_LIFETIME` | `TokenLifetime` |
+| `CSRF_HEADER` | `HeaderName` |
+| `CSRF_FORM_FIELD` | `FormField` |
+| `CSRF_COOKIE_NAME` | `CookieName` |
+| `CSRF_SESSION_COOKIE` | `SessionCookieName` (defaults to the session cookie name) |
+| `CSRF_SAME_SITE` | `SameSite` |
+| `CSRF_SECURE` | `Secure` (set to `false` to disable) |
+| `CSRF_HTTP_ONLY` | `HttpOnly` |
+| `CSRF_SINGLE_USE` | `SingleUse` |
+| `CSRF_WRITE_XSRF_COOKIE` | `WriteXSRFCookie` |
+| `CSRF_XSRF_COOKIE_NAME` | `XSRFCookieName` |
+| `CSRF_ERROR_MESSAGE` | `ErrorMessage` |
 
 ## Token Storage Strategies
 
@@ -200,7 +282,14 @@ config.Store = stores.NewSessionStore()
 
 ### Custom Store Implementation
 
+The `csrf.Store` interface has four methods: `Get`, `Set`, `Delete`, and
+`Exists`. `Get` must return `stores.ErrTokenNotFound` for a missing entry
+(`GetToken` mints a fresh token only on that sentinel; any other error is
+surfaced unchanged).
+
 ```go
+import "github.com/velocitykode/velocity/csrf/stores"
+
 type CustomStore struct {
     cache map[string]string
     mu    sync.RWMutex
@@ -212,7 +301,7 @@ func (s *CustomStore) Get(id string) (string, error) {
 
     token, exists := s.cache[id]
     if !exists {
-        return "", csrf.ErrTokenNotFound
+        return "", stores.ErrTokenNotFound
     }
     return token, nil
 }
@@ -233,17 +322,34 @@ func (s *CustomStore) Delete(id string) error {
     return nil
 }
 
+func (s *CustomStore) Exists(id string) bool {
+    s.mu.RLock()
+    defer s.mu.RUnlock()
+
+    _, ok := s.cache[id]
+    return ok
+}
+
 // Use custom store
 config.Store = &CustomStore{
     cache: make(map[string]string),
 }
 ```
 
+{{% callout type="info" %}}
+For cross-process **single-use** enforcement, a store may also implement
+the optional `csrf.AtomicConsumer` interface
+(`ConsumeIfMatch(id, expected string) (bool, error)`). Without it, the
+middleware falls back to a per-process lock and logs a one-time warning -
+single-use is then best-effort across replicas.
+{{% /callout %}}
+
 ## Template integration
 
-The token is exposed to templates as the shared prop `csrfToken`.
-Include it in your root template's meta tag and in any form that submits
-to an unsafe method:
+Expose the token to templates as a shared prop (e.g. `csrfToken`) by
+publishing `csrf.TokenForRequest(r)` from your `SetSharePropsFunc` (see
+[Quick Start](#quick-start)). Include it in your root template's meta tag
+and in any form that submits to an unsafe method:
 
 ```html
 <meta name="csrf-token" content="{{ .csrfToken }}">
@@ -254,10 +360,20 @@ to an unsafe method:
 </form>
 ```
 
-The default config looks for the token in:
+The middleware looks for the token in this order:
 
-1. The `X-CSRF-Token` header (settable via `config.HeaderName`)
-2. The `_token` form field (settable via `config.FormField`)
+1. The configured header (`config.HeaderName`, default `X-CSRF-Token`).
+2. The `X-XSRF-TOKEN` header (axios/Angular convention - clients echo the
+   URL-encoded `XSRF-TOKEN` cookie value).
+3. The `_token` form field (settable via `config.FormField`), parsed only
+   from an `application/x-www-form-urlencoded` body up to
+   `config.MaxFormBodyBytes`. Multipart bodies are never parsed - send the
+   token in a header instead.
+
+Tokens are emitted in a per-response **masked** form (see `csrf.MaskToken`)
+so identical bytes never repeat across responses, defeating BREACH-style
+compression-oracle extraction. The middleware accepts both the masked form
+and a raw framework-length token.
 
 ## Middleware integration
 
@@ -271,11 +387,14 @@ v.Middleware(func(m *velocity.MiddlewareStack) {
     csrfInstance := v.CSRF.(*csrf.CSRF)
 
     m.Web(
-        middleware.Session,               // session cookie first
-        csrfInstance.RouterMiddleware(),  // then CSRF validation
+        csrfInstance.RouterMiddleware(), // CSRF validation on unsafe methods
     )
 })
 ```
+
+The session middleware is registered globally by `velocity.New` and runs
+ahead of the web stack, so the session ID is resolvable by the time CSRF
+validation runs.
 
 ### Selective application
 
@@ -351,12 +470,12 @@ config.ExcludeFunc = func(r *http.Request) bool {
 Expose a refresh endpoint and exclude it from CSRF validation:
 
 ```go
-// Bootstrap: configure the CSRF instance
-config := csrf.DefaultConfig()
-config.ExcludePaths = []string{"/csrf/token"}
-v.CSRF = csrf.New(config)
+// Config: exclude the refresh endpoint from validation. With velocity.New
+// the CSRF instance is built from Config.CSRF, so set this on the config
+// (or via CSRF_* env) rather than constructing a second instance.
+cfg.CSRF.ExcludePaths = []string{"/csrf/token"}
 
-// Routes: register the refresh handler
+// Routes: register the refresh handler off the framework-built v.CSRF.
 v.Routes(func(r *velocity.Routing) {
     csrfInstance := v.CSRF.(*csrf.CSRF)
     handler := csrfInstance.RefreshHandler()
@@ -436,11 +555,13 @@ CSRF token validation failed. Please refresh and try again.
 **JSON Requests:**
 ```json
 {
-  "error": "CSRF token invalid",
   "code": 419,
   "message": "CSRF token validation failed. Please refresh and try again."
 }
 ```
+
+A request is treated as JSON when its `Content-Type` or `Accept` header
+contains `application/json`.
 
 ### Custom Error Handler
 
@@ -499,6 +620,10 @@ config.SingleUse = true
 // Best for high-security operations
 ```
 
+When `SingleUse` is enabled the `XSRF-TOKEN` convenience cookie is **not**
+written (the value would be consumed by the next unsafe request and go
+stale). Use `RefreshHandler` to hand out a new token after each request.
+
 ### Token Lifetime
 
 ```go
@@ -508,6 +633,27 @@ config.TokenLifetime = 1 * time.Hour
 // Longer lifetime for better UX
 config.TokenLifetime = 24 * time.Hour
 ```
+
+### Session lifecycle
+
+`*csrf.CSRF` implements `contract.CSRFTokenRotator`, which the auth
+subsystem uses to keep tokens aligned with the session:
+
+- `RotateToken(oldID, newID)` - delete the old session's token and mint a
+  fresh one for the new ID (called after session regeneration on login).
+- `RevokeToken(id)` - delete a session's token (called on logout).
+- `WriteXSRFCookie(w, sessionID)` / `ClearXSRFCookie(w, r)` - write or
+  clear the `XSRF-TOKEN` cookie so SPA clients pick up the rotated token.
+
+Release the token store's background goroutine on shutdown with
+`(*csrf.CSRF).Shutdown(ctx)`; `velocity.New` registers this for you.
+
+### Events
+
+When the middleware cannot resolve a session on an unsafe request it
+dispatches a `csrf.session_fallback` event (`csrf.SessionFallback`).
+Frequent occurrences usually mean the session middleware is not running
+ahead of CSRF, or `SessionCookieName` does not match your session cookie.
 
 ## Best Practices
 
@@ -523,7 +669,15 @@ config.TokenLifetime = 24 * time.Hour
 
 ```go
 func TestCSRFProtection(t *testing.T) {
-    protection := csrf.New(csrf.DefaultConfig())
+    config := csrf.DefaultConfig()
+    // SessionIDResolver is required; key tokens by the session_id cookie.
+    config.SessionIDResolver = func(r *http.Request) (string, error) {
+        if c, err := r.Cookie("session_id"); err == nil && c.Value != "" {
+            return c.Value, nil
+        }
+        return "", csrf.ErrNoSession
+    }
+    protection := csrf.New(config)
     mw := protection.Middleware
 
     next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -580,10 +734,12 @@ full Velocity middleware chain.
 
 **Solutions:**
 1. Verify the shared-props function (`engine.SetSharePropsFunc`) is
-   setting `csrf_token` - see [Template integration](#template-integration)
-2. Confirm the session cookie is being sent with the request
-3. Confirm `v.CSRF` is assigned in `Bootstrap` before the view engine
-   shared-props closure runs
+   publishing `csrf.TokenForRequest(r)` - see
+   [Template integration](#template-integration)
+2. Confirm the CSRF middleware runs before the handler that renders the
+   page; `TokenForRequest` returns `csrf.ErrNoTokenState` otherwise
+3. Confirm the session cookie is being sent with the request (an
+   anonymous request has no token to embed yet)
 
 ### AJAX Requests Failing
 

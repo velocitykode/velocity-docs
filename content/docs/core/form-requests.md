@@ -88,7 +88,9 @@ When validation fails, `Form` takes over the response:
 
 1. Errors are flashed to the session via `ctx.WithErrors`
 2. Original input is flashed as old input via `ctx.WithInput`
-   (`password`, `secret`, `token` keys are stripped automatically)
+   (sensitive fields are stripped automatically by case-insensitive
+   substring match - `password`, `secret`, `token`, `pin`, `cvv`,
+   `ssn`, `api_key`, and similar names are redacted)
 3. The view engine's `Back` hook is invoked to redirect to the referrer
 4. `Form` returns `router.ErrValidationAborted` so the router skips
    emitting an additional error response
@@ -110,7 +112,10 @@ or redirects: it returns the populated `*T` on success, or a `*Result`
 with the per-field errors on failure.
 
 ```go
-import "github.com/velocitykode/velocity/validation/vform"
+import (
+    "github.com/velocitykode/velocity/validation/vform"
+    "github.com/velocitykode/velocity/view"
+)
 
 func (h *AcceptInvite) Show(ctx *router.Context) error {
     req, result, err := vform.Validate[AcceptInviteRequest](ctx)
@@ -121,7 +126,7 @@ func (h *AcceptInvite) Show(ctx *router.Context) error {
     if result != nil {
         // Validation failed. Render the same view with errors + the
         // invitation token still present so the user keeps context.
-        return ctx.Inertia("Invite/Accept", inertia.Props{
+        return view.Render(ctx, "Invite/Accept", view.Props{
             "errors":     result.All(),
             "old":        result.Old(),
             "invite_id":  ctx.Query("token"),
@@ -132,6 +137,11 @@ func (h *AcceptInvite) Show(ctx *router.Context) error {
     return h.acceptAndRedirect(ctx, req)
 }
 ```
+
+`view.Render(ctx, component, props...)` is the handler-facing entry point
+for the Inertia view engine (`view.Props` is an alias for the engine's
+prop map). It resolves the engine from the context's service container
+and returns an error if no view engine is wired.
 
 `Result.All()` returns one error per field (Inertia-friendly map),
 `Result.Messages()` returns every error, and `Result.Old()` returns the

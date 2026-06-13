@@ -27,6 +27,7 @@ retries.
 | Sign an outbound payload | `NewSigner(secret).Header(payload)` |
 | Verify an incoming payload | `NewVerifier(secret).Verify(payload, header)` |
 | Reject replays of a previously verified payload | Set `Verifier.Nonces` to a `NonceStore` |
+| Opt out of timestamp freshness checks | Set `Verifier.DisableTimestampCheck = true` |
 | Schedule the next retry attempt | `DefaultRetryPolicy.Next(attempt)` |
 | Plug in a non-default MAC primitive | Implement `Algorithm` and assign it to `Signer.Algorithm` / `Verifier.Algorithm` |
 
@@ -89,6 +90,11 @@ payload, and compares in constant time using `crypto/subtle`. A
 `Tolerance` window rejects timestamps that are too far behind or ahead
 of the current clock.
 
+`NewVerifier` sets `Algorithm` to `HMACSHA256` and `Tolerance` to its
+default of 5 minutes. A zero-value `Verifier` literal must set
+`Algorithm` explicitly - defaults are not auto-applied on the bare
+struct.
+
 ```go
 v := webhook.NewVerifier([]byte(os.Getenv("WEBHOOK_SECRET")))
 // Tolerance defaults to 5 minutes
@@ -113,7 +119,23 @@ Use `VerifyContext(ctx, payload, header)` when the underlying
 | `ErrSignatureMismatch` | Recomputed MAC does not match the supplied signature. |
 | `ErrReplay` | A `NonceStore` is configured and the nonce was already observed. |
 
-Setting `Tolerance` to zero disables the timestamp check entirely.
+Leaving `Tolerance` at its zero value does **not** disable the timestamp
+check - zero is treated as the 5-minute default so a zero-value
+`Verifier` still rejects stale signatures. To skip freshness validation
+entirely, set `DisableTimestampCheck = true`:
+
+```go
+v := webhook.NewVerifier(secret)
+v.DisableTimestampCheck = true // a correctly signed payload verifies forever
+```
+
+{{< callout type="warning" title="DisableTimestampCheck removes the replay window" >}}
+With `DisableTimestampCheck` set, any captured delivery can be re-sent
+indefinitely unless you also configure a `NonceStore` in `Nonces`. Even
+then the nonce TTL is finite, so a replay arriving after the nonce
+expires is accepted again. Only opt out when an upstream provider cannot
+produce timestamps and replay is mitigated elsewhere.
+{{< /callout >}}
 
 {{< callout type="warning" title="Never echo the header" >}}
 The errors above are deliberately opaque: they never embed the payload,
@@ -288,7 +310,7 @@ func deliver(ctx context.Context, c *httpclient.Client, url string, secret []byt
 
     p := webhook.DefaultRetryPolicy
     for attempt := 0; ; attempt++ {
-        resp, err := c.Do(req)
+        resp, err := c.Do(ctx, req)
         if err == nil && resp.StatusCode < 500 {
             resp.Body.Close()
             return nil

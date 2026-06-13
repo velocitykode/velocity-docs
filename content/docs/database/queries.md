@@ -18,7 +18,7 @@ user, err := orm.Model[User]{}.First(ctx)
 user, err := orm.Model[User]{}.Last(ctx)
 users, err := orm.Model[User]{}.All(ctx)
 count, err := orm.Model[User]{}.Count(ctx)
-exists := orm.Model[User]{}.Exists(ctx)
+exists, err := orm.Model[User]{}.Exists(ctx)
 
 // Chain terminals: ctx on the terminal call
 var u User
@@ -33,6 +33,10 @@ count, err := orm.Model[User]{}.Where("role = ?", "admin").Count(ctx)
 Inside `mgr.Transaction(ctx, func(txCtx context.Context) error { ... })`, every read and write terminal that receives `txCtx` enrolls in that transaction automatically. The chain's driver is rebound from the pool to a tx-bound driver via the ctx value. Pass the original pre-tx `ctx` to a terminal to opt out and route through the pool.
 {{< /callout >}}
 
+{{< callout type="info" title="Opening a query chain" >}}
+The fluent chain methods (`Select`, `Where`, `WhereBetween`, `Join`, `GroupBy`, `Limit`, `Distinct`, `Sum`, ...) live on `*Query[T]`, not on `Model[T]`. The `Model[T]{}` value exposes a small set of **chain-opening** statics that return a fresh `*Query[T]`: `Where`, `WhereIn`, `WhereNull`, `WhereNotNull`, `OrderBy`, and `With`. Open the builder with one of those, then chain everything else off it. The examples below lead with one of these openers for that reason. `Model[T]{}` also exposes the standalone helpers `Find`, `FindBy`, `First`, `Last`, `All`, `Count`, `Exists`, `DoesntExist`, `Pluck`, `Paginate`, `Create`, `CreateMany`, `Update`, `DeleteWhere`, `Increment`, `Decrement`, `FirstOrCreate`, `UpdateOrCreate`, `FindOrFail`, `FirstOrFail`, and `Raw` directly.
+{{< /callout >}}
+
 ## Basic Queries
 
 ```go
@@ -45,11 +49,10 @@ user, err := orm.Model[User]{}.Last(ctx)
 // Find multiple records
 users, err := orm.Model[User]{}.All(ctx)
 users, err := orm.Model[User]{}.Where("role = ?", "admin").Get(ctx)
-users, err := orm.Model[User]{}.WhereActive(true).Get(ctx)   // dynamic where
 
 // Existence
-exists := orm.Model[User]{}.Where("email = ?", email).Exists(ctx)
-gone   := orm.Model[User]{}.Where("email = ?", email).DoesntExist(ctx)
+exists, err := orm.Model[User]{}.Where("email = ?", email).Exists(ctx)
+gone,   err := orm.Model[User]{}.Where("email = ?", email).DoesntExist(ctx)
 
 // Count
 count, err := orm.Model[User]{}.Count(ctx)
@@ -87,18 +90,23 @@ users, err := orm.Model[User]{}.
 ## Select Columns
 
 ```go
-// Select specific columns
-users, err := orm.Model[User]{}.Select("id", "name", "email").Get(ctx)
+// Select specific columns (open the chain with a Where opener)
+users, err := orm.Model[User]{}.
+    Where("active = ?", true).
+    Select("id", "name", "email").
+    Get(ctx)
 
-// Pluck single column
+// Pluck single column (standalone helper on the model)
 emails, err := orm.Model[User]{}.Pluck(ctx, "email")
 
 // Pluck distinct values
-roles, err := orm.Model[User]{}.Distinct().Pluck(ctx, "role")
-
-// Pluck as map
-emailsMap, err := orm.Model[User]{}.PluckMap("id", "email") // map[uint]string
+roles, err := orm.Model[User]{}.
+    Where("active = ?", true).
+    Distinct().
+    Pluck(ctx, "role")
 ```
+
+`Pluck` (as a standalone helper or a chain terminal) returns `[]any` and honors any `Distinct`, `Where`, and ordering already on the chain.
 
 ## Conditions
 
@@ -123,31 +131,49 @@ users, _ := orm.Model[User]{}.
 // Where in
 users, _ := orm.Model[User]{}.WhereIn("role", []any{"admin", "moderator"}).Get(ctx)
 
-// Where between
-users, _ := orm.Model[User]{}.WhereBetween("age", 18, 65).Get(ctx)
+// Where between (WhereBetween is a chain method; open with a Where first)
+users, _ := orm.Model[User]{}.Where("active = ?", true).WhereBetween("age", 18, 65).Get(ctx)
+
+// Where not in (chain method; open with a Where first)
+users, _ := orm.Model[User]{}.Where("active = ?", true).WhereNotIn("role", []any{"banned", "suspended"}).Get(ctx)
 
 // Where null
 users, _ := orm.Model[User]{}.WhereNull("deleted_at").Get(ctx)
 users, _ := orm.Model[User]{}.WhereNotNull("email_verified_at").Get(ctx)
 
-// Dynamic where (generated from struct fields)
-users, _ := orm.Model[User]{}.WhereEmail("john@example.com").Get(ctx)
-users, _ := orm.Model[User]{}.WhereRole("admin").WhereActive(true).Get(ctx)
+// Three-argument convenience form: column, operator, value
+users, _ := orm.Model[User]{}.Where("age", ">=", 18).Get(ctx)
 ```
 
-### Raw Expressions
+{{< callout type="info" title="One predicate per Where" >}}
+Every `Where` predicate is a single `column operator ?` clause: bind values with `?`, never inline literals (`"age > 18"`) or compound predicates (`"a = ? AND b = ?"`). Chain `Where`/`OrWhere` for multiple conditions, use `WhereBetween`/`WhereIn` for multi-value operators, and `WhereGroup` for parenthesized sub-predicates. Anything else is rejected as a deferred error that surfaces on the next terminal call.
+{{< /callout >}}
+
+### Raw Projections
+
+`Select` admits plain identifiers, the `*` wildcard, and aggregate expressions using exactly one of the five SQL-standard aggregate functions (`COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, uppercase, with an optional `AS` alias). Every other function name, window function, `CASE` expression, or dialect extension is rejected by the projection whitelist as a deferred error. For those, use `SelectRaw`, which emits a trusted expression verbatim and binds `?` placeholders from its `args`:
 
 ```go
+// Aggregate projections pass the Select whitelist directly
+results, _ := orm.Model[User]{}.
+    Where("active = ?", true).
+    Select("role", "COUNT(*) AS post_count").
+    GroupBy("role").
+    Get(ctx)
+
+// SelectRaw is the escape hatch for projections Select cannot express
 users, _ := orm.Model[User]{}.
-    Where("YEAR(created_at) = ?", 2024).
+    Where("active = ?", true).
+    SelectRaw("id, name, ROW_NUMBER() OVER (ORDER BY created_at) AS rn").
     Get(ctx)
 
 users, _ := orm.Model[User]{}.
-    Select("id", "name", orm.Raw("COUNT(*) as post_count")).
-    Join("posts", "posts.user_id", "=", "users.id").
-    GroupBy("users.id").
+    Where("active = ?", true).
+    SelectRaw("CASE WHEN amount > ? THEN 'big' ELSE 'small' END AS bucket", 100).
     Get(ctx)
 ```
+
+The caller owns the safety of the `SelectRaw` expression: values from user input MUST flow through the `args`, never via string interpolation into the expression. Multiple `SelectRaw` calls accumulate and are emitted after any `Select` columns.
 
 ### Dialect-specific operators (JSONB, FTS, array)
 
@@ -248,33 +274,39 @@ users, _ := orm.Model[User]{}.
     OrderBy("name", "ASC").
     Get(ctx)
 
-// Latest/Oldest shortcuts
-users, _ := orm.Model[User]{}.Latest().Get(ctx)  // ORDER BY created_at DESC
-users, _ := orm.Model[User]{}.Oldest().Get(ctx)  // ORDER BY created_at ASC
+// OrderByDesc shortcut (chain method; open with an OrderBy or Where first)
+users, _ := orm.Model[User]{}.OrderBy("created_at", "DESC").Get(ctx)  // ORDER BY created_at DESC
 ```
+
+`OrderBy` normalizes the direction to `ASC`/`DESC` (case-insensitive) and falls back to `ASC` for any other value. Once the chain is open, `OrderByDesc(col)` is shorthand for `OrderBy(col, "DESC")`.
 
 ## Grouping and Aggregates
 
 ```go
-// Group by
+// Group by (open the chain with a Where opener)
 results, err := orm.Model[User]{}.
+    Where("active = ?", true).
     Select("role", "COUNT(*) as count").
     GroupBy("role").
     Get(ctx)
 
 // Having
 results, err := orm.Model[User]{}.
+    Where("active = ?", true).
     Select("role", "COUNT(*) as count").
     GroupBy("role").
     Having("COUNT(*) > ?", 5).
     Get(ctx)
 
-// Aggregates (chain terminals; ctx-first)
+// Count is a standalone helper on the model; ctx-first
 count, err := orm.Model[User]{}.Count(ctx)
-sum,   err := orm.Model[Order]{}.Sum(ctx, "total")
-avg,   err := orm.Model[Product]{}.Avg(ctx, "price")
-max,   err := orm.Model[Product]{}.Max(ctx, "price")
-min,   err := orm.Model[Product]{}.Min(ctx, "price")
+
+// Sum/Avg/Min/Max are chain terminals on *Query[T]; lead with a Where
+// (or another opener) to obtain the builder first.
+sum, err := orm.Model[Order]{}.Where("status = ?", "paid").Sum(ctx, "total")
+avg, err := orm.Model[Product]{}.Where("active = ?", true).Avg(ctx, "price")
+max, err := orm.Model[Product]{}.Where("active = ?", true).Max(ctx, "price")
+min, err := orm.Model[Product]{}.Where("active = ?", true).Min(ctx, "price")
 
 // Single-column scalar pull from the first matching row
 v, err := orm.Model[User]{}.Where("id = ?", id).Value(ctx, "email")
@@ -284,33 +316,46 @@ v, err := orm.Model[User]{}.Where("id = ?", id).Value(ctx, "email")
 
 ## Joins
 
+`Join`, `LeftJoin`, and `RightJoin` are chain methods, so open the builder with a `Where` (or another opener) first:
+
 ```go
 // Inner join
 users, _ := orm.Model[User]{}.
+    Where("users.active = ?", true).
     Join("posts", "posts.user_id", "=", "users.id").
     Select("users.*", "posts.title").
     Get(ctx)
 
 // Left join
 users, _ := orm.Model[User]{}.
+    Where("users.active = ?", true).
     LeftJoin("posts", "posts.user_id", "=", "users.id").
     Get(ctx)
 
 // Multiple joins
 users, _ := orm.Model[User]{}.
+    Where("users.active = ?", true).
     Join("posts", "posts.user_id", "=", "users.id").
     Join("comments", "comments.post_id", "=", "posts.id").
     Distinct().
     Get(ctx)
 ```
 
+Each join validates the table and the two ON identifiers, and admits only the built-in comparison operators (`=`, `!=`, `<`, `>`, `LIKE`, ...) between them.
+
 ## Pagination
 
 ```go
-// Simple pagination via limit/offset
-users, err := orm.Model[User]{}.Limit(10).Offset(20).Get(ctx)
+// Simple pagination via limit/offset (Limit/Offset are chain methods;
+// open with a Where or OrderBy first)
+users, err := orm.Model[User]{}.
+    OrderBy("id", "ASC").
+    Limit(10).
+    Offset(20).
+    Get(ctx)
 
-// Paginate helper: total count + page slice in a single call
+// Paginate helper: total count + page slice in a single call.
+// Paginate is a standalone helper on the model, and also a chain terminal.
 result, err := orm.Model[User]{}.
     Where("active = ?", true).
     Paginate(ctx, page, perPage)
@@ -325,13 +370,17 @@ result, err := orm.Model[User]{}.
 
 Process large datasets in fixed-size batches. The callback receives one page at a time; returning a non-nil error from the callback aborts the walk.
 
+`Chunk` is a chain terminal, so open the builder first (a stable `OrderBy` is recommended so pages do not overlap or skip rows between batches):
+
 ```go
-err := orm.Model[User]{}.Chunk(ctx, 1000, func(users []User) error {
-    for _, u := range users {
-        // process u
-    }
-    return nil
-})
+err := orm.Model[User]{}.
+    OrderBy("id", "ASC").
+    Chunk(ctx, 1000, func(users []User) error {
+        for _, u := range users {
+            // process u
+        }
+        return nil
+    })
 ```
 
 ## Mass Updates and Deletes
@@ -350,8 +399,11 @@ affected, err := orm.Model[User]{}.Where("id = ?", id).Delete(ctx)
 // Hard delete; bypasses the soft-delete trait
 affected, err := orm.Model[User]{}.Where("id = ?", id).ForceDelete(ctx)
 
-// Insert + return generated id
-id, err := orm.Model[User]{}.InsertGetId(ctx, map[string]any{
+// Insert + return generated id. InsertGetId is a builder terminal and
+// ignores any predicates on the chain; open the builder with a no-op
+// opener such as With() to reach it. For the common insert path, prefer
+// the Create helper on the model, which returns the populated *T.
+id, err := orm.Model[User]{}.With().InsertGetId(ctx, map[string]any{
     "email": "j@example.com",
     "name":  "Jane",
 })
@@ -361,10 +413,10 @@ id, err := orm.Model[User]{}.InsertGetId(ctx, map[string]any{
 
 ### Chain-style writes
 
-`Save`, `Create`, `CreateMany`, `FirstOrCreate`, and `UpdateOrCreate` are also exposed on the chain. They all share the chain's driver, so a tx-bound `ctx` enrolls them in that transaction:
+`Save`, `Create`, `CreateMany`, `FirstOrCreate`, and `UpdateOrCreate` are exposed on the chain. They all share the chain's driver, so a tx-bound `ctx` enrolls them in that transaction. `Create`, `CreateMany`, `FirstOrCreate`, and `UpdateOrCreate` are also standalone helpers on the model and can be called on a bare `Model[T]{}`; `Save` is chain-only, so open the builder with a no-op `With()` first:
 
 ```go
-err := orm.Model[User]{}.Save(ctx, &user)
+err := orm.Model[User]{}.With().Save(ctx, &user)
 created, err := orm.Model[User]{}.Create(ctx, map[string]any{"email": email})
 err = orm.Model[User]{}.CreateMany(ctx, batch)
 
@@ -380,21 +432,6 @@ u, err := orm.Model[User]{}.UpdateOrCreate(ctx,
 ```
 
 `CreateMany` iterates sequentially and short-circuits on the first error. Inside `mgr.Transaction`, returning that error rolls back the partial batch.
-
-## Subqueries
-
-```go
-// Subquery in where
-users, _ := orm.Model[User]{}.
-    WhereIn("id", orm.Model[Post]{}.Select("user_id").Where("published = ?", true)).
-    Get(ctx)
-
-// Subquery in select
-users, _ := orm.Model[User]{}.
-    Select("*").
-    SelectSub(orm.Model[Post]{}.Select("COUNT(*)").Where("posts.user_id = users.id"), "post_count").
-    Get(ctx)
-```
 
 ## Raw SQL
 
@@ -427,19 +464,22 @@ affected, _ := result.RowsAffected()
 
 ```go
 // Bad: fetches all columns
-users, _ := orm.Model[User]{}.Get(ctx)
+users, _ := orm.Model[User]{}.All(ctx)
 
-// Good: fetches only needed columns
-users, _ := orm.Model[User]{}.Select("id", "name", "email").Get(ctx)
+// Good: fetches only needed columns (open with a Where, then Select)
+users, _ := orm.Model[User]{}.
+    Where("active = ?", true).
+    Select("id", "name", "email").
+    Get(ctx)
 ```
 
 ### Avoid N+1 Queries
 
 ```go
 // Bad: N+1 queries
-users, _ := orm.Model[User]{}.Get(ctx)
+users, _ := orm.Model[User]{}.All(ctx)
 for _, u := range users {
-    posts, _ := orm.Model[Post]{}.WhereUserID(u.ID).Get(ctx) // N queries
+    posts, _ := orm.Model[Post]{}.Where("user_id = ?", u.ID).Get(ctx) // N queries
 }
 
 // Good: eager loading

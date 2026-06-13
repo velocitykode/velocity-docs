@@ -50,12 +50,12 @@ Compile a production binary.
 vel build [flags]
 ```
 
-| Flag        | Short | Default       | Description                     |
-| ----------- | ----- | ------------- | ------------------------------- |
-| `--output`  | `-o`  | `./dist/app`  | Output path                     |
-| `--os`      |       | (host)        | Target `GOOS`                   |
-| `--arch`    |       | (host)        | Target `GOARCH`                 |
-| `--tags`    |       | (none)        | Go build tags                   |
+| Flag        | Short | Default          | Description                                          |
+| ----------- | ----- | ---------------- | ---------------------------------------------------- |
+| `--output`  | `-o`  | project dir name | Output path (`.exe` appended when `--os windows`)    |
+| `--os`      |       | (host)           | Target `GOOS`                                        |
+| `--arch`    |       | (host)           | Target `GOARCH`                                      |
+| `--tags`    |       | (none)           | Go build tags                                        |
 
 ```bash
 vel build
@@ -81,8 +81,13 @@ for reviewing migration output before committing.
 Drop all tables, then run every migration from scratch.
 
 ```bash
-vel migrate:fresh
+vel migrate:fresh [--force]
 ```
+
+In a production-class environment this command refuses to run unless
+`--force` (`-f`) is passed. The guard treats `production`, `prod`,
+`staging`, and any unrecognised `APP_ENV` value as production, so a
+typo'd `APP_ENV` cannot disable it.
 
 {{< callout type="warning" >}}
 Destructive - deletes all data. Development / testing only.
@@ -93,12 +98,16 @@ Destructive - deletes all data. Development / testing only.
 Roll back the most recent batch of migrations.
 
 ```bash
-vel migrate:rollback [--step N]
+vel migrate:rollback [--step N] [--force]
 ```
 
-| Flag     | Short | Default | Description                      |
-| -------- | ----- | ------- | -------------------------------- |
-| `--step` | `-s`  | `1`     | Number of batches to roll back   |
+| Flag      | Short | Default | Description                                                   |
+| --------- | ----- | ------- | ------------------------------------------------------------- |
+| `--step`  | `-s`  | `1`     | Number of batches to roll back (must be >= 1)                 |
+| `--force` | `-f`  | off     | Bypass the production-environment guard                       |
+
+Like `migrate:fresh`, this is gated in production-class environments;
+pass `--force` to proceed.
 
 ### vel migrate:status
 
@@ -113,12 +122,15 @@ vel migrate:status
 Drop every table in the current database without running migrations.
 
 ```bash
-vel db:wipe
+vel db:wipe [--force]
 ```
 
+In a production-class environment this command refuses to run unless
+`--force` (`-f`) is passed (same guard as `migrate:fresh`).
+
 {{< callout type="warning" >}}
-Destructive. No confirmation prompt. Use only when you know the
-database is disposable.
+Destructive. Outside production there is no confirmation prompt. Use
+only when you know the database is disposable.
 {{< /callout >}}
 
 ## Queue and Scheduler
@@ -177,7 +189,7 @@ vel down [--secret TOKEN] [--retry N]
 
 | Flag       | Default | Description                                            |
 | ---------- | ------- | ------------------------------------------------------ |
-| `--secret` | (none)  | Token clients can use at `?__maintenance=TOKEN` to bypass |
+| `--secret` | (none)  | Bypass token. Send it in the `X-Maintenance-Bypass` header (or visit `/<secret>`) to mint a signed `velocity_maintenance_bypass` cookie that exempts the browser |
 | `--retry`  | (none)  | Value for the `Retry-After` response header (seconds)  |
 
 ```bash
@@ -197,7 +209,9 @@ vel up
 ### vel key:generate
 
 Generate a fresh 32-byte encryption key and write it to `.env` under
-`CRYPTO_KEY` (falls back to `APP_KEY` if that's what the project uses).
+`APP_KEY`, base64-encoded with a `base64:` prefix. If `.env` does not
+exist it's created; an existing `APP_KEY=` line is replaced in place.
+The `.env` file is written with owner-only (`0600`) permissions.
 
 ```bash
 vel key:generate
@@ -207,7 +221,7 @@ vel key:generate
 
 ### vel route:list
 
-Print every registered route with method, path, name, and middleware.
+Print every registered route with method, path, and name.
 
 ```bash
 vel route:list
@@ -222,30 +236,37 @@ All `make:*` commands scaffold a file into the conventional location
 for that type. Names are converted to the right case for the artifact
 (snake_case for migration files, PascalCase for types).
 
+Every `make:*` command accepts a `--dir <path>` flag to override the
+default output directory (the artifact's conventional folder). The value
+is validated and must stay inside the project tree.
+
 ### vel make:handler
 
 ```bash
-vel make:handler <name> [--resource] [--api]
+vel make:handler <name> [--resource] [--api] [--dir PATH]
 ```
 
 | Flag         | Short | Default | Description                                      |
 | ------------ | ----- | ------- | ------------------------------------------------ |
 | `--resource` | `-r`  | off     | Scaffold CRUD methods (Index/Show/Store/Update/Destroy) |
 | `--api`      |       | off     | JSON responses instead of view rendering         |
+| `--dir`      |       | `internal/handlers` | Output root override                 |
 
-Output: `internal/handlers/<name>.go`.
+Output: `internal/handlers/<name>.go`. Namespaced names like
+`Admin/Dashboard` nest under the output root.
 
 ```bash
 vel make:handler User
 vel make:handler Post --resource
 vel make:handler Admin/Dashboard
 vel make:handler Product --api --resource
+vel make:handler User --dir internal/web/handlers
 ```
 
 ### vel make:model
 
 ```bash
-vel make:model <name> [--uuid] [--soft-deletes] [--migration]
+vel make:model <name> [--uuid] [--soft-deletes] [--migration] [--dir PATH]
 ```
 
 | Flag              | Short | Default | Description                          |
@@ -253,13 +274,14 @@ vel make:model <name> [--uuid] [--soft-deletes] [--migration]
 | `--uuid`          |       | off     | Use UUID primary key                 |
 | `--soft-deletes`  |       | off     | Add deleted_at column and scope      |
 | `--migration`     | `-m`  | off     | Also scaffold the migration          |
+| `--dir`           |       | `internal/models` | Output directory override  |
 
 Output: `internal/models/<name>.go`.
 
 ### vel make:migration
 
 ```bash
-vel make:migration <name> [--create TABLE] [--table TABLE] [--uuid] [--soft-deletes]
+vel make:migration <name> [--create TABLE] [--table TABLE] [--uuid] [--soft-deletes] [--dir PATH]
 ```
 
 | Flag             | Accepts             | Description                                         |
@@ -268,8 +290,11 @@ vel make:migration <name> [--create TABLE] [--table TABLE] [--uuid] [--soft-dele
 | `--table`        | `=VALUE` or space   | Generate an "alter" migration for the given table   |
 | `--uuid`         | flag                | Use UUID primary key in the create template        |
 | `--soft-deletes` | flag                | Include deleted_at in the create template          |
+| `--dir`          | `=VALUE` or space   | Output directory override (default `database/migrations`) |
 
-Output: `database/migrations/<timestamp>_<name>.go`.
+Table names passed to `--create` / `--table` must match
+`[A-Za-z_][A-Za-z0-9_]*`. Output:
+`database/migrations/<timestamp>_<name>.go`.
 
 ```bash
 vel make:migration create_posts --create=posts
@@ -279,7 +304,7 @@ vel make:migration add_slug_to_posts --table=posts
 ### Other make commands
 
 All take a name argument and scaffold a file into the conventional
-directory.
+directory. Each also accepts `--dir <path>` to override that directory.
 
 | Command                | Output path                          |
 | ---------------------- | ------------------------------------ |
@@ -303,17 +328,27 @@ vel make:policy PostPolicy
 ### vel make:grpc:service
 
 ```bash
-vel make:grpc:service <Name>
+vel make:grpc:service <Name> [flags]
 ```
 
 Scaffolds a gRPC service end-to-end in one call:
 
-- `api/proto/<name>/v1/<name>.proto` - empty service block
+- `api/proto/<leaf>/v1/<name>.proto` - empty service block
 - `api/proto/buf.yaml` + `api/proto/buf.gen.yaml` (first run only)
-- `internal/grpc/services/<name>.go` - `*<Name>Service` impl with `UnimplementedXXXServer` embed
-- `internal/providers/grpc_provider.go` - created on first call, then **injected at** `// vel:grpc:imports` and `// vel:grpc:services` markers on every subsequent call
+- `internal/grpc/services/<name>.go` - `<Name>Service` impl with a `New<Name>Service()` constructor and the `<alias>.Unimplemented<Name>ServiceServer` embed
+- `internal/providers/grpc_provider.go` - created on first call (unless `--no-provider`), then **injected at** `// vel:grpc:imports` and `// vel:grpc:services` markers on every subsequent call. The provider wires the service via `velgrpc.NewServer(...)` and `Register<Name>ServiceServer(...)`.
 
-Name normalisation: `vel make:grpc:service Foo`, `FooService`, `foo`, and `fooService` all produce `FooService` with proto package `foo.v1` and Go alias `foov1`. The proto file uses `option go_package = "<module>/api/gen/go/<name>/v1;<name>v1"` derived from the host project's `go.mod`.
+| Flag              | Default                     | Description                                                  |
+| ----------------- | --------------------------- | ------------------------------------------------------------ |
+| `--package`       | derived from `<Name>`       | Directory leaf under `api/proto/` and `api/gen/go/`          |
+| `--proto-package` | `<leaf>.v1`                 | Full wire package, e.g. `velship.admin.v1`                   |
+| `--dir`           | `internal/grpc/services`    | Go impl output directory                                     |
+| `--alias`         | `<leaf>pb`                  | Import alias for the generated proto package                 |
+| `--proto-name`    | lower-cased `<Name>` base   | Proto file base name (no extension)                          |
+| `--impl-name`     | snake_case `<Name>` base    | Go impl file base name (no extension)                        |
+| `--no-provider`   | off                         | Skip provider scaffolding / wiring (proto + impl only)       |
+
+Name normalisation: `vel make:grpc:service Foo`, `FooService`, `foo`, and `fooService` all produce the Go type `FooService` with proto package `foo.v1` and default import alias `foopb`. The proto file uses `option go_package = "<module>/api/gen/go/<leaf>/v1;<leaf>v1"` derived from the host project's `go.mod` (so the generated package itself is named `<leaf>v1`, referenced through the `foopb` alias).
 
 `buf.yaml` / `buf.gen.yaml` are written **before** the proto file, so a config-write failure leaves no partial scaffold on disk. The generated `GRPCProvider` does **not** hard-code `WithReflection(true)`; the framework default (toggled by `GRPC_REFLECTION` env) reaches the file so the generated app boots cleanly in production.
 
@@ -322,6 +357,8 @@ If `internal/providers/grpc_provider.go` already exists **without** the marker c
 ```bash
 vel make:grpc:service Foo
 vel make:grpc:service ChatService
+vel make:grpc:service TemplateControl --package admin \
+  --proto-package velship.admin.v1 --dir internal/shared/grpc/services --no-provider
 ```
 
 After scaffolding, register `providers.GRPCProvider{}` in `internal/app/bootstrap.go` (printed as a hint on first run).
@@ -345,14 +382,14 @@ Only one streaming flag may be set per invocation; combining them errors out.
 
 The proto scanner walks the file with brace counting that respects `//` line comments, `/* block */` comments, and `"..."` string literals at every position (header keyword, between keyword and name, between name and `{`, and inside the body). That means rpc-with-options blocks (grpc-gateway HTTP annotations) and commented-out draft headers do not corrupt insertion.
 
-On the Go side, the generated method signature matches the RPC shape:
+On the Go side, the generated method signature matches the RPC shape (for service `Foo`, impl type `FooService`, default proto alias `foopb`):
 
-| Shape         | Signature                                                                 |
-| ------------- | ------------------------------------------------------------------------- |
-| Unary         | `func (s *Foo) X(ctx context.Context, req *foov1.XRequest) (*foov1.XResponse, error)` |
-| Server stream | `func (s *Foo) X(req *foov1.XRequest, stream foov1.Foo_XServer) error`    |
-| Client stream | `func (s *Foo) X(stream foov1.Foo_XServer) error`                         |
-| Bidi          | `func (s *Foo) X(stream foov1.Foo_XServer) error`                         |
+| Shape         | Signature                                                                                       |
+| ------------- | ----------------------------------------------------------------------------------------------- |
+| Unary         | `func (s *FooService) X(ctx context.Context, req *foopb.XRequest) (*foopb.XResponse, error)`    |
+| Server stream | `func (s *FooService) X(req *foopb.XRequest, stream foopb.FooService_XServer) error`             |
+| Client stream | `func (s *FooService) X(stream foopb.FooService_XServer) error`                                  |
+| Bidi          | `func (s *FooService) X(stream foopb.FooService_XServer) error`                                  |
 
 `context` is added to the impl's imports for unary only; streaming variants pull ctx from `stream.Context()` and do not need the import.
 

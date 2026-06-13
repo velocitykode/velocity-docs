@@ -9,13 +9,15 @@ Install the Velocity CLI to create and manage Velocity projects.
 
 ## Requirements
 
-- **Go 1.26 or higher** - Required for building projects
-- **Node.js 18+** - Required for frontend asset compilation (Vite)
-- **Git** - Required for project initialization
+- **Go 1.26 or higher** - Required for building projects (the installer checks `go version` on startup and refuses to run on an older toolchain)
+- **Node.js 20+** - Required for frontend asset compilation (Vite 7)
+- **Git** - Required for project initialization (each new project is initialized as a Git repository, and Git clone is used as a fallback when the template tarball download is unavailable)
+
+Full-stack projects install JavaScript dependencies with [bun](https://bun.sh) when it is available, falling back to `npm`. Installing bun is optional but gives much faster installs.
 
 ## Install via Homebrew
 
-The recommended way to install Velocity on macOS:
+The recommended way to install Velocity on macOS is through the Homebrew cask:
 
 ```bash
 brew tap velocitykode/tap
@@ -30,11 +32,17 @@ Check that the CLI is installed correctly:
 velocity --version
 ```
 
-You should see output like:
+You should see the installer version followed by the template tags pinned to that release:
 
 ```
-velocity version 0.4.0
+velocity 0.21.14
+templates:
+  api -> v...
+  react -> v...
+  vue -> v...
 ```
+
+Each installer release pins exact template tags, so the version output lists those tags as the relevant build coordinates.
 
 ## Understanding the CLI Architecture
 
@@ -46,10 +54,12 @@ Velocity uses two CLI tools:
 | `vel` | Built from source (per-project) | Run dev server, migrations, generators |
 
 When you run `velocity new myapp`, it:
-1. Scaffolds a new project
-2. Installs dependencies
+1. Scaffolds a new project from the pinned template
+2. Installs dependencies (`go mod tidy`, plus bun/npm for full-stack projects)
 3. Builds the `./vel` binary from your project source
-4. Starts development servers
+4. Runs initial database migrations
+
+When the project is ready it prints the next steps to start the dev servers (`cd myapp` then `./vel serve`). If the database server is not reachable, migrations are skipped and the printed steps include starting your database and running `./vel migrate` manually.
 
 ## Using vel in Projects
 
@@ -92,15 +102,37 @@ velocity new --help
 ./vel serve --help
 ```
 
+## Setting Project Defaults
+
+Use `velocity config` to set defaults that `velocity new` will apply when a flag is not provided:
+
+```bash
+velocity config set default.database postgres
+velocity config set default.cache redis
+velocity config set default.api true
+```
+
+Supported keys are `default.database`, `default.cache`, `default.queue`, `default.auth`, and `default.api`. Read or inspect the current values with:
+
+```bash
+velocity config get default.database
+velocity config list
+velocity config reset
+```
+
+Configuration is stored in `~/.vel/config.yaml`.
+
 ## Updating
 
 ### Update Velocity Installer
 
+For Homebrew installs, upgrade the cask:
+
 ```bash
-brew upgrade velocity
+brew upgrade --cask velocity
 ```
 
-Or use the built-in self-update:
+The built-in self-update command detects a Homebrew install and will point you at the `brew upgrade --cask velocity` command above. It only downloads and replaces the binary in place for non-Homebrew (manual) installs:
 
 ```bash
 velocity self-update
@@ -108,10 +140,10 @@ velocity self-update
 
 ### Rebuild vel
 
-The `vel` binary is rebuilt automatically when source files change. To manually rebuild:
+The `vel` binary is built from the project's `main.go`. To rebuild it manually from the project root:
 
 ```bash
-go build -o vel ./cmd/vel
+go build -o vel .
 ```
 
 ## Uninstalling
@@ -119,7 +151,7 @@ go build -o vel ./cmd/vel
 ### Remove Velocity Installer
 
 ```bash
-brew uninstall velocity
+brew uninstall --cask velocity
 brew untap velocitykode/tap
 ```
 

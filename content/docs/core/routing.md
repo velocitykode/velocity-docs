@@ -132,8 +132,9 @@ func main() {
 ```
 
 The callbacks (`app.Configure`, `app.Middleware`, `app.Events`,
-`routes.Register`) live in your own packages. `velocity new`
-scaffolds them; the relevant signatures are:
+`routes.Register`) live in your own packages. Each one matches the
+argument type of the chain method it is passed to; the relevant
+signatures are:
 
 ```go
 // internal/app/bootstrap.go

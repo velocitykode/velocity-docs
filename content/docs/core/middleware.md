@@ -368,8 +368,11 @@ later layers (validation, logging) can read it back.
 
 `router.Timeout(duration time.Duration)` cancels the request context
 after the deadline and writes `503 Service Unavailable` if the handler
-hasn't returned. The middleware always waits for the handler goroutine
-to finish so pooled context state is safe.
+hasn't returned. On timeout the request is released to the client
+immediately - the middleware does *not* block on a stuck handler. The
+handler runs on a shallow-cloned `Context` (its own request, params,
+and values), so its late writes are buffered and discarded rather than
+racing the pooled parent context. This mirrors `net/http.TimeoutHandler`.
 
 ```go
 m.API(
@@ -396,6 +399,11 @@ when the deadline trips.
 inside the API stack (or per-route), not in the global stack, so the
 recovery and logging middleware still see the response after the
 deadline fires.
+
+Streaming (`http.Flusher`), `Hijack`, and `Push` are not supported
+under `Timeout` - the buffered timeout-safe writer cannot commit
+headers to the wire early. Don't wrap SSE, WebSocket-upgrade, or
+streaming-download handlers with it.
 {{< /callout >}}
 
 ### `ContentTypeJSON` - reject non-JSON write requests

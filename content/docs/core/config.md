@@ -1,29 +1,34 @@
 ---
 title: Configuration
-description: Manage application configuration with environment variables and structured config files in Velocity.
+description: Manage application configuration with environment variables and the structured velocity.Config struct in Velocity.
 weight: 5
 ---
 
-Velocity provides a simple yet powerful configuration system that reads from environment variables and provides structured configuration for framework packages.
+Velocity provides a simple yet powerful configuration system that reads from environment variables and a `.env` file, then exposes a single strongly-typed `velocity.Config` struct that every framework package consumes.
 
 ## Quick Start
 
 {{% callout type="info" %}}
-**Environment-Based**: Velocity uses environment variables for all configuration, following the twelve-factor app methodology.
+**Environment-Based**: Velocity loads configuration from environment variables and an optional `.env` file, following the twelve-factor app methodology.
 {{% /callout %}}
 
-{{< tabs items="Basic Usage,Environment Files,Type Helpers" >}}
+{{< tabs items="Default App,Environment File,Custom Config" >}}
 
 {{< tab >}}
 ```go
-import "github.com/velocitykode/velocity/config"
+import "github.com/velocitykode/velocity"
 
 func main() {
-    // Get environment variable with fallback
-    appName := config.Get("APP_NAME", "Velocity")
-    appEnv := config.Get("APP_ENV", "development")
+    // velocity.New loads ConfigFromEnv() by default:
+    // it reads .env (if present) and the process environment.
+    app, err := velocity.New()
+    if err != nil {
+        panic(err)
+    }
 
-    fmt.Printf("Running %s in %s mode\n", appName, appEnv)
+    if err := app.Serve(); err != nil {
+        panic(err)
+    }
 }
 ```
 {{< /tab >}}
@@ -31,14 +36,13 @@ func main() {
 {{< tab >}}
 ```env
 # .env file
-APP_NAME=MyApplication
 APP_ENV=production
 APP_DEBUG=false
-APP_URL=https://example.com
+APP_PORT=4000
 
 # Database
 DB_CONNECTION=mysql
-DB_HOST=localhost
+DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_DATABASE=myapp
 DB_USERNAME=root
@@ -46,53 +50,307 @@ DB_PASSWORD=secret
 
 # Cache
 CACHE_DRIVER=redis
-REDIS_HOST=localhost
+REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
 ```
 {{< /tab >}}
 
 {{< tab >}}
 ```go
-import "github.com/velocitykode/velocity/config"
+import "github.com/velocitykode/velocity"
 
 func main() {
-    // String with fallback
-    appName := config.Env("APP_NAME", "Velocity")
+    // Build the config explicitly, then override New's env-loaded default.
+    cfg := velocity.ConfigFromEnv()
+    cfg.Port = "8080"
 
-    // Integer with fallback
-    port := config.EnvInt("APP_PORT", 4000)
-
-    // Boolean with fallback
-    debug := config.EnvBool("APP_DEBUG", false)
-
-    fmt.Printf("%s running on port %d (debug: %v)\n", appName, port, debug)
+    app, err := velocity.New(velocity.WithConfig(cfg))
+    if err != nil {
+        panic(err)
+    }
+    _ = app
 }
 ```
 {{< /tab >}}
 
 {{< /tabs >}}
 
-## Configuration Files
+## How Configuration Loads
 
-### .env File
+`velocity.New()` calls `ConfigFromEnv()` automatically, so a default app reads its
+configuration from the environment with no extra wiring. The loader:
 
-Create a `.env` file in your project root:
+1. Calls `godotenv.Load()` to read a `.env` file from the working directory (if present).
+   A `.env` that exists but fails to parse is logged as a warning, not a fatal error.
+2. Reads every documented environment variable, applying defaults for unset values.
+3. Returns a `velocity.Config` whose typed sub-structs (`DB`, `Cache`, `Queue`,
+   `Storage`, `Session`, `Auth`, `CSRF`, `Crypto`, `Mail`, `View`, `Log`) are consumed
+   by the matching framework packages.
+
+```go
+import "github.com/velocitykode/velocity"
+
+func main() {
+    cfg := velocity.ConfigFromEnv()
+
+    // cfg.Env is the normalized (lowercased, trimmed) APP_ENV value.
+    if cfg.Env == "production" && cfg.Debug {
+        panic("APP_DEBUG must be false in production")
+    }
+}
+```
+
+You rarely need to call `ConfigFromEnv()` yourself. Use it only when you want to
+inspect or mutate the config before passing it to `velocity.New` via `WithConfig`.
+
+## The Config Struct
+
+`velocity.Config` is the single source of truth for application configuration. The
+top-level fields and their backing environment variables are:
+
+```go
+type Config struct {
+    // App
+    Env   string // APP_ENV, empty when unset
+    Debug bool   // APP_DEBUG, default false
+    Port  string // APP_PORT, default "4000"
+    Key   string // APP_KEY (used for crypto)
+
+    DB      DBConfig            // DB_*
+    Auth    auth.Config         // AUTH_*
+    Cache   CacheConfig         // CACHE_*, REDIS_*
+    Log     log.LogConfig       // LOG_*
+    Queue   QueueConfig         // QUEUE_*
+    Storage StorageConfig       // STORAGE_*, FILESYSTEM_*, AWS_*
+    CSRF    csrf.Config         // CSRF_*
+    Session auth.SessionConfig  // SESSION_*
+    View    view.Config         // VIEW_SSR_*
+    Crypto  crypto.Config       // CRYPTO_*
+    Mail    mail.MailConfig     // MAIL_*
+
+    // Server timeouts
+    ReadTimeout       time.Duration // SERVER_READ_TIMEOUT, default 30s
+    WriteTimeout      time.Duration // SERVER_WRITE_TIMEOUT, default 30s
+    IdleTimeout       time.Duration // SERVER_IDLE_TIMEOUT, default 120s
+    ReadHeaderTimeout time.Duration // SERVER_READ_HEADER_TIMEOUT, default 10s
+
+    // FileRoot bounds Context.File / Context.Download / Context.SaveFile.
+    // Sourced from FILE_ROOT; defaults to the process working directory.
+    FileRoot string
+}
+```
+
+### Database Configuration
+
+```go
+type DBConfig struct {
+    Connection      string        // DB_CONNECTION: sqlite, postgres, mysql
+    Host            string        // DB_HOST, default "127.0.0.1"
+    Port            string        // DB_PORT, default per driver (mysql 3306, postgres 5432)
+    Database        string        // DB_DATABASE
+    Username        string        // DB_USERNAME
+    Password        string        // DB_PASSWORD
+    Charset         string        // DB_CHARSET
+    SSLMode         string        // DB_SSL_MODE (postgres)
+    TLS             string        // DB_MYSQL_TLS (true/false/skip-verify/preferred)
+    MaxIdleConns    int           // DB_MAX_IDLE_CONNS, default 10
+    MaxOpenConns    int           // DB_MAX_OPEN_CONNS, default 100
+    ConnMaxLifetime time.Duration // DB_CONN_MAX_LIFETIME (seconds), default 3600
+    LogQueries      bool          // DB_LOG_QUERIES
+    SlowThreshold   time.Duration // DB_SLOW_QUERY_THRESHOLD
+}
+```
+
+### Cache Configuration
+
+```go
+type CacheConfig struct {
+    Driver           string // CACHE_DRIVER: memory, file, redis, database (default "memory")
+    Prefix           string // CACHE_PREFIX, default "velocity_cache"
+    Path             string // CACHE_PATH (required when CACHE_DRIVER=file)
+    MemoryMaxEntries int    // CACHE_MEMORY_MAX_ENTRIES (0 = 1,000,000, negative = unlimited)
+    MaxValueBytes    int64  // CACHE_MAX_VALUE_BYTES (0 = unlimited)
+    RedisHost        string // REDIS_HOST, default "127.0.0.1"
+    RedisPort        int    // REDIS_PORT, default 6379
+    RedisPassword    string // REDIS_PASSWORD
+    RedisDatabase    int    // REDIS_DATABASE, default 0
+    RedisTLS         bool   // REDIS_TLS
+}
+```
+
+### Queue Configuration
+
+```go
+type QueueConfig struct {
+    Driver        string // QUEUE_DRIVER: memory, redis, database (default "memory")
+    RedisHost     string // QUEUE_REDIS_HOST, default "localhost"
+    RedisPort     string // QUEUE_REDIS_PORT, default "6379"
+    RedisPassword string // QUEUE_REDIS_PASSWORD
+    RedisDB       string // QUEUE_REDIS_DB, default "0"
+    RedisTLS      bool   // REDIS_TLS
+    SigningKey    string // QUEUE_SIGNING_KEY: HMAC key for payload signing
+    Encrypt       bool   // QUEUE_ENCRYPT: encrypt job payloads at rest
+}
+```
+
+### Storage Configuration
+
+```go
+type StorageConfig struct {
+    Default string                // STORAGE_DRIVER, default "local"
+    Disks   map[string]DiskConfig // configured disks
+}
+
+type DiskConfig struct {
+    Driver     string // "local", "s3", "memory"
+    Root       string // root path for the local driver
+    URL        string // base URL for file access
+    Visibility string // default visibility (public/private)
+    Bucket     string // s3
+    Region     string // s3
+    Key        string // s3
+    Secret     string // s3
+    MaxSize    int64  // memory driver max bytes
+}
+```
+
+A `local` disk is always configured (root from `FILESYSTEM_LOCAL_ROOT`, default
+`./storage/app`). An `s3` disk is added automatically when `AWS_BUCKET` is set, reading
+`AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_URL`.
+
+## Configuration Options
+
+Pass `velocity.Option` functions to `velocity.New` to override the env-loaded config.
+
+```go
+import (
+    "time"
+
+    "github.com/velocitykode/velocity"
+)
+
+app, err := velocity.New(
+    velocity.WithPort("8080"),
+    velocity.WithReadTimeout(15*time.Second),
+    velocity.WithWriteTimeout(15*time.Second),
+    velocity.WithIdleTimeout(60*time.Second),
+)
+```
+
+Available options include:
+
+| Option | Effect |
+| --- | --- |
+| `WithConfig(cfg Config)` | Replace the entire configuration. |
+| `WithPort(port string)` | Set the HTTP server port. |
+| `WithReadTimeout(d time.Duration)` | Set the HTTP read timeout. |
+| `WithWriteTimeout(d time.Duration)` | Set the HTTP write timeout. |
+| `WithIdleTimeout(d time.Duration)` | Set the HTTP idle timeout. |
+| `WithProviders(providers ...app.ServiceProvider)` | Append service providers. |
+| `WithoutEvents()` | Disable the event dispatcher entirely. |
+| `WithFakeEvents(fake *events.FakeDispatcher)` | Record dispatched events for assertions. |
+| `WithSchedulerInProcess()` | Run the scheduler loop in the same process as `Serve()`. |
+
+## Validating Configuration
+
+`velocity.New` calls `Config.Validate()` before allocating any resources, so malformed
+values (an invalid `APP_PORT`, a negative timeout, an unknown `SESSION_SAME_SITE`, a
+`file` cache driver without `CACHE_PATH`) fail fast with a clear error. You can also call
+it yourself:
+
+```go
+import (
+    "errors"
+
+    "github.com/velocitykode/velocity"
+)
+
+cfg := velocity.ConfigFromEnv()
+if err := cfg.Validate(); err != nil {
+    if errors.Is(err, velocity.ErrInvalidConfig) {
+        // configuration is structurally invalid
+    }
+    return err
+}
+```
+
+`Validate()` performs structural checks only (port is numeric, timeouts are
+non-negative, `SESSION_SAME_SITE` / `CSRF_SAME_SITE` are one of `strict|lax|none`, and
+each sub-config's `Validate()` passes). It deliberately does not check driver names
+against an allowlist: an unknown driver surfaces as a typed registry error when the
+relevant subsystem resolves it. Every failure wraps the `velocity.ErrInvalidConfig`
+sentinel so callers can branch with `errors.Is`.
+
+## Logging Configuration
+
+The root config stores logging settings in `Config.Log`, a `log.LogConfig`:
+
+```go
+import "github.com/velocitykode/velocity/log"
+
+type LogConfig struct {
+    // Driver: "console", "file", "stack", "null", or a registered driver.
+    Driver string
+    // Config holds driver-specific options, e.g. "path" for file,
+    // "level" for any driver, "stack" with a []string of channel names.
+    Config map[string]any
+}
+```
+
+`ConfigFromEnv()` populates it from `LOG_DRIVER` (default `console`), `LOG_PATH`,
+`LOG_LEVEL` (default `debug`), `LOG_DAYS` (default 14), and `LOG_STACK` (a
+comma-separated list of channel names for the `stack` driver).
+
+The `log` package also exposes a multi-channel `LoggingConfig` for applications that
+define named channels:
+
+```go
+import "github.com/velocitykode/velocity/log"
+
+cfg := log.LoggingConfig{
+    Default: "stack",
+    Channels: map[string]log.ChannelConfig{
+        "daily": {Driver: "file", Level: "debug", Path: "./storage/logs", MaxAge: 14},
+    },
+}
+
+if channel, ok := cfg.GetChannel("daily"); ok {
+    _ = channel.Driver
+}
+
+if channel, ok := cfg.GetDefaultChannel(); ok {
+    _ = channel.Driver
+}
+```
+
+```go
+type ChannelConfig struct {
+    Driver  string         // file, console, syslog, null
+    Level   string         // debug, info, warn, error
+    Path    string         // file path (for file driver)
+    MaxAge  int            // max age in days
+    Options map[string]any // driver-specific options
+}
+```
+
+## Environment Variables Reference
+
+A representative `.env` covering the most common settings:
 
 ```env
 # Application
-APP_NAME=Velocity
 APP_ENV=production
 APP_DEBUG=false
-APP_URL=https://example.com
 APP_PORT=4000
+APP_KEY=base64:your-32-byte-base64-encoded-key
 
-# Crypto (for session encryption)
+# Crypto
 CRYPTO_KEY=base64:your-32-byte-base64-encoded-key
-CRYPTO_CIPHER=AES-256-CBC
+CRYPTO_CIPHER=AES-256-GCM
 
 # Database
 DB_CONNECTION=mysql
-DB_HOST=localhost
+DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_DATABASE=velocity
 DB_USERNAME=root
@@ -110,6 +368,7 @@ REDIS_DATABASE=0
 LOG_DRIVER=file
 LOG_PATH=./storage/logs
 LOG_LEVEL=debug
+LOG_DAYS=14
 
 # Queue
 QUEUE_DRIVER=memory
@@ -127,140 +386,37 @@ MAIL_FROM_ADDRESS=noreply@example.com
 MAIL_FROM_NAME="${APP_NAME}"
 
 # Session
-SESSION_DRIVER=cookie
+SESSION_NAME=velocity_session
 SESSION_LIFETIME=120
-SESSION_SECURE=false
+SESSION_SECURE=true
 SESSION_HTTP_ONLY=true
 SESSION_SAME_SITE=lax
 
-# WebSocket
-WEBSOCKET_HOST=0.0.0.0
-WEBSOCKET_PORT=6001
-WEBSOCKET_PATH=/ws
+# Server timeouts (accepts Go duration syntax, e.g. 30s)
+SERVER_READ_TIMEOUT=30s
+SERVER_WRITE_TIMEOUT=30s
+SERVER_IDLE_TIMEOUT=120s
 ```
 
-### Loading Environment Variables
-
-Environment variables are loaded automatically by the framework, but you can also load them manually:
-
-```go
-import (
-    "github.com/joho/godotenv"
-    "log"
-)
-
-func init() {
-    // Load .env file
-    if err := godotenv.Load(); err != nil {
-        log.Println("No .env file found")
-    }
-}
-```
-
-## API Reference
-
-### Get
-
-Retrieve an environment variable with a fallback:
-
-```go
-import "github.com/velocitykode/velocity/config"
-
-// Get with fallback
-appName := config.Get("APP_NAME", "DefaultApp")
-
-// Get without fallback (returns empty string if not set)
-apiKey := config.Get("API_KEY", "")
-```
-
-### Env
-
-Alias for `Get` - retrieve string environment variable:
-
-```go
-// Get string value
-appEnv := config.Env("APP_ENV", "development")
-appURL := config.Env("APP_URL", "http://localhost:4000")
-```
-
-### EnvInt
-
-Retrieve an integer environment variable:
-
-```go
-// Get integer value
-port := config.EnvInt("APP_PORT", 4000)
-maxConnections := config.EnvInt("MAX_CONNECTIONS", 100)
-
-// Returns default value if not set or invalid
-timeout := config.EnvInt("TIMEOUT", 30)
-```
-
-### EnvBool
-
-Retrieve a boolean environment variable:
-
-```go
-// Get boolean value
-debug := config.EnvBool("APP_DEBUG", false)
-enableCache := config.EnvBool("ENABLE_CACHE", true)
-
-// Accepts: true, false, 1, 0, yes, no (case-insensitive)
-```
-
-## Structured Configuration
-
-### Logging Configuration
-
-The config package provides structured configuration for logging:
-
-```go
-import "github.com/velocitykode/velocity/config"
-
-// Get logging configuration
-loggingConfig := config.GetLoggingConfig()
-
-// Access default channel
-defaultChannel := loggingConfig.Default  // "stack"
-
-// Get specific channel config
-if channelConfig, exists := loggingConfig.GetChannel("daily"); exists {
-    fmt.Printf("Driver: %s\n", channelConfig.Driver)
-    fmt.Printf("Path: %s\n", channelConfig.Path)
-    fmt.Printf("Level: %s\n", channelConfig.Level)
-}
-
-// Get default channel config
-if defaultConfig, exists := loggingConfig.GetDefaultChannel(); exists {
-    fmt.Printf("Default driver: %s\n", defaultConfig.Driver)
-}
-```
-
-### Channel Configuration
-
-Configure individual log channels:
-
-```go
-type ChannelConfig struct {
-    Driver     string                 // Driver name (file, console, syslog, null)
-    Level      string                 // Log level (debug, info, warn, error)
-    Path       string                 // File path (for file driver)
-    MaxSize    int                    // Max size in MB
-    MaxAge     int                    // Max age in days
-    MaxBackups int                    // Number of old files to keep
-    Format     string                 // Format (json, text)
-    Options    map[string]interface{} // Driver-specific options
-}
-```
+{{% callout type="info" %}}
+**Defaults that differ from common expectations**: `MAIL_DRIVER` defaults to `log`
+(captured, not sent), `CRYPTO_CIPHER` defaults to `AES-256-GCM`, `CACHE_DRIVER` and
+`QUEUE_DRIVER` default to `memory`, `SESSION_SECURE` defaults to `true` (only the literal
+`false` disables it), and `DB_HOST` / `REDIS_HOST` default to `127.0.0.1`.
+{{% /callout %}}
 
 ## Environment-Specific Configuration
 
-### Development Environment
+Velocity classifies `APP_ENV` through the canonical reader, so security gates relax only
+when you explicitly opt into a non-production profile. An unset `APP_ENV` is treated as
+production (fail-secure).
+
+### Development
 
 ```env
 APP_ENV=development
 APP_DEBUG=true
-APP_URL=http://localhost:4000
+APP_PORT=4000
 
 LOG_LEVEL=debug
 LOG_DRIVER=console
@@ -268,16 +424,15 @@ LOG_DRIVER=console
 CACHE_DRIVER=memory
 QUEUE_DRIVER=memory
 
-DB_HOST=localhost
+DB_HOST=127.0.0.1
 DB_DATABASE=myapp_dev
 ```
 
-### Production Environment
+### Production
 
 ```env
 APP_ENV=production
 APP_DEBUG=false
-APP_URL=https://example.com
 
 LOG_LEVEL=info
 LOG_DRIVER=file
@@ -289,7 +444,7 @@ DB_HOST=db.example.com
 DB_DATABASE=myapp_prod
 ```
 
-### Testing Environment
+### Testing
 
 ```env
 APP_ENV=testing
@@ -301,130 +456,15 @@ LOG_DRIVER=null
 CACHE_DRIVER=memory
 QUEUE_DRIVER=memory
 
-DB_DATABASE=myapp_test
-```
-
-## Configuration Patterns
-
-### Application Bootstrap
-
-Centralize configuration loading in your app initialization:
-
-```go
-package app
-
-import (
-    "log"
-    "os"
-    "github.com/joho/godotenv"
-    "github.com/velocitykode/velocity/config"
-)
-
-type AppConfig struct {
-    Name        string
-    Environment string
-    Debug       bool
-    URL         string
-    Port        int
-}
-
-func LoadConfig() *AppConfig {
-    // Load .env file
-    if err := godotenv.Load(); err != nil {
-        log.Println("No .env file found, using environment variables")
-    }
-
-    return &AppConfig{
-        Name:        config.Get("APP_NAME", "Velocity"),
-        Environment: config.Get("APP_ENV", "development"),
-        Debug:       config.EnvBool("APP_DEBUG", false),
-        URL:         config.Get("APP_URL", "http://localhost:4000"),
-        Port:        config.EnvInt("APP_PORT", 4000),
-    }
-}
-```
-
-### Database Configuration
-
-```go
-type DatabaseConfig struct {
-    Connection string
-    Host       string
-    Port       int
-    Database   string
-    Username   string
-    Password   string
-}
-
-func GetDatabaseConfig() *DatabaseConfig {
-    return &DatabaseConfig{
-        Connection: config.Get("DB_CONNECTION", "mysql"),
-        Host:       config.Get("DB_HOST", "localhost"),
-        Port:       config.EnvInt("DB_PORT", 3306),
-        Database:   config.Get("DB_DATABASE", "velocity"),
-        Username:   config.Get("DB_USERNAME", "root"),
-        Password:   config.Get("DB_PASSWORD", ""),
-    }
-}
-```
-
-### Cache Configuration
-
-```go
-type CacheConfig struct {
-    Driver   string
-    Prefix   string
-    Host     string
-    Port     int
-    Password string
-    Database int
-}
-
-func GetCacheConfig() *CacheConfig {
-    return &CacheConfig{
-        Driver:   config.Get("CACHE_DRIVER", "memory"),
-        Prefix:   config.Get("CACHE_PREFIX", "velocity_cache"),
-        Host:     config.Get("REDIS_HOST", "localhost"),
-        Port:     config.EnvInt("REDIS_PORT", 6379),
-        Password: config.Get("REDIS_PASSWORD", ""),
-        Database: config.EnvInt("REDIS_DATABASE", 0),
-    }
-}
-```
-
-### Mail Configuration
-
-```go
-type MailConfig struct {
-    Driver      string
-    Host        string
-    Port        int
-    Username    string
-    Password    string
-    Encryption  string
-    FromAddress string
-    FromName    string
-}
-
-func GetMailConfig() *MailConfig {
-    return &MailConfig{
-        Driver:      config.Get("MAIL_DRIVER", "smtp"),
-        Host:        config.Get("MAIL_HOST", "localhost"),
-        Port:        config.EnvInt("MAIL_PORT", 1025),
-        Username:    config.Get("MAIL_USERNAME", ""),
-        Password:    config.Get("MAIL_PASSWORD", ""),
-        Encryption:  config.Get("MAIL_ENCRYPTION", "tls"),
-        FromAddress: config.Get("MAIL_FROM_ADDRESS", "noreply@example.com"),
-        FromName:    config.Get("MAIL_FROM_NAME", config.Get("APP_NAME", "Velocity")),
-    }
-}
+DB_CONNECTION=sqlite
+DB_DATABASE=:memory:
 ```
 
 ## Security Best Practices
 
 ### Sensitive Data
 
-Never commit sensitive data to version control:
+Never commit secrets to version control:
 
 ```bash
 # .gitignore
@@ -440,14 +480,14 @@ Provide a template for required variables:
 
 ```env
 # .env.example
-APP_NAME=Velocity
 APP_ENV=development
 APP_DEBUG=true
-APP_URL=http://localhost:4000
+APP_PORT=4000
+APP_KEY=
 
 # Database (required)
 DB_CONNECTION=mysql
-DB_HOST=localhost
+DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_DATABASE=
 DB_USERNAME=
@@ -455,109 +495,63 @@ DB_PASSWORD=
 
 # Crypto (required for production)
 CRYPTO_KEY=
-
-# Mail (required for email features)
-MAIL_DRIVER=smtp
-MAIL_HOST=
-MAIL_PORT=
-MAIL_USERNAME=
-MAIL_PASSWORD=
-```
-
-### Validation
-
-Validate required configuration on startup:
-
-```go
-func validateConfig() error {
-    required := []string{
-        "APP_NAME",
-        "DB_HOST",
-        "DB_DATABASE",
-    }
-
-    for _, key := range required {
-        if os.Getenv(key) == "" {
-            return fmt.Errorf("required environment variable %s is not set", key)
-        }
-    }
-
-    // Validate crypto key in production
-    if config.Get("APP_ENV", "") == "production" {
-        if os.Getenv("CRYPTO_KEY") == "" {
-            return fmt.Errorf("CRYPTO_KEY is required in production")
-        }
-    }
-
-    return nil
-}
 ```
 
 ## Testing Configuration
 
-### Test Environment
+In tests, build a `velocity.Config` directly and pass it with `WithConfig` rather than
+relying on the environment:
 
-Create a `.env.testing` file:
+```go
+import (
+    "testing"
 
-```env
-APP_ENV=testing
-APP_DEBUG=true
+    "github.com/velocitykode/velocity"
+    "github.com/velocitykode/velocity/log"
+    "github.com/velocitykode/velocity/mail"
+)
 
-DB_CONNECTION=sqlite
-DB_DATABASE=:memory:
-
-CACHE_DRIVER=memory
-QUEUE_DRIVER=memory
-LOG_DRIVER=null
+func TestApp(t *testing.T) {
+    app, err := velocity.New(velocity.WithConfig(velocity.Config{
+        Env:   "testing",
+        Debug: true,
+        Port:  "0",
+        Cache: velocity.CacheConfig{Driver: "memory", Prefix: "test_cache"},
+        Log:   log.LogConfig{Driver: "null", Config: make(map[string]any)},
+        Queue: velocity.QueueConfig{Driver: "memory"},
+        Mail:  mail.MailConfig{Driver: "log"},
+    }))
+    if err != nil {
+        t.Fatalf("New() error: %v", err)
+    }
+    _ = app
+}
 ```
 
-### Load Test Config
+You can also point the loader at a dedicated env file before constructing the app:
 
 ```go
 func TestMain(m *testing.M) {
-    // Load test environment
-    godotenv.Load(".env.testing")
-
-    // Run tests
-    code := m.Run()
-
-    os.Exit(code)
+    _ = godotenv.Load(".env.testing")
+    os.Exit(m.Run())
 }
 ```
 
 ## Docker Integration
 
-### Using Environment Variables
-
-```dockerfile
-# Dockerfile
-FROM golang:1.26-alpine
-
-WORKDIR /app
-
-COPY . .
-
-RUN go build -o main .
-
-# Environment variables can be passed at runtime
-CMD ["./main"]
-```
-
 ### Docker Compose
 
 ```yaml
 # docker-compose.yml
-version: '3.8'
-
 services:
   app:
     build: .
     ports:
       - "4000:4000"
     environment:
-      - APP_NAME=MyApp
       - APP_ENV=production
       - APP_DEBUG=false
+      - APP_PORT=4000
       - DB_HOST=db
       - DB_DATABASE=myapp
       - DB_USERNAME=root
@@ -579,115 +573,10 @@ services:
 
 ## Best Practices
 
-1. **Use Environment Variables**: Keep all configuration in environment variables
-2. **Provide Defaults**: Always provide sensible defaults for non-sensitive values
-3. **Document Variables**: Maintain an `.env.example` file with all available options
-4. **Validate on Startup**: Check required configuration before starting the application
-5. **Environment-Specific**: Use different `.env` files for different environments
-6. **Security**: Never commit `.env` files to version control
-7. **Type Safety**: Use `EnvInt` and `EnvBool` for non-string values
-8. **Centralize**: Create configuration structs to centralize access patterns
-
-## Examples
-
-### Complete Application Setup
-
-```go
-package main
-
-import (
-    "fmt"
-    "log"
-    "os"
-
-    "github.com/joho/godotenv"
-    "github.com/velocitykode/velocity/config"
-)
-
-type Config struct {
-    App      AppConfig
-    Database DatabaseConfig
-    Cache    CacheConfig
-    Logging  config.LoggingConfig
-}
-
-type AppConfig struct {
-    Name        string
-    Environment string
-    Debug       bool
-    URL         string
-    Port        int
-}
-
-type DatabaseConfig struct {
-    Host     string
-    Port     int
-    Database string
-    Username string
-    Password string
-}
-
-type CacheConfig struct {
-    Driver string
-    Prefix string
-}
-
-func LoadAppConfig() (*Config, error) {
-    // Load .env file
-    if err := godotenv.Load(); err != nil {
-        log.Println("No .env file found")
-    }
-
-    // Validate required variables
-    if err := validateConfig(); err != nil {
-        return nil, err
-    }
-
-    return &Config{
-        App: AppConfig{
-            Name:        config.Get("APP_NAME", "Velocity"),
-            Environment: config.Get("APP_ENV", "development"),
-            Debug:       config.EnvBool("APP_DEBUG", false),
-            URL:         config.Get("APP_URL", "http://localhost:4000"),
-            Port:        config.EnvInt("APP_PORT", 4000),
-        },
-        Database: DatabaseConfig{
-            Host:     config.Get("DB_HOST", "localhost"),
-            Port:     config.EnvInt("DB_PORT", 3306),
-            Database: config.Get("DB_DATABASE", "velocity"),
-            Username: config.Get("DB_USERNAME", "root"),
-            Password: config.Get("DB_PASSWORD", ""),
-        },
-        Cache: CacheConfig{
-            Driver: config.Get("CACHE_DRIVER", "memory"),
-            Prefix: config.Get("CACHE_PREFIX", "velocity_cache"),
-        },
-        Logging: config.GetLoggingConfig(),
-    }, nil
-}
-
-func validateConfig() error {
-    required := []string{"DB_DATABASE"}
-
-    for _, key := range required {
-        if os.Getenv(key) == "" {
-            return fmt.Errorf("%s is required", key)
-        }
-    }
-
-    return nil
-}
-
-func main() {
-    cfg, err := LoadAppConfig()
-    if err != nil {
-        log.Fatal("Failed to load configuration:", err)
-    }
-
-    fmt.Printf("Starting %s in %s mode on port %d\n",
-        cfg.App.Name,
-        cfg.App.Environment,
-        cfg.App.Port,
-    )
-}
-```
+1. **Let `New()` load config**: a plain `velocity.New()` reads `.env` and the environment for you.
+2. **Override via options**: use `WithConfig` / `WithPort` / `WithReadTimeout` instead of mutating globals.
+3. **Validate early**: `Config.Validate()` runs inside `New()`; call it yourself when building config manually.
+4. **Provide defaults**: keep an `.env.example` documenting every variable.
+5. **Environment-specific files**: use `.env`, `.env.testing`, etc., for different profiles.
+6. **Security**: never commit `.env` files; set `APP_KEY` / `CRYPTO_KEY` in production.
+7. **Fail-secure env**: leave `APP_ENV` unset only when you intend production-grade defaults.

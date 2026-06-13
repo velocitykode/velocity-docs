@@ -89,7 +89,8 @@ return ctx.JSON(http.StatusOK, resource.NewPaginatedCollection(
 ```
 
 `LastPage` is computed automatically (ceiling division) - you only
-supply `Total`, `PerPage`, and `CurrentPage`.
+supply `Total`, `PerPage`, and `CurrentPage`. Negative `Total` or
+`PerPage` values are clamped to `0`.
 
 Response shape:
 
@@ -124,13 +125,14 @@ type Paginator interface {
 Use `FromPaginator` to convert a paginator into `PaginationMeta`:
 
 ```go
-page, err := models.Users().Paginate(ctx, 15)
+page, err := models.Users().Paginate(ctx, 1, 15)
 if err != nil {
     return err
 }
 
-userResources := make([]resources.UserResource, 0, len(page.Items().([]models.User)))
-for _, u := range page.Items().([]models.User) {
+items := page.Data() // typed []models.User
+userResources := make([]resources.UserResource, 0, len(items))
+for _, u := range items {
     userResources = append(userResources, resources.UserResource{User: u})
 }
 
@@ -139,6 +141,10 @@ return ctx.JSON(http.StatusOK, resource.NewPaginatedCollection(
     resource.FromPaginator(page),
 ))
 ```
+
+`Paginate(ctx, page, perPage)` takes the 1-based page number and the page
+size. `Data()` returns the typed `[]T` slice directly, while `Items()`
+(used by `FromPaginator`) returns the same slice as `any`.
 
 ## Conditional fields
 

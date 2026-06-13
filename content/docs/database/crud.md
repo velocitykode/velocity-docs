@@ -76,7 +76,7 @@ user, err := User{}.UpdateOrCreate(ctx,
 )
 ```
 
-The `Query[T]` chain forms exist too: `mgr.Query[T]()` style accepts the same `(ctx, conditions, values)` pair so you can scope the lookup with extra `Where` clauses before the helper resolves.
+The `Query[T]` chain forms exist too: `Model[T]{}.Where(...).FirstOrCreate(ctx, conditions, values)` (and the `UpdateOrCreate` counterpart) accept the same `(ctx, conditions, values)` triple, so you can scope the lookup with extra `Where` clauses before the helper resolves.
 
 ## Read
 
@@ -92,7 +92,7 @@ users, err := User{}.All(ctx)
 // Chained queries return *Query[T]; terminal methods take ctx.
 users, err := User{}.Where("role = ?", "admin").Get(ctx)
 count, err := User{}.Count(ctx)
-exists := User{}.Where("email = ?", email).Exists(ctx)
+exists, err := User{}.Where("email = ?", email).Exists(ctx)
 ```
 
 ## Update
