@@ -25,15 +25,16 @@ velocity (global)          vel (per-project)
 ├── new                    ├── serve
 ├── config                 ├── build
 └── self-update            ├── migrate
-                           ├── migrate:fresh / rollback / status
-                           ├── db:wipe
-                           ├── cache:clear
-                           ├── queue:work
-                           ├── schedule:work
+                           ├── migrate fresh / rollback / status
+                           ├── db wipe
+                           ├── cache clear
+                           ├── queue work
+                           ├── schedule work
                            ├── down / up
-                           ├── route:list
-                           ├── key:generate
-                           └── make:* (16 generators)
+                           ├── routes
+                           ├── key generate
+                           ├── run <command>
+                           └── gen * (16 generators)
 ```
 
 **Why two CLIs?**
@@ -62,9 +63,13 @@ Full reference: [Installer Commands](installer/).
 | `vel serve` | Dev server with live reload |
 | `vel build` | Production build |
 | `vel migrate` | Run database migrations |
-| `vel queue:work` | Process queued jobs |
-| `vel make:handler` | Generate a handler |
-| `vel key:generate` | Generate encryption key |
+| `vel routes` | List all registered routes |
+| `vel queue work` | Process queued jobs |
+| `vel gen handler` | Generate a handler |
+| `vel key generate` | Generate encryption key |
+
+Command names are space-separated words (`migrate fresh`, `gen model`,
+`gen grpc service`), and a subcommand always beats its bare parent.
 
 Full reference: [vel Commands](commands/).
 

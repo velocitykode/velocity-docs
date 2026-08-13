@@ -239,8 +239,9 @@ reset('title', 'body')
 
 Errors come from Go validation and are keyed by field name. On the server,
 validate the request, then flash the errors and old input and redirect back.
-The view layer automatically injects an `errors` prop into the page on the
-next render:
+`ctx.FlashErrors` and `ctx.FlashInput` write short-lived encrypted flash
+cookies; the view layer reads them on the next render and injects them as
+the `errors` and `old` props:
 
 ```go
 // Go handler
@@ -251,14 +252,20 @@ import (
 )
 
 func (c *PostHandler) Store(ctx *router.Context) error {
-    result := validation.Check(ctx.Request, validation.Rules{
-        "title": {"required", "min:3"},
-        "body":  {"required", "min:10"},
+    // CheckW threads the ResponseWriter through so an oversized body can
+    // signal the connection to close. The error return is a malformed
+    // rule set (a handler bug), never a field-level failure.
+    result, err := validation.CheckW(ctx.Response, ctx.Request, validation.Rules{
+        "title": {validation.Required(), validation.Min(3)},
+        "body":  {validation.Required(), validation.Min(10)},
     })
+    if err != nil {
+        return err
+    }
 
     if result.HasErrors() {
-        ctx.WithErrors(result.All())
-        ctx.WithInput(result.Old())
+        ctx.FlashErrors(result.All())
+        ctx.FlashInput(result.Old())
         view.Back(ctx)
         return nil
     }
@@ -267,6 +274,23 @@ func (c *PostHandler) Store(ctx *router.Context) error {
     return nil
 }
 ```
+
+Rules are typed constructor values collected in a `validation.Rules` set
+keyed by field, not strings. `result.All()` is a `map[string]string` (one
+message per field), which is the shape Inertia's `errors` prop expects.
+`result.Old()` strips sensitive-looking fields (anything whose name
+contains `password`, `token`, `secret`, `card`, `otp`, and similar) before
+handing input back for replay, so a password never round-trips to the
+client.
+
+{{< callout type="info" title="Rules that hit the database" >}}
+`validation.Unique` and `validation.Exists` execute in the
+`validation/dbrules` subpackage, which owns the `orm` dependency. Use
+`dbrules.CheckWithDBW(ctx.Response, ctx.Request, rules, db)` when your rule
+set names them, or let `ctx.Validate` / `ctx.BindValid` / `vform.Form` do
+it, since those resolve the database from the request's service container
+for you.
+{{< /callout >}}
 
 ### vform.Form
 
@@ -287,10 +311,10 @@ type StorePost struct {
     Body  string `json:"body"`
 }
 
-func (p StorePost) Rules() validation.Rules {
+func (p *StorePost) Rules() validation.Rules {
     return validation.Rules{
-        "title": {"required", "min:3"},
-        "body":  {"required", "min:10"},
+        "title": {validation.Required(), validation.Min(3)},
+        "body":  {validation.Required(), validation.Min(10)},
     }
 }
 
@@ -304,6 +328,11 @@ func (c *PostHandler) Store(ctx *router.Context) error {
     return nil
 }
 ```
+
+`vform.FormRequest` is an alias for `router.Validatable`, so the same
+`StorePost` also works with `ctx.BindValid(&input)` when a handler needs
+validation without the flash-and-redirect-back flow (a JSON endpoint, for
+instance). One declaration, both entry points.
 
 ```typescript
 // React component

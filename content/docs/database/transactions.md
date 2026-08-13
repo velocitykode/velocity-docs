@@ -354,13 +354,13 @@ and an empty `ParentID`; nested or downstream callers preserve and extend
 the surrounding trace.
 
 Register a listener against the canonical event name `transaction.executed`. A
-listener implements the `events.Listener` interface (`Handle` plus `ShouldQueue`)
-and type-asserts the event in its body:
+listener implements the `events.Listener` interface (`Handle(ctx, event) error`
+plus `Async() bool`) and type-asserts the event in its body:
 
 ```go
 type txLogger struct{}
 
-func (txLogger) ShouldQueue() bool { return false }
+func (txLogger) Async() bool { return false }
 
 func (txLogger) Handle(ctx context.Context, event any) error {
     e, ok := event.(*orm.TransactionExecuted)
@@ -385,4 +385,4 @@ dispatcher.Listen("transaction.executed", txLogger{})
 - [CRUD](/docs/database/crud/) - the writes that auto-enroll when ctx carries a tx
 - [Transactional Outbox](/docs/database/outbox/) - the heavier durability primitive: side-effect rows committed in the same tx as the row that triggered them, drained by a relay
 - [Queries](/docs/database/queries/) - read-side terminals that observe the same tx ctx
-- [Events](/docs/core/events/) - per-tx buffered dispatcher; `events.Buffer(ctx).Dispatch(...)` inside `Transaction` flushes only on commit
+- [Events](/docs/advanced/events/) - per-tx buffered dispatcher; `events.Buffer(ctx).Dispatch(...)` inside `Transaction` flushes only on commit

@@ -21,7 +21,7 @@ Advanced Velocity features for building robust, production-grade applications: b
 - [gRPC]({{< relref "grpc" >}}) - build and consume gRPC services.
 - [Feature Flags]({{< relref "flags" >}}) - toggle features at runtime.
 - [Collections]({{< relref "collect" >}}) - fluent helpers for working with slices and maps.
-- [Service Providers]({{< relref "service-providers" >}}) - register and bootstrap application services.
+- [Modules]({{< relref "modules" >}}) - register and bootstrap application services through the module lifecycle.
 - [Contracts]({{< relref "contract" >}}) - the interfaces that decouple Velocity's components.
 - [Driver Registry]({{< relref "driver-registry" >}}) - register and resolve pluggable drivers.
 - [Tracing]({{< relref "trace" >}}) - instrument your application with distributed tracing.

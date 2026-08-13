@@ -241,7 +241,7 @@ import (
 )
 
 func semanticSearch(ctx context.Context, s *app.Services, query string) ([]vector.Result, error) {
-    m := manager.FromServices(s) // *manager.Manager, nil if AI provider not registered
+    m := manager.FromServices(s) // *manager.Manager, nil unless manager.Lifecycle registered it
 
     // Embeddings(...).For(...).Generate(ctx) returns *provider.EmbeddingsResponse.
     resp, err := m.Embeddings().For(query).Generate(ctx)

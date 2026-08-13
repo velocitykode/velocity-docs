@@ -59,7 +59,7 @@ Building an API without a frontend? Use `velocity new myapi --api` to create an 
 ```
 myapp/
 ├── internal/
-│   ├── app/             # app.Bootstrap: middleware, providers, event listeners
+│   ├── app/             # app.Bootstrap: middleware, modules, event listeners
 │   ├── handlers/        # HTTP handlers
 │   ├── middleware/      # Custom middleware
 │   └── models/          # Database models
@@ -118,13 +118,13 @@ func main() {
 `velocity.New()` builds the application container (logger, crypto, DB,
 cache, queue, router, …) and returns an `*velocity.App`.
 `app.Bootstrap(v)` is your own bootstrap function (scaffolded into
-`internal/app`) where you configure middleware, providers, and event
+`internal/app`) where you configure middleware, modules, and event
 listeners. `routes.Register(v)` registers your routes against
 `v.Router`, and `v.Serve()` starts the HTTP server.
 
 {{< callout type="info" >}}
 `*velocity.App` also exposes a fluent bootstrap chain -
-`v.Providers(...)`, `v.Middleware(...)`, `v.Routes(...)`,
+`v.Modules(...)`, `v.Middleware(...)`, `v.Routes(...)`,
 `v.Events(...)`, `v.Schedule(...)`, `v.Commands(...)`, and
 `v.Exceptions(...)` - if you prefer to wire everything from `main.go`.
 Call `v.Run()` to dispatch a `vel ...` command from `os.Args`, or
@@ -259,13 +259,13 @@ if you want a dedicated encryption key separate from the app key.
 ### Regenerating the application key
 
 ```bash
-vel key:generate
+vel key generate
 ```
 
 This generates a fresh 32-byte key, base64-encodes it with a `base64:`
 prefix, and writes it to `APP_KEY` in `.env` (creating the file if it
 doesn't exist) - useful if you need to rotate the key or the installer
-didn't run `key:generate` for you.
+didn't run `key generate` for you.
 
 ## Next Steps
 

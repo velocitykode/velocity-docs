@@ -112,7 +112,7 @@ v, err := velocity.New(
 )
 ```
 
-Other options include `velocity.WithProviders(...)` to append service providers, `velocity.WithSchedulerInProcess()` to run the scheduler inside the HTTP process, and `velocity.WithoutEvents()` / `velocity.WithFakeEvents(...)` for tests.
+Other options include `velocity.WithModules(...)` to append modules, `velocity.WithSchedulerInProcess()` to run the scheduler inside the HTTP process, and `velocity.WithoutEvents()` / `velocity.WithFakeEvents(...)` for tests.
 
 ## Priority Order
 

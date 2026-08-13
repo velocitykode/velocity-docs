@@ -9,7 +9,7 @@ keywords: [velocity new, velocity config, velocity self-update, installer]
 ([installation](/docs/cli/installation)) and use it to create new
 projects, configure defaults, and update itself.
 
-Per-project commands (`serve`, `build`, `migrate`, `make:*`) live on
+Per-project commands (`serve`, `build`, `migrate`, `gen *`) live on
 the `vel` binary inside each project - see [vel commands](/docs/cli/commands).
 
 ## velocity new
@@ -82,7 +82,7 @@ The `--api` flag picks a different starter:
 | ---------------- | --------------------------------- | -------------------------------- |
 | Frontend         | Vite + Inertia (React or Vue)     | None                             |
 | CSRF             | Enabled                           | Disabled (stateless)             |
-| Auth guard       | `web` (`AUTH_GUARD=web`)          | `api` (`AUTH_GUARD=api`)         |
+| Auth scheme      | `web` (`AUTH_SCHEME=web`)         | `api` (`AUTH_SCHEME=api`)        |
 | Responses        | Inertia-rendered pages            | JSON (`ensure_json` middleware)  |
 | Starter routes   | `/`, `/login`, `/register`, `/dashboard`, `/logout`, `/health` | `/health`, `/api/health` |
 

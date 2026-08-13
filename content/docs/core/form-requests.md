@@ -28,32 +28,50 @@ type CreatePostRequest struct {
 
 func (r *CreatePostRequest) Rules() validation.Rules {
     return validation.Rules{
-        "title": {"required", "min:3"},
-        "body":  {"required", "min:10"},
+        "title": {validation.Required(), validation.Min(3)},
+        "body":  {validation.Required(), validation.Min(10)},
     }
 }
 ```
 
-The `Rules()` method makes the struct a `vform.FormRequest`. The return
-type is `validation.Rules` (`map[string][]string`) so the same value can
-be passed straight into `validation.Check` / `CheckWithDB` without an
-intermediate conversion.
+Rules are typed values built by the constructors in the `validation`
+package, not strings. Parameters are carried pre-split, so a parameter may
+contain any character (including `,` and `|`) without escaping.
+
+The `Rules()` method makes the struct a `vform.FormRequest`, which is an
+alias for `router.Validatable`: one form struct serves both `vform.Form[T]`
+and `ctx.BindValid`, so there is a single declaration to satisfy rather
+than two identical ones. The return type is `validation.Rules`
+(`map[string][]validation.Rule`, aliased from `contract.ValidationRuleSet`)
+so the same value can be passed straight into `validation.Check` or
+`dbrules.CheckWithDB` without an intermediate conversion.
+
+{{< callout type="warning" title="Rules must have a matching signature" >}}
+`contract.ValidationRuleSet` is a defined type, not an alias for a bare
+map, so a `Rules()` method returning a structurally identical map type
+fails to satisfy the interface. As a backstop, `Validate[T]` and `Form[T]`
+detect a method literally named `Rules` whose signature does not satisfy
+`FormRequest` and return an error naming the offending signature, rather
+than silently skipping validation.
+{{< /callout >}}
 
 ### Custom messages
 
 Implement `WithMessages` to override per-field rule errors:
 
 ```go
-func (r *CreatePostRequest) ValidationMessages() map[string]string {
-    return map[string]string{
-        "title.required": "Please provide a title",
-        "body.min":       "Body must be at least 10 characters",
+func (r *CreatePostRequest) ValidationMessages() validation.Messages {
+    return validation.Messages{
+        {Field: "title", Rule: "required"}: "Please provide a title",
+        {Field: "body", Rule: "min"}:       "Body must be at least 10 characters",
     }
 }
 ```
 
-Keys are `{field}.{rule}`. The framework converts the map into
-`validation.Messages` internally before invoking the validator.
+Keys are `validation.MessageKey` values addressing one field+rule pair. The
+`Rule` half is the canonical rule name the constructor emits (`required`,
+`min`, `email`, `unique`, `alpha_dash`, ...), not the Go constructor
+identifier.
 
 ### Authorization
 
@@ -86,16 +104,22 @@ func (h *PostHandler) Store(ctx *router.Context) error {
 
 When validation fails, `Form` takes over the response:
 
-1. Errors are flashed to the session via `ctx.WithErrors`
-2. Original input is flashed as old input via `ctx.WithInput`
+1. Errors are flashed via `ctx.FlashErrors`
+2. Original input is flashed as old input via `ctx.FlashInput`
    (sensitive fields are stripped automatically by case-insensitive
-   substring match - `password`, `secret`, `token`, `pin`, `cvv`,
-   `ssn`, `api_key`, and similar names are redacted)
+   substring match - `password`, `passwd`, `passcode`, `secret`, `token`,
+   `pin`, `cvv`, `cvc`, `card`, `ssn`, `otp`, `credential`, `credentials`,
+   `api_key`, `apikey`, `private_key`, and `privatekey` are redacted)
 3. The view engine's `Back` hook is invoked to redirect to the referrer
+   (skipped when no view engine is wired, e.g. an API-only app)
 4. `Form` returns `router.ErrValidationAborted` so the router skips
    emitting an additional error response
 
-Your template can read `errors.title` and repopulate fields via
+`FlashErrors` and `FlashInput` write short-lived encrypted flash cookies
+(`_velocity_errors` and `_velocity_old`), each sealed under its own AAD
+label so one can never be replayed as the other. The view layer reads them
+on the next render and injects them as the `errors` and `old` props, so
+your template can read `errors.title` and repopulate fields via
 `old('title')`. No handler code after a failed `vform.Form` call needs
 to run, the early `return err` covers it.
 
@@ -108,8 +132,12 @@ case where "redirect back" isn't a fit, use the lower-level
 `vform.Validate[T]` entry point.
 
 `Validate[T]` performs the same bind + validate cycle but never flashes
-or redirects: it returns the populated `*T` on success, or a `*Result`
-with the per-field errors on failure.
+or redirects. It returns the populated `*T` and a nil `*Result` on
+success, or a zero-value `*T` and a non-nil `*Result` carrying the
+per-field errors on failure. Only consume `*T` when `*Result` is nil.
+The `error` return is reserved for non-validation failures: a bind or
+decode error, or a malformed rule set (both wrap a handler bug, never
+user input).
 
 ```go
 import (
@@ -143,8 +171,10 @@ for the Inertia view engine (`view.Props` is an alias for the engine's
 prop map). It resolves the engine from the context's service container
 and returns an error if no view engine is wired.
 
-`Result.All()` returns one error per field (Inertia-friendly map),
-`Result.Messages()` returns every error, and `Result.Old()` returns the
+`Result.All()` returns one error per field (`map[string]string`,
+Inertia-friendly), `Result.Messages()` returns every error
+(`map[string][]string`), `Result.Err()` collapses the result into an error
+wrapping `validation.ErrValidationFailed`, and `Result.Old()` returns the
 input with sensitive fields removed, ready to flash or pass back as a
 view prop.
 
@@ -158,17 +188,17 @@ binder when there's nothing to check.
 ## Types
 
 ```go
-// In package validation
-type Rules    = map[string][]string  // field -> list of rule tokens
-type Messages = map[string]string    // "field.rule" -> message
+// In package validation (all aliased from the stdlib-only contract leaf)
+type Rule       = contract.ValidationRule        // interface{ Rule() ValidationRuleSpec }
+type Rules      = contract.ValidationRuleSet     // map[string][]Rule, keyed by field
+type MessageKey = contract.ValidationMessageKey  // struct{ Field, Rule string }
+type Messages   = contract.ValidationMessages    // map[MessageKey]string
 
 // In package validation/vform
-type FormRequest interface {
-    Rules() validation.Rules
-}
+type FormRequest = router.Validatable  // interface{ Rules() validation.Rules }
 
 type WithMessages interface {
-    ValidationMessages() map[string]string
+    ValidationMessages() validation.Messages
 }
 
 type Result = validation.Result       // re-exported for Validate[T] callers
@@ -180,11 +210,22 @@ func Validate[T any](ctx *router.Context) (*T, *Result, error)
 ## Relation to the `validation` package
 
 `vform` is the HTTP-handler entry point: it owns binding, flashing, and
-redirect-back. The lower-level `validation.Check`, `validation.CheckData`,
-`validation.CheckWithDB`, and `validation.CheckDataWithDB` functions are
-the canonical entry points outside HTTP, or inside HTTP when you want to
-control the response shape yourself without `Validate[T]`'s
-bind-then-error flow.
+redirect-back. The lower-level `validation.Check`, `validation.CheckW`, and
+`validation.CheckData` functions are the canonical entry points outside
+HTTP, or inside HTTP when you want to control the response shape yourself
+without `Validate[T]`'s bind-then-error flow. All of them return
+`(*Result, error)`, keeping a malformed rule set (a handler bug) distinct
+from field-level failures (user input).
+
+The DB-backed rules (`Unique`, `Exists`) execute in the
+`validation/dbrules` subpackage so the core `validation` package pulls in
+no `orm` or SQL-driver dependency: use `dbrules.CheckWithDB` /
+`CheckWithDBW` and `dbrules.CheckDataWithDB` / `CheckDataWithDBCtx` when
+your rule set names them. `vform` already routes through
+`dbrules.CheckWithDBW` and resolves the database from the context's
+service container, so a `Rules()` method naming `Unique` works without any
+extra wiring. When no database is reachable, a `Unique` or `Exists` rule is
+reported as a configuration error rather than silently failing the field.
 
 ## Related
 

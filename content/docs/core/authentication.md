@@ -18,8 +18,7 @@ CRYPTO_KEY=base64:your-32-byte-base64-encoded-key
 CRYPTO_CIPHER=AES-256-GCM
 
 # Auth settings
-AUTH_GUARD=web
-AUTH_MODEL=User
+AUTH_SCHEME=web
 HASH_BCRYPT_COST=10
 
 # Session settings
@@ -33,31 +32,38 @@ SESSION_SAME_SITE=lax
 
 ### Initialization
 
-When you boot the app via `velocity.New()`, the framework reads `AUTH_GUARD`, `HASH_BCRYPT_COST`, and the `SESSION_*` variables, builds an `auth.Manager`, registers an ORM-backed user provider, and wires a `SessionGuard` against the encrypted-cookie store. No manual wiring is required for the common case.
+When you boot the app via `velocity.New()`, the framework reads `AUTH_SCHEME`, `HASH_BCRYPT_COST`, and the `SESSION_*` variables, builds an `auth.Manager`, installs an ORM-backed user store, and wires a `SessionScheme` against the encrypted-cookie store. No manual wiring is required for the common case.
 
-If you need to construct the manager yourself (custom guard, embedded use, tests), the underlying API is:
+`AUTH_SCHEME` is load-bearing twice over: it names the default scheme, and a non-empty value is what makes `ConfigFromEnv` build the scheme configs at all. The map keys it builds are `web` and `session` (driver `session`) plus `api` and `jwt` (driver `jwt`, skipped when `AUTH_JWT_SECRET` is empty). Leave `AUTH_SCHEME` unset and the app boots with no schemes registered.
+
+If you need to construct the manager yourself (custom scheme, embedded use, tests), the underlying API is:
 
 ```go
 package main
 
 import (
-    "database/sql"
     "net/http"
 
     "github.com/velocitykode/velocity/auth"
-    "github.com/velocitykode/velocity/auth/drivers/guards"
+    "github.com/velocitykode/velocity/auth/drivers/schemes"
+    "github.com/velocitykode/velocity/auth/stores/ormauth"
     "github.com/velocitykode/velocity/crypto"
+
+    "myapp/internal/models"
 )
 
-func buildAuth(db *sql.DB, enc crypto.Encryptor) (*auth.Manager, error) {
+func buildAuth(enc crypto.Encryptor) (*auth.Manager, error) {
     manager := auth.NewManager()
 
-    // Provider: ORM-backed user lookup against the "users" table.
-    provider := auth.NewORMUserProvider(db, "User", manager.GetHasher())
-    manager.RegisterProvider("users", provider)
+    // User store: ORM-backed lookup for the model you authenticate.
+    userStore := ormauth.New[models.User](ormauth.WithHasher(manager.GetHasher()))
+    if err := userStore.Validate(); err != nil {
+        return nil, err
+    }
+    manager.SetUserStore(userStore)
 
-    // Guard: encrypted-cookie session store.
-    sessionGuard, err := guards.NewSessionGuard(provider, auth.SessionConfig{
+    // Scheme: encrypted-cookie session store.
+    sessionScheme, err := schemes.NewSessionScheme(userStore, auth.SessionConfig{
         Name:     "velocity_session",
         Lifetime: 120,
         Path:     "/",
@@ -68,12 +74,14 @@ func buildAuth(db *sql.DB, enc crypto.Encryptor) (*auth.Manager, error) {
     if err != nil {
         return nil, err
     }
-    manager.RegisterGuard("web", sessionGuard)
-    manager.SetDefaultGuard("web")
+    manager.RegisterScheme("web", sessionScheme)
+    manager.SetDefaultScheme("web")
 
     return manager, nil
 }
 ```
+
+`SetUserStore` installs the single canonical user store (under `auth.DefaultUserStoreName`, value `"default"`) and re-points every scheme already registered, so construction order does not matter. `RegisterUserStore(name, store)` is the code-level escape hatch for the uncommon app that authenticates two separate identity stores in one process, an admin panel colocated with a customer app, for example. Schemes are not notified in that case, so you hand the store to whichever scheme should use it yourself. There is no per-scheme user-store field in `auth.SchemeConfig`.
 
 Inside a handler you reach the manager through `auth.FromContext(ctx)`:
 
@@ -83,16 +91,89 @@ import "github.com/velocitykode/velocity/auth"
 m := auth.FromContext(ctx) // *auth.Manager, or nil if auth is not configured
 ```
 
+Outside a request, in a module lifecycle hook, use `auth.FromServices(s)`.
+
+### Choosing the auth model
+
+The model that authenticates is chosen in code, not in `.env`. The ORM resolves a table from a compile-time Go type, and Go cannot turn the string `"Admin"` into a type, so the model is a type parameter. Editing it is a compile error when you get it wrong, rather than a boot failure:
+
+```go
+import "github.com/velocitykode/velocity"
+
+func (m *AppModule) Init(s *velocity.Services) error {
+    return velocity.SetAuthModel[models.User](s)
+}
+```
+
+`velocity.SetAuthModel[T]` validates the model, inherits the auth manager's hasher (so the operator-configured bcrypt cost is preserved), and installs the resulting user store. It returns `velocity.ErrAuthNotConfigured` when the app has no auth manager, which means `velocity.New` built no schemes because `AUTH_SCHEME` was unset.
+
+A model whose columns differ from the defaults (`email`, `password`, `remember_token`) names them with the re-exported options:
+
+```go
+func (m *AppModule) Init(s *velocity.Services) error {
+    return velocity.SetAuthModel[models.Admin](s,
+        velocity.WithAuthIdentifierColumn("username"),
+        velocity.WithAuthPasswordColumn("pass_hash"),
+    )
+}
+```
+
+The full option set is `velocity.WithAuthIdentifierColumn`, `velocity.WithAuthPasswordColumn`, `velocity.WithAuthRememberTokenColumn`, and `velocity.WithAuthCredentialsKey` (the key read from the credentials map when it differs from the identifier column, e.g. a form posting `email` against a `users.username` column). All four are aliases of the `ormauth.With*` options, so application code never has to import the store package.
+
+If you want the store itself rather than an installed one, to hand it to a second scheme or to inspect it in a test, `velocity.ORMUserStore[T](opts...)` builds it without installing. The direct form is equivalent:
+
+```go
+import (
+    "github.com/velocitykode/velocity"
+    "github.com/velocitykode/velocity/auth"
+    "github.com/velocitykode/velocity/auth/stores/ormauth"
+)
+
+func (m *AuthModule) Start(s *velocity.Services) error {
+    userStore := ormauth.New[models.Admin](
+        ormauth.WithIdentifierColumn("username"),
+    )
+    if err := userStore.Validate(); err != nil {
+        return err
+    }
+
+    manager := auth.FromServices(s)
+    if manager == nil {
+        return velocity.ErrAuthNotConfigured
+    }
+    manager.SetUserStore(userStore)
+    return nil
+}
+```
+
+`Services.Auth` is typed as `contract.AuthManager`, which carries only `Allows` and `Authorize`, so reach the concrete `*auth.Manager` through `auth.FromServices(s)` before calling `SetUserStore`.
+
+Call it from a module's `Init` or `Start`. `velocity.New` has already built the schemes against the framework's built-in model, and installing a user store re-points every one of them, so ordering does not matter.
+
+{{< callout type="info" title="Zero-config default" >}}
+An app that configures nothing gets `ormauth.New[ormauth.User]` against the `users` table, reproducing the column set the framework used to hardcode (`id`, `name`, `email`, `password`, `remember_token`).
+{{< /callout >}}
+
 ### User Model Requirements
 
-Your User model must implement the `Authenticatable` interface:
+A model is usable as an auth model when it either implements `auth.Authenticatable` itself (preferred, since it skips the reflection-based column mapping entirely) or exposes the identifier, password, and remember-token columns that `ormauth` maps onto that interface.
+
+It must also declare a mass-assignment policy that permits the remember-token column. The token is persisted through the ORM's map-based update path, which is deny-by-default: a model declaring no policy at all rejects every key, so remember-me would fail on first use. `Store.Validate` refuses at startup instead.
 
 ```go
 type User struct {
-    orm.Model[User]
-    Name     string `orm:"column:name" json:"name"`
-    Email    string `orm:"column:email" json:"email"`
-    Password string `orm:"column:password" json:"-"`
+    orm.IDInt[User]
+    Name          string  `orm:"column:name" json:"name"`
+    Email         string  `orm:"column:email" json:"email"`
+    Password      string  `orm:"column:password" json:"-"`
+    RememberToken *string `orm:"column:remember_token" json:"-"`
+}
+
+// AssignableFields declares the mass-assignment allowlist. Without a
+// declared policy (AssignableFields, ProtectedFields, or AllowAllColumns)
+// the ORM denies every map-based write, including the remember-token update.
+func (User) AssignableFields() []string {
+    return []string{"name", "email", "password", "remember_token"}
 }
 
 // GetAuthIdentifier returns the user's unique identifier
@@ -105,16 +186,21 @@ func (u *User) GetAuthPassword() string {
     return u.Password
 }
 
-// GetRememberToken returns the remember token
+// GetRememberToken returns the remember token, or "" when the column is NULL
 func (u *User) GetRememberToken() string {
-    return "" // Implement if using remember me
+    if u.RememberToken == nil {
+        return ""
+    }
+    return *u.RememberToken
 }
 
 // SetRememberToken sets the remember token
 func (u *User) SetRememberToken(token string) {
-    // Implement if using remember me
+    u.RememberToken = &token
 }
 ```
+
+Two shape details are load-bearing. `RememberToken` is a `*string` because the column is nullable for users who have never used remember-me, and scanning SQL NULL into a plain `string` is a driver error. Composing `orm.IDInt[User]` rather than `orm.Model[User]` keeps the ORM from stamping `updated_at` on every remember-token rotation, which happens on every remember-me recall; use `orm.Model[User]` only when you actually want login traffic touching `users.updated_at`.
 
 ## Quick Start
 
@@ -263,46 +349,33 @@ If you need a hasher outside a request (a CLI seeder, for example), construct on
 
 ### Authenticatable Interface
 
-Implement the `Authenticatable` interface for your user models:
+`auth.Authenticatable` is the contract every authenticated user satisfies:
 
 ```go
-type User struct {
-    ID       uint   `json:"id"`
-    Email    string `json:"email"`
-    Password string `json:"-"` // Hidden from JSON
-    Name     string `json:"name"`
+// auth.Authenticatable (auth/auth.go)
+type Authenticatable interface {
+    GetAuthIdentifier() interface{}
+    GetAuthPassword() string
+    GetRememberToken() string
+    SetRememberToken(token string)
 }
-
-// GetAuthIdentifier returns the user's unique identifier
-func (u *User) GetAuthIdentifier() interface{} {
-    return u.ID
-}
-
-// GetAuthPassword returns the user's hashed password
-func (u *User) GetAuthPassword() string {
-    return u.Password
-}
-
-// GetRememberToken returns the remember token
-func (u *User) GetRememberToken() string { return "" }
-
-// SetRememberToken sets the remember token
-func (u *User) SetRememberToken(token string) {}
 ```
 
-### Custom User Providers
+Implementing it on your model directly is the preferred path (see [User Model Requirements](#user-model-requirements)). A model that does not implement it is still usable: `ormauth` maps the configured identifier, password, and remember-token columns onto the interface through ORM metadata, at the cost of reflection on the lookup path.
 
-The `auth.UserProvider` interface threads a `context.Context` through every method that does I/O so a cancelled request (client disconnect, timeout middleware) aborts the lookup. Each I/O method comes in a pair: a `Ctx`-suffixed variant that does the real work, and a deprecated non-`Ctx` shim that delegates with `context.Background()`. Implement all six methods plus `ValidateCredentials` (pure CPU, so no `Ctx` variant):
+### Custom User Stores
+
+`auth.UserStore` is the interface behind user lookup. It threads a `context.Context` through every method that does I/O so a cancelled request (client disconnect, timeout middleware) aborts the lookup. Each I/O method comes in a pair: a `Ctx`-suffixed variant that does the real work, and a deprecated non-`Ctx` shim that delegates with `context.Background()`. Implement all six methods plus `ValidateCredentials` (pure CPU, so no `Ctx` variant):
 
 ```go
-// Implement UserProvider interface for custom user retrieval
-type CustomUserProvider struct {
+// Implement auth.UserStore for custom user retrieval
+type CustomUserStore struct {
     db *sql.DB
 }
 
-func (p *CustomUserProvider) FindByIDCtx(ctx context.Context, id interface{}) (auth.Authenticatable, error) {
+func (s *CustomUserStore) FindByIDCtx(ctx context.Context, id interface{}) (auth.Authenticatable, error) {
     var user User
-    err := p.db.QueryRowContext(ctx, "SELECT id, email, password, name FROM users WHERE id = $1", id).
+    err := s.db.QueryRowContext(ctx, "SELECT id, email, password, name FROM users WHERE id = $1", id).
         Scan(&user.ID, &user.Email, &user.Password, &user.Name)
     if err != nil {
         return nil, err
@@ -311,14 +384,14 @@ func (p *CustomUserProvider) FindByIDCtx(ctx context.Context, id interface{}) (a
 }
 
 // Deprecated: use FindByIDCtx with a request-scoped context.Context.
-func (p *CustomUserProvider) FindByID(id interface{}) (auth.Authenticatable, error) {
-    return p.FindByIDCtx(context.Background(), id)
+func (s *CustomUserStore) FindByID(id interface{}) (auth.Authenticatable, error) {
+    return s.FindByIDCtx(context.Background(), id)
 }
 
-func (p *CustomUserProvider) FindByCredentialsCtx(ctx context.Context, credentials map[string]interface{}) (auth.Authenticatable, error) {
+func (s *CustomUserStore) FindByCredentialsCtx(ctx context.Context, credentials map[string]interface{}) (auth.Authenticatable, error) {
     email := credentials["email"].(string)
     var user User
-    err := p.db.QueryRowContext(ctx, "SELECT id, email, password, name FROM users WHERE email = $1", email).
+    err := s.db.QueryRowContext(ctx, "SELECT id, email, password, name FROM users WHERE email = $1", email).
         Scan(&user.ID, &user.Email, &user.Password, &user.Name)
     if err != nil {
         return nil, err
@@ -327,28 +400,43 @@ func (p *CustomUserProvider) FindByCredentialsCtx(ctx context.Context, credentia
 }
 
 // Deprecated: use FindByCredentialsCtx with a request-scoped context.Context.
-func (p *CustomUserProvider) FindByCredentials(credentials map[string]interface{}) (auth.Authenticatable, error) {
-    return p.FindByCredentialsCtx(context.Background(), credentials)
+func (s *CustomUserStore) FindByCredentials(credentials map[string]interface{}) (auth.Authenticatable, error) {
+    return s.FindByCredentialsCtx(context.Background(), credentials)
 }
 
-func (p *CustomUserProvider) ValidateCredentials(user auth.Authenticatable, credentials map[string]interface{}) bool {
+func (s *CustomUserStore) ValidateCredentials(user auth.Authenticatable, credentials map[string]interface{}) bool {
     password, _ := credentials["password"].(string)
     return auth.NewBcryptHasher(10).Verify(password, user.GetAuthPassword())
 }
 
-func (p *CustomUserProvider) UpdateRememberTokenCtx(ctx context.Context, user auth.Authenticatable, token string) error {
+func (s *CustomUserStore) UpdateRememberTokenCtx(ctx context.Context, user auth.Authenticatable, token string) error {
     user.SetRememberToken(token)
-    _, err := p.db.ExecContext(ctx, "UPDATE users SET remember_token = $1 WHERE id = $2", token, user.GetAuthIdentifier())
+    _, err := s.db.ExecContext(ctx, "UPDATE users SET remember_token = $1 WHERE id = $2", token, user.GetAuthIdentifier())
     return err
 }
 
 // Deprecated: use UpdateRememberTokenCtx with a request-scoped context.Context.
-func (p *CustomUserProvider) UpdateRememberToken(user auth.Authenticatable, token string) error {
-    return p.UpdateRememberTokenCtx(context.Background(), user, token)
+func (s *CustomUserStore) UpdateRememberToken(user auth.Authenticatable, token string) error {
+    return s.UpdateRememberTokenCtx(context.Background(), user, token)
 }
 ```
 
-For atomic rotate-on-use of the remember-me credential, a provider may additionally implement `auth.RememberTokenCompareAndSwapper` (`CompareAndSwapRememberToken(ctx, user, oldToken, newToken) (swapped bool, err error)`); `SessionGuard` recall persists rotation exclusively through it. A provider that does not implement it fails remember-cookie recall closed.
+Install it with `manager.SetUserStore(store)`, which fans out to every registered scheme.
+
+For atomic rotate-on-use of the remember-me credential, a user store may additionally implement `auth.RememberTokenCompareAndSwapper` (`CompareAndSwapRememberToken(ctx, user, oldToken, newToken) (swapped bool, err error)`); `SessionScheme` recall persists rotation exclusively through it. A user store that does not implement it fails remember-cookie recall closed: remember cookies are still issued at login, but can never revive a session.
+
+The interface has an executable specification. Run it against your implementation with `authtest.RunUserStoreContractTests` from `github.com/velocitykode/velocity/auth/authtest`:
+
+```go
+func TestCustomUserStore(t *testing.T) {
+    authtest.RunUserStoreContractTests(t, authtest.UserStoreFactory{
+        New:          func(t *testing.T) auth.UserStore { return newSeededStore(t) },
+        SeedUser:     seedUser,
+        SeedEmail:    "user@example.com",
+        SeedPassword: "secret123",
+    })
+}
+```
 
 ## Middleware Integration
 
@@ -362,7 +450,7 @@ import "github.com/velocitykode/velocity/auth"
 r.Get("/dashboard", dashboardHandler.Index, auth.AuthMiddleware(manager))
 ```
 
-For role- or ability-based gates, the package also exposes `auth.RequireRole`, `auth.RequireAnyRole`, `auth.RequireAllRoles`, and `auth.AuthorizeMiddleware`. All of them deny with 401 when the request is unauthenticated and 403 when the policy fails.
+For role- or ability-based access checks, the package also exposes `auth.RequireRole`, `auth.RequireAnyRole`, `auth.RequireAllRoles`, and `auth.AuthorizeMiddleware`. All of them deny with 401 when the request is unauthenticated and 403 when the policy fails. They resolve through the manager's authorizer, `auth.Access`, reachable as `manager.Access()`; `manager.Allows(r, ability, args...)` and `manager.Authorize(r, ability, args...)` are the `contract.AuthManager` methods that wrap it for a request.
 
 ### Guest Middleware
 
@@ -421,9 +509,9 @@ type SessionStore interface {
 }
 ```
 
-The shipped implementation is `auth/drivers/session.CookieStore` (encrypted cookies, with `auth.SessionConfig` controlling cookie attributes). To plug in a custom backend, implement `SessionStore`, construct a `SessionGuard` against it, and register that guard with the manager. `SessionGuard` accepts whichever store it is given because it talks to the interface, not the cookie struct directly.
+The shipped implementation is `auth/drivers/session.CookieStore` (encrypted cookies, with `auth.SessionConfig` controlling cookie attributes). To plug in a custom backend, implement `SessionStore`, construct a `SessionScheme` against it, and register that scheme with the manager. `SessionScheme` accepts whichever store it is given because it talks to the interface, not the cookie struct directly.
 
-For ad-hoc reads you can also call `auth.GetSessionFromRequest(r, store, cookieName)` to resolve a session from a request when you have a store reference outside of guard code.
+For ad-hoc reads you can also call `auth.GetSessionFromRequest(r, store, cookieName)` to resolve a session from a request when you have a store reference outside of scheme code.
 
 `auth.SessionConfig.Validate(env)` enforces safe defaults: `HttpOnly` must be true unless `AllowJSAccess` is explicitly set, `Secure` must be true outside `testing`/`development`, `SameSite` must be non-zero, and `SameSite=None` requires `Secure=true`. Failing this returns `auth.ErrInsecureSessionConfig`, so bootstrap code can fail fast in production and log-then-continue in dev.
 
@@ -509,7 +597,7 @@ func (h *AccountHandler) ChangePassword(ctx *router.Context) error {
 
 ### LoginThrottler
 
-`SessionGuard.Attempt` (and `JWTGuard.Attempt`) consult a `contract.LoginThrottler` before checking credentials. The interface is the seam for credential-stuffing defense:
+`SessionScheme.Attempt` (and `JWTScheme.Attempt`) consult a `contract.LoginThrottler` before checking credentials. The interface is the seam for credential-stuffing defense:
 
 ```go
 // contract.LoginThrottler
@@ -526,11 +614,11 @@ Contract:
 - `RecordFailure(r, key)` runs when credential validation fails.
 - `RecordSuccess(r, key)` runs after a successful login; a good implementation clears the failure counter for that key.
 
-The default throttler is `auth.NoopLoginThrottler{}`, which permits every attempt. Install a real one with `guard.SetLoginThrottler(yourThrottler)` (passing `nil` reverts to the no-op).
+The default throttler is `auth.NoopLoginThrottler{}`, which permits every attempt. Install a real one with `scheme.SetLoginThrottler(yourThrottler)` (passing `nil` reverts to the no-op), or with `manager.SetLoginThrottler(yourThrottler)` to reach every scheme that implements `auth.LoginThrottlerReceiver`, including schemes registered later.
 
-The framework also exposes `auth.ThrottleKey(r, credentials, trustedProxies)`, which derives the rate-limit key for the `(identifier, IP)` pair dimension as a length-bounded SHA-256 digest prefixed with `login:`. The `identifier` is the first non-empty value among `email`, `username`, `name`, `login` in the credentials map (normalised: trimmed, NFKC-folded, lowercased), and the client IP is resolved through the trusted-proxy list (pass `nil` to ignore forwarded headers, the secure default). Use it so a custom guard wrapper produces keys consistent with the built-in guards.
+The framework also exposes `auth.ThrottleKey(r, credentials, trustedProxies)`, which derives the rate-limit key for the `(identifier, IP)` pair dimension as a length-bounded SHA-256 digest prefixed with `login:`. The `identifier` is the first non-empty value among `email`, `username`, `name`, `login` in the credentials map (normalised: trimmed, NFKC-folded, lowercased), and the client IP is resolved through the trusted-proxy list (pass `nil` to ignore forwarded headers, the secure default). Use it so a custom scheme wrapper produces keys consistent with the built-in schemes.
 
-The built-in guards actually consult `auth.ThrottleKeys(r, credentials, trustedProxies)`, which returns up to three keys, one per throttle dimension: the `(identifier, IP)` pair (always present, prefix `auth.ThrottleKeyPairPrefix`), the per-identifier key (prefix `auth.ThrottleKeyIdentifierPrefix`, omitted when no identifier is present), and the per-IP key (prefix `auth.ThrottleKeyIPPrefix`, omitted when the IP cannot be resolved). A throttler can branch on those prefixes to apply an independent cap per dimension.
+The built-in schemes actually consult `auth.ThrottleKeys(r, credentials, trustedProxies)`, which returns up to three keys, one per throttle dimension: the `(identifier, IP)` pair (always present, prefix `auth.ThrottleKeyPairPrefix`), the per-identifier key (prefix `auth.ThrottleKeyIdentifierPrefix`, omitted when no identifier is present), and the per-IP key (prefix `auth.ThrottleKeyIPPrefix`, omitted when the IP cannot be resolved). A throttler can branch on those prefixes to apply an independent cap per dimension.
 
 ## Two-factor authentication
 
@@ -637,17 +725,19 @@ The plaintext analog `auth.TOTP.ConsumeRecoveryCode(stored []string, supplied st
 
 ### Gating routes on 2FA
 
-Once enrollment is done, you want protected actions (changing email, exporting data, viewing billing) to require that the current request was made by a user who has actually completed the 2FA challenge for this session, not just one who happens to have 2FA enabled in principle. The framework hands you `auth.RequireTwoFactor`, a `BeforeCallback` you register on a `Gate`:
+Once enrollment is done, you want protected actions (changing email, exporting data, viewing billing) to require that the current request was made by a user who has actually completed the 2FA challenge for this session, not just one who happens to have 2FA enabled in principle. The framework hands you `auth.RequireTwoFactor`, a `BeforeCallback` you register on an `Access`:
 
 ```go
-// auth.RequireTwoFactor (auth/totp_gate.go)
+// auth.RequireTwoFactor (auth/totp_access.go)
 func RequireTwoFactor(getStatus func(actor any) bool) BeforeCallback
 ```
 
-The supplied `getStatus` function receives the `Authenticatable` as `any` (so consumer code can type-assert to its own user model without `auth` depending on it) and returns true when the current actor has satisfied the 2FA challenge for this session. Wire it once on your gate:
+The supplied `getStatus` function receives the `Authenticatable` as `any` (so consumer code can type-assert to its own user model without `auth` depending on it) and returns true when the current actor has satisfied the 2FA challenge for this session. Wire it once on the manager's authorizer:
 
 ```go
-gate.Before(auth.RequireTwoFactor(func(actor any) bool {
+access := manager.Access() // *auth.Access
+
+access.Before(auth.RequireTwoFactor(func(actor any) bool {
     u, ok := actor.(*models.User)
     if !ok {
         return false
@@ -658,7 +748,7 @@ gate.Before(auth.RequireTwoFactor(func(actor any) bool {
 }))
 ```
 
-Semantics: when `getStatus` reports `true`, the callback returns `nil` and the gate falls through to the actual policies and abilities. When it reports `false`, the callback returns a pointer to `false`, denying every ability on this gate. When `getStatus` itself is nil (or the actor is nil), the callback is a no-op and returns nil so it cannot accidentally lock every user out of an app where 2FA is not yet provisioned.
+Semantics: when `getStatus` reports `true`, the callback returns `nil` and the authorizer falls through to the actual policies and abilities. When it reports `false`, the callback returns a pointer to `false`, denying every ability on this `Access`. When `getStatus` itself is nil (or the actor is nil), the callback is a no-op and returns nil so it cannot accidentally lock every user out of an app where 2FA is not yet provisioned.
 
 #### Recipe: Enable TOTP for an account
 
@@ -678,7 +768,7 @@ func (h *TwoFactorHandler) Setup(ctx *router.Context) error {
 
     // Stash secret in a *pending* slot, not the live TOTPSecret column.
     user.PendingTOTPSecret = secret
-    if err := user.Save(); err != nil {
+    if err := orm.Save(ctx.Request.Context(), nil, user); err != nil {
         return err
     }
 
@@ -722,7 +812,7 @@ func (h *TwoFactorHandler) Confirm(ctx *router.Context) error {
     user.TOTPLastUsedStep = step
     user.TwoFactorEnabled = true
     user.RecoveryCodes = hashed
-    if err := user.Save(); err != nil {
+    if err := orm.Save(ctx.Request.Context(), nil, user); err != nil {
         return err
     }
 
@@ -771,8 +861,10 @@ func RegisterHandler(ctx *router.Context) error {
         return ctx.Error(http.StatusInternalServerError, "Internal Server Error")
     }
 
-    // Create user (using your user model)
-    user, err := models.User{}.Create(map[string]any{
+    // Create user (using your user model). The map-based Create path is
+    // policed by the model's mass-assignment policy, so "name", "email",
+    // and "password" must appear in its AssignableFields().
+    _, err = models.User{}.Create(ctx.Request.Context(), map[string]any{
         "name":     name,
         "email":    email,
         "password": hashedPassword,
@@ -851,7 +943,8 @@ func TestAuthentication(t *testing.T) {
     // Test authentication attempt against an in-memory manager.
     manager := auth.NewManager()
     manager.SetHasher(hasher)
-    // ... register a fake provider + guard, then:
+    // ... install a fake user store (manager.SetUserStore) and register a
+    // scheme (manager.RegisterScheme), then:
 
     credentials := map[string]interface{}{
         "email":    "test@example.com",
@@ -908,8 +1001,8 @@ func (t *EmailIPThrottler) RecordSuccess(r *http.Request, key string) {
     _ = t.cache.ForgetCtx(r.Context(), "login:fail:"+key)
 }
 
-// during bootstrap, after building the SessionGuard:
-sessionGuard.SetLoginThrottler(&EmailIPThrottler{cache: cacheStore})
+// during bootstrap, after building the SessionScheme:
+sessionScheme.SetLoginThrottler(&EmailIPThrottler{cache: cacheStore})
 ```
 
 **Why this shape:** The framework hands you the composite key for free via `auth.ThrottleKey(r, credentials, trustedProxies)`, a length-bounded SHA-256 digest over the normalised identifier and the resolved client IP. Keying on the composite means a single attacker IP cannot exhaust attempts for an unrelated user, and a shared IP (NAT, corporate egress) does not collectively lock out everyone behind it. The 5/15-minute window is a starting point: tune to your traffic. Keying on email-only invites enumeration; IP-only invites NAT lockout; the composite is the load-bearing detail. `RecordSuccess` clearing the counter is what lets a legitimate user recover after a typo storm. For a throttler that caps each dimension independently, consult `auth.ThrottleKeys` instead and branch on the per-key prefix.

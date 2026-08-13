@@ -40,7 +40,7 @@ The SDK is organized into domain packages; you import the ones you need:
 | `schema` | `.../velocity-mcp/schema` | Fluent JSON Schema builder for tool arguments, plus `Implementation`/`Icon` metadata |
 | `content` | `.../velocity-mcp/content` | Content types: `Text`, `Image`, `Audio`, `Blob`, `ResourceLink` |
 | `transport` | `.../velocity-mcp/transport` | Stdio loop and the velocity-router HTTP handler |
-| `provider` | `.../velocity-mcp/provider` | Chain service provider: registers the server and mounts the HTTP route |
+| `module` | `.../velocity-mcp/module` | Velocity module: registers the server and mounts the HTTP route |
 | `console` | `.../velocity-mcp/console` | `make:mcp-*` code generators |
 
 ## Defining a tool
@@ -222,10 +222,10 @@ CSRF/session guards would reject every request). Attach your own auth, rate
 limiting, and CORS middleware to the route.
 {{% /callout %}}
 
-### Registering the provider
+### Registering the module
 
-Rather than wiring the route by hand, add `provider.New(srv)` as a chain service
-provider. It registers the server in the application component registry, mounts
+Rather than wiring the route by hand, add `module.New(srv)` as a Velocity
+module. It registers the server in the application component registry, mounts
 the HTTP transport at `/mcp`, registers the `make:mcp-*` generators, and lets
 Velocity's bootstrap inject the event dispatcher so MCP events flow through your
 event system:
@@ -235,9 +235,8 @@ package main
 
 import (
 	"github.com/velocitykode/velocity"
-	"github.com/velocitykode/velocity/chain"
 
-	"github.com/velocitykode/velocity-mcp/provider"
+	"github.com/velocitykode/velocity-mcp/module"
 	"github.com/velocitykode/velocity-mcp/server"
 )
 
@@ -251,8 +250,8 @@ func main() {
 		panic(err)
 	}
 
-	app.Providers(func(r *chain.ProviderRegistry) {
-		r.Add(provider.New(srv))
+	app.Modules(func(r *velocity.ModuleRegistry) {
+		r.Add(module.New(srv))
 	})
 
 	if err := app.Run(); err != nil {
@@ -261,11 +260,11 @@ func main() {
 }
 ```
 
-The provider accepts options:
+The module accepts options:
 
-- `provider.WithPath(path)` changes the mount path (default `provider.DefaultPath`, `/mcp`).
-- `provider.WithMiddleware(mw...)` attaches route middleware (auth guards, rate limiting, CORS).
-- `provider.WithHandlerOptions(opts...)` forwards options to `transport.Handler` (e.g. `transport.WithMaxBodyBytes`).
+- `module.WithPath(path)` changes the mount path (default `module.DefaultPath`, `/mcp`).
+- `module.WithMiddleware(mw...)` attaches route middleware (auth, rate limiting, CORS).
+- `module.WithHandlerOptions(opts...)` forwards options to `transport.Handler` (e.g. `transport.WithMaxBodyBytes`).
 
 Once registered, retrieve the server elsewhere with
 `server.FromServices(app.Services)` or, inside a request handler, with the
@@ -291,7 +290,7 @@ implements `Handle(ctx, req) (*server.Response, error)`. Use
 
 ## Scaffolding primitives
 
-When the provider is registered, three generators are available through the
+When the module is registered, three generators are available through the
 Velocity CLI to scaffold starter files:
 
 ```bash

@@ -246,7 +246,7 @@ Available options include:
 | `WithReadTimeout(d time.Duration)` | Set the HTTP read timeout. |
 | `WithWriteTimeout(d time.Duration)` | Set the HTTP write timeout. |
 | `WithIdleTimeout(d time.Duration)` | Set the HTTP idle timeout. |
-| `WithProviders(providers ...app.ServiceProvider)` | Append service providers. |
+| `WithModules(modules ...app.Module)` | Append modules; they are initialized and started in the order given. |
 | `WithoutEvents()` | Disable the event dispatcher entirely. |
 | `WithFakeEvents(fake *events.FakeDispatcher)` | Record dispatched events for assertions. |
 | `WithSchedulerInProcess()` | Run the scheduler loop in the same process as `Serve()`. |

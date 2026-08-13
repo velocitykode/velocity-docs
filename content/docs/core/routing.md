@@ -79,7 +79,7 @@ func Register(r *velocity.Routing) {
 
 ## Wiring routes into the app
 
-`main.go` builds the bootstrap chain - Providers (auth, CSRF, view
+`main.go` builds the bootstrap chain - Modules (auth, CSRF, view
 config), Middleware (the global / web / API stacks), Routes (this
 file), Events (your listeners) - then either runs a CLI command or
 serves HTTP based on whether arguments were passed.
@@ -109,14 +109,14 @@ func main() {
     }
 
     chain := v.
-        Providers(app.Configure).
+        Modules(app.Configure).
         Middleware(app.Middleware).
         Routes(routes.Register).
         Events(app.Events(v.Log))
 
-    // With CLI args (`vel migrate`, `vel make:handler`, ...) dispatch
+    // With CLI args (`vel migrate`, `vel gen handler`, ...) dispatch
     // the command. Routes still need to be registered before this so
-    // `vel route:list` sees them.
+    // `vel routes` sees them.
     if len(os.Args) > 1 {
         if err := chain.Run(); err != nil {
             log.Fatal(err)
@@ -138,7 +138,7 @@ signatures are:
 
 ```go
 // internal/app/bootstrap.go
-func Configure(reg *velocity.ProviderRegistry)
+func Configure(reg *velocity.ModuleRegistry)
 
 // internal/app/middleware.go
 func Middleware(m *velocity.MiddlewareStack)

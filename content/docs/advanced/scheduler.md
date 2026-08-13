@@ -15,8 +15,10 @@ Pick the registration helper that matches the closure shape and naming you need:
 | Closure has no error to report; OK with panic-only `OnFailure` | `Call(fn).Daily()` |
 | Closure returns an error you want `OnFailure` to see | `CallE(fn).Daily().OnFailure(handler)` |
 | Need a custom job name (not the auto-derived closure name) | `Named(name, fn)` / `NamedE(name, fn)` |
-| Run scheduler alongside HTTP serve | `app.WithSchedulerInProcess()` |
-| Run scheduler in separate process | `vel schedule:work` CLI |
+| Register jobs on the app's scheduler | `v.Schedule(func(s scheduler.TaskScheduler) { ... })` |
+| Register jobs from a module | `Schedule(s scheduler.TaskScheduler)` on the module |
+| Run scheduler alongside HTTP serve | `velocity.WithSchedulerInProcess()` |
+| Run scheduler in separate process | `vel schedule work` CLI |
 
 ## Quick Start
 
@@ -25,27 +27,31 @@ Pick the registration helper that matches the closure shape and naming you need:
 {{< tab >}}
 ```go
 import (
-    "context"
+    "github.com/velocitykode/velocity"
     "github.com/velocitykode/velocity/scheduler"
-    "github.com/velocitykode/velocity/log"
 )
 
 func main() {
-    s := scheduler.New()
+    v, err := velocity.New(velocity.WithSchedulerInProcess())
+    if err != nil {
+        panic(err)
+    }
 
-    // Run every minute
-    s.Call(func() {
-        log.Info("Task running every minute")
-    }).EveryMinute()
+    v.Schedule(func(s scheduler.TaskScheduler) {
+        // Run every minute
+        s.Named("heartbeat", func() {
+            v.Log.Info("Task running every minute")
+        }).EveryMinute()
 
-    // Run every hour
-    s.Call(func() {
-        log.Info("Hourly task")
-    }).Hourly()
+        // Run every hour
+        s.Named("hourly-rollup", func() {
+            rollUpMetrics()
+        }).Hourly()
+    })
 
-    // Start the scheduler
-    ctx := context.Background()
-    s.Run(ctx)
+    if err := v.Serve(); err != nil {
+        panic(err)
+    }
 }
 ```
 {{< /tab >}}
@@ -53,63 +59,104 @@ func main() {
 {{< tab >}}
 ```go
 import (
+    "github.com/velocitykode/velocity"
     "github.com/velocitykode/velocity/scheduler"
-    "github.com/velocitykode/velocity/cache"
 )
 
-func main() {
-    s := scheduler.New()
+func registerJobs(v *velocity.App) {
+    v.Schedule(func(s scheduler.TaskScheduler) {
+        // Clear cache daily at 2 AM
+        s.NamedE("cache-clear", func() error {
+            return v.Cache.Flush()
+        }).DailyAt("02:00")
 
-    // Clear cache daily at 2 AM
-    s.Call(func() {
-        cache.Flush()
-    }).DailyAt("02:00").Name("cache:clear")
-
-    // Backup database daily at 3 AM
-    s.Call(func() {
-        backupDatabase()
-    }).DailyAt("03:00").Name("backup:daily")
-
-    ctx := context.Background()
-    s.Run(ctx)
+        // Backup database daily at 3 AM
+        s.NamedE("backup-database", func() error {
+            return backupDatabase()
+        }).DailyAt("03:00")
+    })
 }
 ```
 {{< /tab >}}
 
 {{< tab >}}
 ```go
-import "github.com/velocitykode/velocity/scheduler"
+import (
+    "github.com/velocitykode/velocity"
+    "github.com/velocitykode/velocity/scheduler"
+)
 
-func main() {
-    s := scheduler.New()
+func registerJobs(v *velocity.App) {
+    v.Schedule(func(s scheduler.TaskScheduler) {
+        // Process jobs every 5 minutes, weekdays only
+        s.Named("jobs-process", func() {
+            processJobs()
+        }).EveryFiveMinutes().
+            Weekdays().
+            Between("09:00", "18:00")
 
-    // Process jobs every 5 minutes, weekdays only
-    s.Call(func() {
-        processJobs()
-    }).EveryFiveMinutes().
-        Weekdays().
-        Between("09:00", "18:00").
-        Name("jobs:process")
-
-    // Weekly report on Mondays at 9 AM
-    s.Call(func() {
-        generateWeeklyReport()
-    }).Weekly().
-        Mondays().
-        At("09:00").
-        Name("report:weekly")
-
-    ctx := context.Background()
-    s.Run(ctx)
+        // Weekly report on Mondays at 9 AM
+        s.Named("report-weekly", func() {
+            generateWeeklyReport()
+        }).Weekly().
+            Mondays().
+            At("09:00")
+    })
 }
 ```
 {{< /tab >}}
 
 {{< /tabs >}}
 
+## The app scheduler
+
+`velocity.New` builds a scheduler during bootstrap and exposes it as
+`v.Scheduler`, typed as `scheduler.TaskScheduler`. It arrives pre-configured
+from the app: `SetEnv` from `APP_ENV`, `SetLogger` from the framework logger,
+`SetTimezone` from `APP_TIMEZONE`, and a cache-backed `Locker` when the
+configured cache driver supports locks (Redis today; other drivers fall back
+to the in-process `InMemoryLocker` with a warning).
+
+There are two places to register jobs on it:
+
+```go
+// 1. The bootstrap callback.
+v.Schedule(func(s scheduler.TaskScheduler) {
+    s.Named("reports-generate", generateReports).DailyAt("06:00")
+})
+
+// 2. A module that implements the ScheduleModule interface.
+func (m *ReportsModule) Schedule(s scheduler.TaskScheduler) {
+    s.NamedE("reports-generate", m.generate).DailyAt("06:00")
+}
+```
+
+`v.Schedule` stores a single callback, so calling it twice replaces the first
+one. Register every job inside one callback, or split them across modules.
+
+A module's `Schedule` method is only called when the module is registered
+through `v.Modules(...)`. Modules passed to `velocity.WithModules(...)` run
+`Init` / `Start` before the bootstrap chain exists and are not dispatched the
+optional interfaces. See [Modules]({{< relref "modules" >}}).
+
+`TaskScheduler` covers registration and lifecycle only: `Add`, `Call`,
+`CallE`, `Named`, `NamedE`, `Command`, `Run`, `Shutdown`, `Jobs`,
+`SetEventDispatcher`, `SetEnv`. The chaining configuration setters
+(`SetTimezone`, `SetLogger`, `SetLocker`, `MaintenanceMode`, `Before`,
+`After`) live on the concrete `*scheduler.Scheduler` and are meant for
+bootstrap wiring or for a standalone `scheduler.New()`.
+
+Throughout this page, `v` is the running app (`*velocity.App`, which embeds
+the service container, hence `v.Log` / `v.Cache` / `v.Scheduler`) and `s` is
+a scheduler.
+
 ## Configuration
 
 ### Creating a Scheduler
+
+An app already has one (see [The app scheduler](#the-app-scheduler)).
+`scheduler.New()` builds a standalone scheduler for a worker binary or a
+test, and starts out unconfigured:
 
 ```go
 import (
@@ -119,20 +166,36 @@ import (
 
 s := scheduler.New()
 
-// Set timezone
+// Set timezone (defaults to time.Local)
 location, _ := time.LoadLocation("America/New_York")
 s.SetTimezone(location)
 
-// Set custom logger
-s.SetLogger(customLogger)
+// Any type with Debug/Info/Warn/Error satisfies scheduler.Logger,
+// including the framework logger.
+s.SetLogger(v.Log)
+
+// Environment filter used by Job.Environments(...)
+s.SetEnv("production")
+
+// Cross-process overlap guard for WithoutOverlapping / OnOneServer
+s.SetLocker(sharedLocker)
 ```
+
+`s.Timezone()` and `s.Locker()` read the values back.
 
 ### Environment Variables
 
 ```env
-# Optional: Set environment for environment-specific jobs
+# Environment filter for Job.Environments(...); the app calls SetEnv with it
 APP_ENV=production
+
+# IANA zone the app scheduler evaluates cron expressions in (default UTC)
+APP_TIMEZONE=America/New_York
 ```
+
+`APP_TIMEZONE` is the application's presentation timezone: it is applied to
+`time.Local` and to scheduler cron evaluation at bootstrap. Persistence is
+unconditionally UTC and never reads it.
 
 ## Schedule Frequencies
 
@@ -289,10 +352,10 @@ s.Call(func() {
     processOrders()
 }).Daily().
     Before(func() {
-        log.Info("Starting order processing")
+        v.Log.Info("Starting order processing")
     }).
     After(func() {
-        log.Info("Finished order processing")
+        v.Log.Info("Finished order processing")
     })
 ```
 
@@ -306,10 +369,10 @@ s.Call(func() {
     }
 }).Hourly().
     OnSuccess(func() {
-        log.Info("Data sync successful")
+        v.Log.Info("Data sync successful")
     }).
     OnFailure(func(err error) {
-        log.Error("Data sync failed", "error", err)
+        v.Log.Error("Data sync failed", "error", err)
         sendAlert(err)
     })
 ```
@@ -326,7 +389,7 @@ s.CallE(func() error {
     return syncData()
 }).Hourly().
     OnFailure(func(err error) {
-        log.Error("Data sync failed", "error", err)
+        v.Log.Error("Data sync failed", "error", err)
         sendAlert(err)
     })
 ```
@@ -340,13 +403,17 @@ Run callbacks before/after each scheduler cycle:
 s := scheduler.New()
 
 s.Before(func() {
-    log.Info("Scheduler cycle starting")
+    v.Log.Info("Scheduler cycle starting")
 })
 
 s.After(func() {
-    log.Info("Scheduler cycle completed")
+    v.Log.Info("Scheduler cycle completed")
 })
 ```
+
+`Before` / `After` are on the concrete `*scheduler.Scheduler`, not on the
+`TaskScheduler` interface the app exposes, so wire them where the scheduler
+is constructed.
 
 ## Task Output
 
@@ -363,6 +430,11 @@ s.Command("backup-db").Daily().
 s.Command("process-queue").Hourly().
     AppendOutputTo("storage/logs/queue.log")
 ```
+
+Redirection captures the stdout and stderr of a `Command` job's process.
+Closure jobs (`Call` / `CallE` / `Named` / `NamedE`) run in-process and write
+through whatever logger they use, so `SendOutputTo` / `AppendOutputTo` have
+no effect on them.
 
 ## Registering Jobs
 
@@ -383,12 +455,12 @@ s.CallE(func() error {
 
 // Explicit name + func() closure. Recommended when chaining WithoutOverlapping,
 // since the overlap guard keys on the job name.
-s.Named("reports:generate", func() {
+s.Named("reports-generate", func() {
     generateReports()
 }).Daily().WithoutOverlapping()
 
 // Explicit name + func() error closure. Combines both ergonomic wins.
-s.NamedE("reports:generate", func() error {
+s.NamedE("reports-generate", func() error {
     return generateReports()
 }).Daily().WithoutOverlapping().OnFailure(handleErr)
 ```
@@ -413,11 +485,11 @@ Give tasks descriptive names for easier debugging:
 ```go
 s.Call(func() {
     generateReports()
-}).Daily().Name("reports:generate")
+}).Daily().Name("reports-generate")
 
 s.Call(func() {
     cleanupFiles()
-}).Weekly().Name("cleanup:files")
+}).Weekly().Name("cleanup-files")
 ```
 
 ### Running Commands
@@ -431,7 +503,7 @@ s.Command("ls", "-la").Daily()
 // Command with output
 s.Command("backup-db").DailyAt("02:00").
     AppendOutputTo("storage/logs/backup.log").
-    Name("backup:database")
+    Name("backup-database")
 
 // Run in background
 s.Command("long-process").Hourly().
@@ -446,7 +518,7 @@ jobs := s.Jobs()
 
 // Run specific job manually
 for _, job := range jobs {
-    if job.GetName() == "backup:daily" {
+    if job.GetName() == "backup-database" {
         job.Run()
     }
 }
@@ -467,6 +539,7 @@ func New() *Scheduler
 
 // Configuration
 func (s *Scheduler) SetTimezone(tz *time.Location) *Scheduler
+func (s *Scheduler) Timezone() *time.Location
 func (s *Scheduler) SetLogger(logger Logger) *Scheduler
 func (s *Scheduler) SetEnv(env string)
 func (s *Scheduler) SetLocker(l Locker) *Scheduler
@@ -560,6 +633,7 @@ GetLastRun() time.Time
 GetNextRun() time.Time
 IsRunning() bool
 IsDue(t time.Time) bool
+ShouldRun() bool
 
 // Execution
 Run() error
@@ -581,17 +655,20 @@ on signal-driven shutdown.
 ```go
 import "github.com/velocitykode/velocity"
 
-app, err := velocity.New(
+v, err := velocity.New(
     velocity.WithSchedulerInProcess(),
 )
 if err != nil {
-    log.Fatal(err)
+    return err
 }
 
-if err := app.Serve(); err != nil {
-    log.Fatal(err)
+if err := v.Serve(); err != nil {
+    return err
 }
 ```
+
+The loop runs against `context.Background()` rather than the app's shutdown
+context, so teardown always flows through `App.Shutdown`.
 
 ### Separate process via the CLI
 
@@ -600,10 +677,14 @@ dedicated scheduler), leave `WithSchedulerInProcess` off and run the
 scheduler in its own process:
 
 ```bash
-vel schedule:work
+vel schedule work
 ```
 
-Running the scheduler both in-process and via `vel schedule:work` against
+`vel schedule work` bootstraps the app (so every `v.Schedule` callback and
+module `Schedule` method has run), then calls `Scheduler.Run(ctx)` and waits
+on SIGINT / SIGTERM before cancelling and draining.
+
+Running the scheduler both in-process and via `vel schedule work` against
 the same app will fire each job twice. Pick one shape per deployment.
 
 ## Best Practices
@@ -612,7 +693,7 @@ the same app will fire each job twice. Pick one shape per deployment.
    ```go
    s.Call(func() {
        cleanupOldLogs()
-   }).Daily().Name("cleanup:logs")
+   }).Daily().Name("cleanup-logs")
    ```
 
 2. **Use WithoutOverlapping for Long Tasks**: Prevent job pile-up
@@ -625,7 +706,7 @@ the same app will fire each job twice. Pick one shape per deployment.
 3. **Add Error Handling**: Use OnFailure to handle and log errors
    ```go
    job.OnFailure(func(err error) {
-       log.Error("Task failed", "error", err)
+       v.Log.Error("Task failed", "error", err)
        sendAlert(err)
    })
    ```
@@ -640,7 +721,7 @@ the same app will fire each job twice. Pick one shape per deployment.
    ```go
    job := s.Call(func() {}).Cron("0 */2 * * *")
    nextRun := job.GetNextRun()
-   log.Info("Next run", "time", nextRun)
+   v.Log.Info("Next run", "time", nextRun)
    ```
 
 6. **Use Appropriate Frequencies**: Don't poll too frequently
@@ -650,14 +731,18 @@ the same app will fire each job twice. Pick one shape per deployment.
 7. **Monitor Execution**: Track last run times
    ```go
    for _, job := range s.Jobs() {
-       log.Info("Job status",
+       v.Log.Info("Job status",
            "name", job.GetName(),
            "last_run", job.GetLastRun(),
            "next_run", job.GetNextRun())
    }
    ```
 
-8. **Handle Context Cancellation**: Always start scheduler with context
+8. **Let the lifecycle drain the jobs**: `WithSchedulerInProcess` and
+   `vel schedule work` already stop the loop and wait for in-flight jobs on
+   SIGINT / SIGTERM. A standalone scheduler needs the same treatment:
+   `Shutdown` cancels the run context and waits for running jobs, returning
+   `ctx.Err()` if the deadline expires first.
    ```go
    ctx, cancel := context.WithCancel(context.Background())
    defer cancel()
@@ -666,7 +751,11 @@ the same app will fire each job twice. Pick one shape per deployment.
 
    // Graceful shutdown
    <-shutdownSignal
-   cancel()
+   drainCtx, drainCancel := context.WithTimeout(context.Background(), 30*time.Second)
+   defer drainCancel()
+   if err := s.Shutdown(drainCtx); err != nil {
+       v.Log.Error("scheduler drain timed out", "error", err)
+   }
    ```
 
 ## Complete Examples
@@ -677,93 +766,56 @@ the same app will fire each job twice. Pick one shape per deployment.
 package main
 
 import (
-    "context"
-    "os"
-    "os/signal"
-    "syscall"
-
+    "github.com/velocitykode/velocity"
     "github.com/velocitykode/velocity/scheduler"
-    "github.com/velocitykode/velocity/log"
-    "github.com/velocitykode/velocity/cache"
 )
 
 func main() {
-    s := scheduler.New()
+    v, err := velocity.New(velocity.WithSchedulerInProcess())
+    if err != nil {
+        panic(err)
+    }
 
-    // Clear cache every hour
-    s.Call(func() {
-        log.Info("Clearing cache")
-        cache.Flush()
-    }).Hourly().Name("cache:clear")
+    v.Schedule(func(s scheduler.TaskScheduler) {
+        // Clear cache every hour
+        s.NamedE("cache-clear", func() error {
+            v.Log.Info("Clearing cache")
+            return v.Cache.Flush()
+        }).Hourly()
 
-    // Database backup at 2 AM daily
-    s.Call(func() {
-        log.Info("Running database backup")
-        if err := backupDatabase(); err != nil {
-            panic(err)
-        }
-    }).DailyAt("02:00").
-        Name("backup:database").
-        WithoutOverlapping().
-        AppendOutputTo("storage/logs/backup.log").
-        OnSuccess(func() {
-            log.Info("Database backup completed")
-        }).
-        OnFailure(func(err error) {
-            log.Error("Database backup failed", "error", err)
-            sendAlertEmail(err)
-        })
+        // Database backup at 2 AM daily
+        s.NamedE("backup-database", backupDatabase).
+            DailyAt("02:00").
+            WithoutOverlapping().
+            OnSuccess(func() {
+                v.Log.Info("Database backup completed")
+            }).
+            OnFailure(func(err error) {
+                v.Log.Error("Database backup failed", "error", err)
+                sendAlertEmail(err)
+            })
 
-    // Process queue every 5 minutes during business hours
-    s.Call(func() {
-        processQueueJobs()
-    }).EveryFiveMinutes().
-        Between("09:00", "18:00").
-        Weekdays().
-        Name("queue:process")
+        // Process queue every 5 minutes during business hours
+        s.Named("queue-process", processQueueJobs).
+            EveryFiveMinutes().
+            Between("09:00", "18:00").
+            Weekdays()
 
-    // Weekly report on Mondays
-    s.Call(func() {
-        generateWeeklyReport()
-    }).Weekly().
-        Mondays().
-        At("09:00").
-        Name("report:weekly").
-        Environments("production")
+        // Weekly report on Mondays, production only
+        s.Named("report-weekly", generateWeeklyReport).
+            Weekly().
+            Mondays().
+            At("09:00").
+            Environments("production")
 
-    // Cleanup old files monthly
-    s.Call(func() {
-        cleanupOldFiles()
-    }).Monthly().
-        Name("cleanup:files")
-
-    // Global hooks
-    s.Before(func() {
-        log.Info("Scheduler cycle starting")
+        // Cleanup old files monthly
+        s.Named("cleanup-files", cleanupOldFiles).Monthly()
     })
 
-    s.After(func() {
-        log.Info("Scheduler cycle completed")
-    })
-
-    // Start scheduler with graceful shutdown
-    ctx, cancel := context.WithCancel(context.Background())
-    defer cancel()
-
-    // Handle shutdown signals
-    sigChan := make(chan os.Signal, 1)
-    signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-
-    go func() {
-        <-sigChan
-        log.Info("Shutting down scheduler")
-        cancel()
-    }()
-
-    // Run scheduler
-    log.Info("Starting scheduler")
-    if err := s.Run(ctx); err != nil && err != context.Canceled {
-        log.Error("Scheduler error", "error", err)
+    // Serve() starts the scheduler loop (WithSchedulerInProcess) and drains
+    // it through App.Shutdown on SIGINT / SIGTERM.
+    if err := v.Serve(); err != nil {
+        panic(err)
     }
 }
 
@@ -791,75 +843,60 @@ func sendAlertEmail(err error) {
 
 ### Development vs Production Schedules
 
+`Environments` filters against the scheduler's env, which the app sets from
+`APP_ENV` at bootstrap. A standalone scheduler needs an explicit
+`s.SetEnv(...)`, otherwise every `Environments(...)` job is filtered out.
+
 ```go
-func setupScheduler() *scheduler.Scheduler {
-    s := scheduler.New()
-    env := os.Getenv("APP_ENV")
+func registerJobs(v *velocity.App) {
+    v.Schedule(func(s scheduler.TaskScheduler) {
+        // Tasks that run in all environments
+        s.NamedE("cache-clear", v.Cache.Flush).Hourly()
 
-    // Tasks that run in all environments
-    s.Call(func() {
-        cache.Flush()
-    }).Hourly().Name("cache:clear")
+        // Production-only tasks
+        s.NamedE("backup-database", backupDatabase).
+            DailyAt("02:00").
+            Environments("production")
 
-    // Production-only tasks
-    s.Call(func() {
-        backupDatabase()
-    }).DailyAt("02:00").
-        Environments("production").
-        Name("backup:database")
+        s.NamedE("report-daily", sendDailyReport).
+            DailyAt("09:00").
+            Environments("production")
 
-    s.Call(func() {
-        sendDailyReport()
-    }).DailyAt("09:00").
-        Environments("production").
-        Name("report:daily")
-
-    // Development-only tasks
-    s.Call(func() {
-        seedTestData()
-    }).Hourly().
-        Environments("development").
-        Name("seed:test-data")
-
-    return s
+        // Development-only tasks
+        s.NamedE("seed-test-data", seedTestData).
+            Hourly().
+            Environments("development")
+    })
 }
 ```
 
 ### Task with Custom Logger
 
+`scheduler.Logger` is `Debug` / `Info` / `Warn` / `Error`, each
+`(msg string, keysAndValues ...interface{})`. The framework logger already
+satisfies it, so a standalone scheduler can borrow the app's:
+
 ```go
 import (
+    "github.com/velocitykode/velocity/contract"
     "github.com/velocitykode/velocity/scheduler"
-    "github.com/velocitykode/velocity/log"
 )
 
-type CustomLogger struct{}
+s := scheduler.New()
+s.SetLogger(v.Log)
+```
 
-func (l *CustomLogger) Info(msg string, keysAndValues ...interface{}) {
-    log.Info(msg, keysAndValues...)
-}
+Wrap it when scheduler output needs its own treatment:
 
-func (l *CustomLogger) Warn(msg string, keysAndValues ...interface{}) {
-    log.Warn(msg, keysAndValues...)
-}
+```go
+type prefixLogger struct{ inner contract.Logger }
 
-func (l *CustomLogger) Error(msg string, keysAndValues ...interface{}) {
-    log.Error(msg, keysAndValues...)
-}
+func (l prefixLogger) Debug(msg string, kvs ...interface{}) { l.inner.Debug("[scheduler] "+msg, kvs...) }
+func (l prefixLogger) Info(msg string, kvs ...interface{})  { l.inner.Info("[scheduler] "+msg, kvs...) }
+func (l prefixLogger) Warn(msg string, kvs ...interface{})  { l.inner.Warn("[scheduler] "+msg, kvs...) }
+func (l prefixLogger) Error(msg string, kvs ...interface{}) { l.inner.Error("[scheduler] "+msg, kvs...) }
 
-func (l *CustomLogger) Debug(msg string, keysAndValues ...interface{}) {
-    log.Debug(msg, keysAndValues...)
-}
-
-func main() {
-    s := scheduler.New()
-    s.SetLogger(&CustomLogger{})
-
-    // Define tasks...
-
-    ctx := context.Background()
-    s.Run(ctx)
-}
+s.SetLogger(prefixLogger{inner: v.Log})
 ```
 
 ## Testing

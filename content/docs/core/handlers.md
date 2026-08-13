@@ -192,6 +192,14 @@ func (c *PostHandler) Destroy(ctx *router.Context) error {
 }
 ```
 
+{{< callout type="warning" title="Map-based writes need a mass-assignment policy" >}}
+`Create(map[string]any{...})` and `Update(map[string]any{...})` are
+deny-by-default. The model must declare `AssignableFields()` (allowlist) or
+`ProtectedFields()` (denylist), or opt out with `AllowAllColumns() bool`;
+otherwise the write is rejected with a `*orm.MassAssignmentError`. See
+[CRUD Operations](/docs/database/crud/).
+{{< /callout >}}
+
 ## Base Handler
 
 Create a base handler with common functionality:
@@ -254,10 +262,11 @@ func (c *BaseHandler) Redirect(ctx *router.Context, url string, status ...int) e
 }
 
 // Render with validation errors
-// ctx.WithErrors flashes the errors so they survive a redirect and are
-// available to the next view render.
-func (c *BaseHandler) WithErrors(ctx *router.Context, errors map[string][]string) {
-    ctx.WithErrors(errors)
+// ctx.FlashErrors writes the errors to an encrypted flash cookie so they
+// survive a redirect and are available to the next view render. Its
+// companion, ctx.FlashInput, does the same for old form input.
+func (c *BaseHandler) FlashErrors(ctx *router.Context, errors map[string][]string) {
+    ctx.FlashErrors(errors)
 }
 
 // Authorization helper
@@ -287,11 +296,13 @@ Velocity supports RESTful resource handlers:
 package api
 
 import (
-    "strconv"
+    "errors"
+
     "myapp/internal/models"
 
-    "github.com/velocitykode/velocity/router"
     "github.com/velocitykode/velocity/auth"
+    "github.com/velocitykode/velocity/router"
+    "github.com/velocitykode/velocity/validation"
 )
 
 type UserHandler struct {
@@ -329,27 +340,43 @@ func (c *UserHandler) Show(ctx *router.Context) error {
 }
 
 // POST /api/users
+type StoreUserInput struct {
+    Name     string `json:"name"`
+    Email    string `json:"email"`
+    Password string `json:"password"`
+}
+
+// Rules makes StoreUserInput a router.Validatable (the same interface
+// vform.FormRequest aliases), so ctx.BindValid picks the rules up.
+func (in *StoreUserInput) Rules() validation.Rules {
+    return validation.Rules{
+        "name":     {validation.Required(), validation.String(), validation.Max(255)},
+        "email":    {validation.Required(), validation.Email(), validation.Unique("users", "email")},
+        "password": {validation.Required(), validation.String(), validation.Min(8)},
+    }
+}
+
 func (c *UserHandler) Store(ctx *router.Context) error {
-    var input struct {
-        Name     string `json:"name"`
-        Email    string `json:"email"`
-        Password string `json:"password"`
-    }
-    if err := ctx.Bind(&input); err != nil {
-        return ctx.JSON(400, map[string]string{"error": "Invalid input"})
+    var input StoreUserInput
+
+    // BindValid binds the JSON body and then runs input.Rules() through
+    // the same DB-backed rule set ctx.Validate uses, so `unique` resolves
+    // here too. Unlike ctx.Validate it neither flashes errors nor
+    // redirects back, which is what an API handler wants: the response
+    // shape stays yours.
+    if err := ctx.BindValid(&input); err != nil {
+        var ve validation.ValidationErrors
+        if errors.As(err, &ve) {
+            return ctx.JSON(422, map[string]interface{}{"errors": ve.All()})
+        }
+        // Bind/decode failure or no validator wired, not a field error.
+        return ctx.JSON(400, map[string]interface{}{"error": "Invalid input"})
     }
 
-    if err := ctx.Validate(map[string][]string{
-        "name":     {"required", "string", "max:255"},
-        "email":    {"required", "email", "unique:users,email"},
-        "password": {"required", "string", "min:8"},
-    }); err != nil {
-        return ctx.JSON(422, map[string]interface{}{
-            "error": err.Error(),
-        })
+    hashedPassword, err := auth.FromContext(ctx).Hash(input.Password)
+    if err != nil {
+        return c.Error(ctx, "Failed to hash password")
     }
-
-    hashedPassword, _ := auth.FromContext(ctx).Hash(input.Password)
 
     user := models.User{
         Name:     input.Name,
@@ -365,6 +392,27 @@ func (c *UserHandler) Store(ctx *router.Context) error {
 }
 
 // PUT /api/users/{id}
+type UpdateUserInput struct {
+    Name  string `json:"name"`
+    Email string `json:"email"`
+
+    // userID is unexported, so binding never writes it and it never
+    // reaches the validated data map. Rules() reads it to scope the
+    // uniqueness check to "every row but this one".
+    userID uint
+}
+
+func (in *UpdateUserInput) Rules() validation.Rules {
+    return validation.Rules{
+        "name": {validation.Nullable(), validation.String(), validation.Max(255)},
+        "email": {
+            validation.Nullable(),
+            validation.Email(),
+            validation.Unique("users", "email").Except(in.userID),
+        },
+    }
+}
+
 func (c *UserHandler) Update(ctx *router.Context) error {
     id := ctx.Param("id")
     user, err := models.User{}.Find(id)
@@ -373,21 +421,13 @@ func (c *UserHandler) Update(ctx *router.Context) error {
         return c.NotFound(ctx)
     }
 
-    var input struct {
-        Name  string `json:"name"`
-        Email string `json:"email"`
-    }
-    if err := ctx.Bind(&input); err != nil {
-        return ctx.JSON(400, map[string]string{"error": "Invalid input"})
-    }
-
-    if err := ctx.Validate(map[string][]string{
-        "name":  {"sometimes", "string", "max:255"},
-        "email": {"sometimes", "email", "unique:users,email," + strconv.Itoa(int(user.ID))},
-    }); err != nil {
-        return ctx.JSON(422, map[string]interface{}{
-            "error": err.Error(),
-        })
+    input := UpdateUserInput{userID: user.ID}
+    if err := ctx.BindValid(&input); err != nil {
+        var ve validation.ValidationErrors
+        if errors.As(err, &ve) {
+            return ctx.JSON(422, map[string]interface{}{"errors": ve.All()})
+        }
+        return ctx.JSON(400, map[string]interface{}{"error": "Invalid input"})
     }
 
     if err := user.Update(map[string]any{
@@ -417,6 +457,54 @@ func (c *UserHandler) Destroy(ctx *router.Context) error {
     return nil
 }
 ```
+
+### Validation rules are typed values
+
+Rules are constructor values collected into a `validation.Rules` set keyed
+by field, never strings. Parameters ride along pre-split, so a value
+containing `,` or `|` needs no escaping. The same rule shape is accepted by
+`ctx.Validate`, `ctx.BindValid`, `vform.FormRequest.Rules()`,
+`validation.Check` / `CheckW` / `CheckData`, and the `dbrules.Check*`
+helpers.
+
+`Nullable()` is the partial-update lever: a field whose value is empty
+(`nil` or `""`) skips every other rule on that field, so an omitted `name`
+in a `PUT` body is left alone while a supplied one still has to pass
+`String()` and `Max(255)`.
+
+`Unique(table, column)` and `Exists(table, column)` describe the DB-backed
+checks; `Unique(...).Except(id)` and `.IDColumn(name)` return new rule
+values rather than mutating the receiver, so a package-level rule set stays
+immutable and safe to share across goroutines.
+
+### Choosing a validation entry point
+
+`ctx.Validate(rules, messages...)` is the web-form entry point: on failure
+it calls `ctx.FlashErrors` and `ctx.FlashInput`, redirects back through the
+view engine when one is wired, and returns `router.ErrValidationAborted`,
+which the router treats as "response already written". Return that error
+directly rather than writing a second response:
+
+```go
+func (c *PostHandler) Store(ctx *router.Context) error {
+    if err := ctx.Validate(validation.Rules{
+        "title": {validation.Required(), validation.Min(3)},
+        "body":  {validation.Required(), validation.Min(10)},
+    }); err != nil {
+        // Errors and old input are already flashed and the redirect back
+        // is already written; returning err stops the router from
+        // emitting another response.
+        return err
+    }
+
+    // Only reached when every field passed.
+    return nil
+}
+```
+
+For JSON APIs use `ctx.BindValid` (as above), which validates without
+flashing or redirecting, or reach for `vform.Validate[T]` when you want the
+bound struct and a `*validation.Result` to shape the envelope yourself.
 
 ## Handler Middleware
 
@@ -472,16 +560,20 @@ func (c *PostHandler) Store(ctx *router.Context) error {
     body := strings.TrimSpace(ctx.Request.FormValue("body"))
 
     if title == "" {
-        c.WithErrors(ctx, map[string][]string{
+        c.FlashErrors(ctx, map[string][]string{
             "title": {"Title is required"},
         })
+        // Flashing only writes the cookie; view.Back issues the redirect
+        // that lets the next render read it.
+        view.Back(ctx)
         return nil
     }
 
     if len(body) < 10 {
-        c.WithErrors(ctx, map[string][]string{
+        c.FlashErrors(ctx, map[string][]string{
             "body": {"Body must be at least 10 characters"},
         })
+        view.Back(ctx)
         return nil
     }
 

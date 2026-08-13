@@ -95,7 +95,7 @@ Wire it into `main.go` via the bootstrap chain:
 
 ```go
 chain := v.
-    Providers(app.Configure).
+    Modules(app.Configure).
     Middleware(app.Middleware).        // <- this function
     Routes(routes.Register).
     Events(app.Events(v.Log))
@@ -206,7 +206,7 @@ see [HTTP Router > Per-request storage](/docs/core/http-router#per-request-stora
 ### Short-circuit
 
 Return without calling `next` to stop the chain. Useful for
-auth/guest gates:
+auth and guest checks:
 
 ```go
 func Guest(next router.HandlerFunc) router.HandlerFunc {
@@ -475,5 +475,5 @@ middleware on a fresh router and exercise it via `httptest`.
 ## Related
 
 - [CSRF](/docs/core/csrf/) - token-issuing middleware shipped with the framework
-- [Authentication](/docs/core/authentication/) - session and guard middleware that gates protected routes
+- [Authentication](/docs/core/authentication/) - auth schemes plus the `AuthMiddleware` / `GuestMiddleware` helpers that protect routes
 - [Cache](/docs/core/cache/) - the building block behind rate-limiter middleware (counter storage with TTL)

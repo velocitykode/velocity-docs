@@ -16,7 +16,7 @@
 # - Anything in `ignored` is skipped entirely; internal/* is auto-skipped.
 
 packages:
-  app:          advanced/service-providers.md
+  app:          advanced/modules.md
   async:        core/async.md
   auth:         core/authentication.md
   bond:         frontend/inertia.md

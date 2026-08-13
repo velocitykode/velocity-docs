@@ -28,6 +28,22 @@ and `QueueDispatcher.Push`. Subsystems that implement
 of dropping to `context.Background()`.
 {{< /callout >}}
 
+{{< callout type="warning" title="Breaking change: ShouldQueue() is now Async()" >}}
+The listener queue opt-in on `contract.EventListener` (aliased as
+`events.Listener`) is `Async() bool`. The old `ShouldQueue()` name is gone,
+and a type that still declares it no longer satisfies the interface:
+
+```text
+func (l *MyListener) ShouldQueue() bool  ->  func (l *MyListener) Async() bool
+```
+
+The full interface is `Handle(ctx, event) error` plus `Async() bool`. The
+queue-configuration methods on `events.QueuedListener` (`OnConnection`,
+`OnQueue`, `WithDelay`, `Tries`) are unchanged, as is the conditional
+`ShouldHandle(event) bool` hook, which is a different interface and keeps
+its name.
+{{< /callout >}}
+
 ## Quick Start
 
 {{< tabs items="Basic Events,Event Listeners,Wildcard Listeners,Async Events" >}}
@@ -72,7 +88,7 @@ func (l *SendWelcomeEmail) Handle(ctx context.Context, event interface{}) error 
     return sendEmail(ctx, e.Email, "Welcome to our platform!")
 }
 
-func (l *SendWelcomeEmail) ShouldQueue() bool {
+func (l *SendWelcomeEmail) Async() bool {
     return true // Process asynchronously
 }
 
@@ -95,7 +111,7 @@ func (l *UserActivityLogger) Handle(ctx context.Context, event interface{}) erro
     return nil
 }
 
-func (l *UserActivityLogger) ShouldQueue() bool {
+func (l *UserActivityLogger) Async() bool {
     return false
 }
 
@@ -190,7 +206,7 @@ Three pieces wire up the buffer:
 2. `orm.Manager.Transaction(ctx, fn)` installs a per-transaction `*events.BufferedDispatcher` into that holder for the lifetime of the call. Any `events.Buffer(ctx)` lookup inside `fn` (or any descendant call that received the same `ctx`) finds the buffer.
 3. On successful `tx.Commit()` the buffer is flushed; on `fn` returning an error, the deferred panic recovery, or a commit failure, the buffer is dropped and no events fire.
 
-`Manager.SetTxEventBus(bus)` wires the kind-aware sink the buffer drains into. The framework calls it during boot so `DispatchAsync`, `DispatchAfter`, and `Until` recorded inside the transaction route back through the matching ctx-aware method on the underlying dispatcher when the buffer flushes, so `ShouldQueue`, the recorded delay, and the until-first-non-nil contract all survive the buffer boundary. The flush uses the parent transaction ctx so trace IDs, deadlines, and request-scoped values propagate all the way through to listeners. Without a tx event bus, the buffer falls back to the legacy untyped sink set by `SetEventDispatcher` (now itself ctx-aware) and every kind collapses onto `Dispatch`.
+`Manager.SetTxEventBus(bus)` wires the kind-aware sink the buffer drains into. The framework calls it during boot so `DispatchAsync`, `DispatchAfter`, and `Until` recorded inside the transaction route back through the matching ctx-aware method on the underlying dispatcher when the buffer flushes, so `Async`, the recorded delay, and the until-first-non-nil contract all survive the buffer boundary. The flush uses the parent transaction ctx so trace IDs, deadlines, and request-scoped values propagate all the way through to listeners. Without a tx event bus, the buffer falls back to the legacy untyped sink set by `SetEventDispatcher` (now itself ctx-aware) and every kind collapses onto `Dispatch`.
 
 ### Recipe: emit `OrderPlaced` only on tx commit
 
@@ -325,7 +341,7 @@ func (l *MyListener) Handle(ctx context.Context, event interface{}) error {
     return nil
 }
 
-func (l *MyListener) ShouldQueue() bool {
+func (l *MyListener) Async() bool {
     return false // Synchronous processing
 }
 ```
@@ -335,6 +351,9 @@ func (l *MyListener) ShouldQueue() bool {
 For long-running tasks, use queued listeners:
 
 ```go
+// Embedding QueuedBaseListener already supplies Async() == true plus
+// default OnConnection / OnQueue / WithDelay / Tries. Override only the
+// ones you want to change.
 type SendWelcomeEmail struct {
     events.QueuedBaseListener
 }
@@ -344,10 +363,6 @@ func (l *SendWelcomeEmail) Handle(ctx context.Context, event interface{}) error 
 
     // Send email (time-consuming operation)
     return emailService.Send(ctx, e.Email, "Welcome!")
-}
-
-func (l *SendWelcomeEmail) ShouldQueue() bool {
-    return true
 }
 
 func (l *SendWelcomeEmail) OnQueue() string {
@@ -375,7 +390,7 @@ func (l *NotifyPremiumUsers) Handle(ctx context.Context, event interface{}) erro
     return notificationService.NotifyPremium(ctx, e.FeatureName)
 }
 
-func (l *NotifyPremiumUsers) ShouldQueue() bool {
+func (l *NotifyPremiumUsers) Async() bool {
     return true
 }
 
@@ -464,6 +479,105 @@ app.Events(func(d events.Dispatcher) {
 })
 ```
 
+## Registering Listeners from a Module
+
+`App.Events` is the inline hook used throughout this page. In a scaffolded app
+the registrations usually live on a module instead, so each area of the app
+owns its own listeners. A module is an `app.Module` (re-exported as
+`velocity.Module`) implementing `Init(s *velocity.Services) error`,
+`Start(s *velocity.Services) error`, and `Shutdown(ctx context.Context) error`.
+Adding an `Events(d events.Dispatcher)` method opts the module into
+`velocity.EventModule` (an alias of `chain.EventModule`) and bootstrap wires
+its listeners for you.
+
+```go
+// internal/modules/billing.go
+package modules
+
+import (
+    "context"
+
+    "github.com/velocitykode/velocity"
+    "github.com/velocitykode/velocity/events"
+)
+
+type BillingModule struct{}
+
+func (m *BillingModule) Init(s *velocity.Services) error    { return nil }
+func (m *BillingModule) Start(s *velocity.Services) error   { return nil }
+func (m *BillingModule) Shutdown(ctx context.Context) error { return nil }
+
+// Events satisfies velocity.EventModule. Bootstrap calls it with the
+// app-wide dispatcher.
+func (m *BillingModule) Events(d events.Dispatcher) {
+    d.Listen("order.placed", &ChargeCard{})
+    d.Listen("invoice.paid", &SendReceipt{})
+    d.Subscribe(&BillingSubscriber{})
+}
+```
+
+Register the module on the bootstrap chain:
+
+```go
+app.Modules(func(r *velocity.ModuleRegistry) {
+    r.Add(&modules.BillingModule{})
+})
+```
+
+`velocity.New(velocity.WithModules(&modules.BillingModule{}))` does the same
+thing without the chain callback.
+
+Ordering: module `Events` methods run first, in registration order, then the
+`App.Events` callback. Under `velocity.WithoutEvents` no dispatcher is built,
+so both are skipped and the app logs a warning rather than panicking on a nil
+dispatcher.
+
+`vel gen module Billing` scaffolds `internal/modules/billing.go` (package
+`modules`, type `BillingModule`) with the `Init` / `Start` / `Shutdown`
+skeleton; add the `Events` method yourself. `vel gen event OrderPlaced` writes
+`internal/events/order_placed.go` with the `Name()` method already implemented,
+and `vel gen listener ChargeCard` writes a starter file under
+`internal/listeners`; fill it out with the `Handle(ctx, event) error` plus
+`Async() bool` pair shown above so it satisfies `events.Listener`.
+
+{{< callout type="info" title="Two interfaces named EventModule" >}}
+`velocity.EventModule` (`chain.EventModule`) is the bootstrap auto-wiring
+interface and its method is `Events(d events.Dispatcher)`. The separate
+`events.EventModule` used by `EventRegistry` below declares
+`Register(dispatcher events.Dispatcher)`. They are different types with
+different method names; a module can implement both.
+{{< /callout >}}
+
+### Standalone EventRegistry
+
+`events.EventRegistry` is an opt-in collector for code that needs to gather
+registration units before a dispatcher exists (a plugin host, a test harness,
+a library that ships its own listeners). The framework does not construct one
+during bootstrap, so you build and boot it yourself.
+
+```go
+// events.EventModule is the registry-side interface: Register(dispatcher).
+type BillingEvents struct{}
+
+func (BillingEvents) Register(d events.Dispatcher) {
+    d.Listen("order.placed", &ChargeCard{})
+}
+
+registry := events.NewEventRegistry()
+registry.AddModule(BillingEvents{})
+
+// Later, once the dispatcher exists. BootModules calls Register on each
+// module in registration order.
+registry.BootModules(dispatcher)
+```
+
+The registry also keeps a name-level index of what is registered:
+`Register(eventName, listenerName)` records a pair, `GetListeners(eventName)`
+and `GetAllEvents()` read it back, `Count()` totals the registrations, and
+`Clear()` resets both the index and the module list. `DiscoverFromType(subscriber)`
+reflects over a subscriber's `Handle*` methods and records the event names they
+imply (`HandleUserRegistered` maps to `user.registered`).
+
 ## Listening to Model Lifecycle Events
 
 `Dispatcher` is not just for app-level domain events. The framework ships a parallel `ModelObserver` contract for per-record hooks (`Creating`, `Created`, `Updating`, `Updated`, `Saving`, `Saved`, `Deleting`, `Deleted`, `Restoring`, `Restored`) plus an `ObservableDispatcher` that owns an `ObserverRegistry` keyed by model type name. Every callback receives the caller-supplied `context.Context` so observers see request-scoped values (transactions, trace IDs, deadlines) without the model carrying them.
@@ -542,7 +656,8 @@ method takes `context.Context` as its first argument.
 
 ```go
 // Dispatch and wait for all listeners to complete. Listeners that
-// return ShouldQueue() == true are still pushed to the queue dispatcher.
+// return Async() == true are pushed to the queue dispatcher instead,
+// when one is wired; without a queue they still run inline.
 err := ctx.Events().Dispatch(ctx.Request.Context(), UserRegistered{
     UserID: 123,
     Email:  "user@example.com",
@@ -555,7 +670,7 @@ if err != nil {
 ### Force Synchronous
 
 ```go
-// Always run synchronously, ignoring ShouldQueue.
+// Always run synchronously, ignoring Async().
 err := ctx.Events().DispatchNow(ctx.Request.Context(), OrderPlaced{
     OrderID: "ORD-123",
 })
@@ -725,14 +840,14 @@ func (l *SendWelcomeEmail) Handle(ctx context.Context, event interface{}) error 
     e := event.(UserRegistered)
     return emailService.SendWelcome(ctx, e.Email, e.Name)
 }
-func (l *SendWelcomeEmail) ShouldQueue() bool { return true }
+func (l *SendWelcomeEmail) Async() bool { return true }
 
 type CreateUserProfile struct{}
 func (l *CreateUserProfile) Handle(ctx context.Context, event interface{}) error {
     e := event.(UserRegistered)
     return profileService.Create(ctx, e.UserID)
 }
-func (l *CreateUserProfile) ShouldQueue() bool { return false }
+func (l *CreateUserProfile) Async() bool { return false }
 
 type TrackRegistration struct{}
 func (l *TrackRegistration) Handle(ctx context.Context, event interface{}) error {
@@ -742,7 +857,7 @@ func (l *TrackRegistration) Handle(ctx context.Context, event interface{}) error
         "ip":      e.IPAddress,
     })
 }
-func (l *TrackRegistration) ShouldQueue() bool { return true }
+func (l *TrackRegistration) Async() bool { return true }
 
 // Setup
 app.Events(func(d events.Dispatcher) {
@@ -803,7 +918,7 @@ func (l *AuditLogger) Handle(ctx context.Context, event interface{}) error {
     return auditLog.Record(ctx, event)
 }
 
-func (l *AuditLogger) ShouldQueue() bool {
+func (l *AuditLogger) Async() bool {
     return true
 }
 
@@ -830,7 +945,7 @@ func (l *CacheInvalidator) Handle(ctx context.Context, event interface{}) error 
     return nil
 }
 
-func (l *CacheInvalidator) ShouldQueue() bool {
+func (l *CacheInvalidator) Async() bool {
     return false // Invalidate immediately
 }
 
@@ -1014,7 +1129,7 @@ two surfaces:
 - `*events.DefaultDispatcher` (the default `Services.Events` value, built by
   `events.NewDispatcher()`) accepts a `QueueDispatcher` via
   `SetQueueDispatcher`. Implement the `QueueDispatcher` interface
-  (`Push(ctx, event, listener, delay) error`) to route `ShouldQueue()`
+  (`Push(ctx, event, listener, delay) error`) to route `Async()`
   listeners onto your own queue.
 - `*events.QueueIntegratedDispatcher` (built by
   `events.NewQueueIntegratedDispatcher()`) wraps a `DefaultDispatcher` and
@@ -1022,7 +1137,7 @@ two surfaces:
   `RegisterListenerFactory` so a separate worker process can rehydrate the
   listener from the persisted type. When you configure a queue connection,
   the framework wires this dispatcher to the app's queue driver at boot, so
-  `ShouldQueue()` listeners are pushed onto the queue with no extra code.
+  `Async()` listeners are pushed onto the queue with no extra code.
 
 To wire a custom `QueueDispatcher` onto the default dispatcher manually:
 
@@ -1049,7 +1164,7 @@ func (q *QueueEventDispatcher) Push(ctx context.Context, event interface{},
 dispatcher := events.NewDispatcher()
 dispatcher.SetQueueDispatcher(&QueueEventDispatcher{})
 
-// `dispatcher` now pushes ShouldQueue() listeners through your queue instead
+// `dispatcher` now pushes Async() listeners through your queue instead
 // of running them inline. Inject it as the app's events service at boot.
 ```
 
@@ -1108,7 +1223,7 @@ window elapses.
 1. Wildcard patterns are correct
 2. `ShouldHandle()` method isn't preventing execution
 3. Event is being dispatched on the correct dispatcher instance
-4. Listener implements the `Listener` interface correctly (note: `Handle(ctx, event)` -- legacy `Handle(event)` no longer satisfies the interface)
+4. Listener implements the `Listener` interface correctly: `Handle(ctx, event) error` plus `Async() bool` (legacy `Handle(event)` and `ShouldQueue()` no longer satisfy the interface)
 
 ### Performance Issues
 
@@ -1147,14 +1262,14 @@ func (l *AuditAll) Handle(ctx context.Context, event interface{}) error {
     })
 }
 
-func (l *AuditAll) ShouldQueue() bool { return true }
+func (l *AuditAll) Async() bool { return true }
 
 app.Events(func(d events.Dispatcher) {
     d.Listen("*", &AuditAll{writer: auditWriter})
 })
 ```
 
-**Why this shape:** The `*` pattern in `Dispatcher.Listen` matches every event the dispatcher routes, including model lifecycle events emitted via `FireModelEvent` and framework events like `query.executed` or `http.request.failed`. One listener instance is cheaper than per-event registrations and impossible to forget when a new event type is introduced. `ShouldQueue() == true` keeps audit writes off the request path so a slow audit sink cannot stall handlers; the dispatcher transparently pushes the work through whatever `QueueDispatcher` is wired (memory, Redis, etc.). Make the writer idempotent on `(name, payload-hash)` so retries do not double-record.
+**Why this shape:** The `*` pattern in `Dispatcher.Listen` matches every event the dispatcher routes, including model lifecycle events emitted via `FireModelEvent` and framework events like `query.executed` or `http.request.failed`. One listener instance is cheaper than per-event registrations and impossible to forget when a new event type is introduced. `Async() == true` keeps audit writes off the request path so a slow audit sink cannot stall handlers; the dispatcher transparently pushes the work through whatever `QueueDispatcher` is wired (memory, Redis, etc.). Make the writer idempotent on `(name, payload-hash)` so retries do not double-record.
 
 **See also:**
 - [Wildcard Patterns](#wildcard-patterns) for prefix/suffix variants when you want to scope the auditor
@@ -1163,6 +1278,7 @@ app.Events(func(d events.Dispatcher) {
 
 ## Related
 
+- [Modules](/docs/advanced/modules/) for the full module lifecycle that `velocity.EventModule` plugs into
 - [Notifications](/docs/advanced/notifications/) for turning an event into a multi-channel user notification
 - [Cache](/docs/core/cache/) for invalidating cache entries from `*.updated` / `*.deleted` listeners
 - [Queue](/docs/advanced/queue/) for backing queued listeners with a durable driver and picking the right primitive for long-running work

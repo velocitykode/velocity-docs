@@ -21,26 +21,30 @@ Sub-packages:
 
 A typical layout: `.proto` files under `api/proto/<pkg>/<version>/`,
 generated stubs under `api/gen/go/...`, service implementations under
-`internal/grpc/services/`, server lifecycle in a service provider.
+`internal/grpc/services/`, server lifecycle in a module under
+`internal/modules/`.
 
 {{< callout type="tip" title="Scaffold it instead" >}}
 The console ships three generators that produce the layout below in one
-call - proto + impl + provider wiring, then `buf generate`:
+call - proto + impl + module wiring, then `buf generate`:
 
 ```bash
-vel make:grpc:service Foo                   # proto + impl + provider (idempotent)
-vel make:grpc:rpc Foo Hello                 # unary
-vel make:grpc:rpc Foo Tail   --stream       # server-stream
-vel make:grpc:rpc Foo Upload --client-stream
-vel make:grpc:rpc Foo Chat   --bidi
-vel make:grpc:gen                           # cd api/proto && buf generate
+vel gen grpc service Foo                   # proto + impl + module (idempotent)
+vel gen grpc rpc Foo Hello                 # unary
+vel gen grpc rpc Foo Tail   --stream       # server-stream
+vel gen grpc rpc Foo Upload --client-stream
+vel gen grpc rpc Foo Chat   --bidi
+vel gen grpc gen                           # cd api/proto && buf generate
 ```
 
-Subsequent `make:grpc:service` calls inject at `// vel:grpc:imports` and
-`// vel:grpc:services` markers in the generated provider. See
-[CLI commands - make:grpc:*](/docs/cli/commands/#vel-makegrpcservice) for the
-full reference. The rest of this page documents the runtime API that the
-generated files use.
+The first `gen grpc service` call also writes `api/proto/buf.yaml` and
+`api/proto/buf.gen.yaml` when they are missing, and creates
+`internal/modules/grpc_module.go`. Subsequent calls inject at the
+`// vel:grpc:imports` and `// vel:grpc:services` markers in that module;
+`--no-module` skips the module scaffold and wiring entirely. See
+[CLI commands - vel gen grpc service](/docs/cli/commands/#vel-gen-grpc-service)
+for the full reference. The rest of this page documents the runtime API that
+the generated files use.
 {{< /callout >}}
 
 ### Proto + buf
@@ -69,9 +73,11 @@ version: v2
 modules:
   - path: .
 lint:
-  use: [STANDARD]
+  use:
+    - STANDARD
 breaking:
-  use: [FILE]
+  use:
+    - FILE
 ```
 
 `api/proto/buf.gen.yaml`:
@@ -89,10 +95,11 @@ plugins:
       - require_unimplemented_servers=false
 ```
 
-Generate stubs:
+Both files are written by the first `vel gen grpc service` call and left
+untouched afterwards. Generate stubs:
 
 ```bash
-cd api/proto && buf generate
+vel gen grpc gen      # runs `buf generate` inside api/proto
 ```
 
 ### Service implementation
@@ -105,36 +112,37 @@ package services
 import (
     "context"
 
-    foov1 "yourapp/api/gen/go/foo/v1"
+    foopb "yourapp/api/gen/go/foo/v1"
 )
 
 type FooService struct {
-    foov1.UnimplementedFooServiceServer
+    foopb.UnimplementedFooServiceServer
 }
 
 func NewFooService() *FooService { return &FooService{} }
 
-func (s *FooService) Hello(ctx context.Context, req *foov1.HelloRequest) (*foov1.HelloResponse, error) {
+func (s *FooService) Hello(ctx context.Context, req *foopb.HelloRequest) (*foopb.HelloResponse, error) {
     name := req.GetName()
     if name == "" {
         name = "world"
     }
-    return &foov1.HelloResponse{Greeting: "hi " + name}, nil
+    return &foopb.HelloResponse{Greeting: "hi " + name}, nil
 }
 ```
 
-### Service provider
+### Module
 
-`internal/providers/grpc_provider.go`:
+`internal/modules/grpc_module.go`, as the generator writes it:
 
 ```go
-package providers
+package modules
 
 import (
     "context"
     "os"
 
-    foov1 "yourapp/api/gen/go/foo/v1"
+    // vel:grpc:imports
+    foopb "yourapp/api/gen/go/foo/v1"
     "yourapp/internal/grpc/services"
 
     "github.com/velocitykode/velocity"
@@ -142,11 +150,11 @@ import (
     googleGrpc "google.golang.org/grpc"
 )
 
-type GRPCProvider struct {
+type GRPCModule struct {
     server *velgrpc.Server
 }
 
-func (p *GRPCProvider) Register(s *velocity.Services) error {
+func (p *GRPCModule) Init(s *velocity.Services) error {
     port := os.Getenv("GRPC_PORT")
     if port == "" {
         port = "50051"
@@ -154,37 +162,58 @@ func (p *GRPCProvider) Register(s *velocity.Services) error {
 
     p.server = velgrpc.NewServer(
         velgrpc.WithPort(port),
-        velgrpc.WithReflection(true),
         velgrpc.WithLogger(s.Log),
     )
     // In production, attach transport credentials with WithCreds (see TLS
     // below) or set GRPC_INSECURE=true; otherwise Build returns an error.
 
+    // vel:grpc:services
     foo := services.NewFooService()
     p.server.RegisterService(func(srv interface{}) {
-        foov1.RegisterFooServiceServer(srv.(*googleGrpc.Server), foo)
+        foopb.RegisterFooServiceServer(srv.(*googleGrpc.Server), foo)
     })
 
     return nil
 }
 
-func (p *GRPCProvider) Boot(s *velocity.Services) error {
+func (p *GRPCModule) Start(s *velocity.Services) error {
     if err := p.server.Build(); err != nil {
         return err
     }
     return p.server.StartAsync()
 }
 
-func (p *GRPCProvider) Shutdown(ctx context.Context) error {
+func (p *GRPCModule) Shutdown(ctx context.Context) error {
     return p.server.Shutdown(ctx)
 }
 ```
 
-Register the provider alongside the rest of the app's providers. `Build`
-applies interceptors and registered services to the underlying
-`*google.golang.org/grpc.Server`; `StartAsync` launches the listener in a
-background goroutine so the rest of the app boot continues. `Shutdown`
-drains in-flight RPCs with the supplied ctx deadline.
+The two marker comments are load-bearing: every later
+`vel gen grpc service` call injects the new proto import after
+`// vel:grpc:imports` and the new `RegisterService` block after
+`// vel:grpc:services`. Delete them and the generator prints a manual wire
+snippet instead of touching the file.
+
+Register the module alongside the rest of the app's modules:
+
+```go
+v.Modules(func(r *velocity.ModuleRegistry) {
+    r.Add(&modules.GRPCModule{})
+})
+```
+
+`velocity.New(velocity.WithModules(&modules.GRPCModule{}))` works too; the
+gRPC module contributes no routes, listeners, or jobs, so it does not need
+the bootstrap-chain auto-wiring interfaces. See
+[Modules]({{< relref "modules" >}}) for the difference between the two entry
+points.
+
+`Init` binds the server and its service implementations; `Start` runs after
+every module has initialised. `Build` applies interceptors and registered
+services to the underlying `*google.golang.org/grpc.Server`; `StartAsync`
+launches the listener in a background goroutine so the rest of the app boot
+continues. `Shutdown` runs in reverse registration order and drains in-flight
+RPCs with the supplied ctx deadline.
 
 ## Server
 
@@ -376,7 +405,7 @@ service impl below has one method per RPC, each with the signature shape
 its row prescribes. Registration is unchanged:
 
 ```go
-foov1.RegisterFooServiceServer(srv, fooImpl) // same call regardless of mix
+foopb.RegisterFooServiceServer(srv, fooImpl) // same call regardless of mix
 ```
 
 ### Unary

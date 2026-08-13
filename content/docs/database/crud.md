@@ -36,7 +36,7 @@ user, err := User{}.Create(ctx, map[string]any{
 })
 ```
 
-`Create` accepts a `map[string]any` (mass-assignment respects `Fillable`/`Guarded`) or a pre-built `*User`.
+`Create` accepts a `map[string]any` or a pre-built `*User`. Map-based writes are governed by the model's mass-assignment policy and are denied unless the model declares one, see [Mass Assignment](#mass-assignment) below.
 
 ### Create Multiple
 
@@ -77,6 +77,91 @@ user, err := User{}.UpdateOrCreate(ctx,
 ```
 
 The `Query[T]` chain forms exist too: `Model[T]{}.Where(...).FirstOrCreate(ctx, conditions, values)` (and the `UpdateOrCreate` counterpart) accept the same `(ctx, conditions, values)` triple, so you can scope the lookup with extra `Where` clauses before the helper resolves.
+
+## Mass Assignment
+
+Writing a model from a `map[string]any` is attacker-shaped input: a client that can slip a `role` or `is_admin` key into a JSON body would otherwise write those columns. Velocity is deny-by-default here. A model must declare a policy before ANY application column can be written from a map.
+
+Declare an allowlist with `AssignableFields()`, which satisfies the `orm.Assignable` interface:
+
+```go
+type User struct {
+    orm.Model[User]
+    Name    string `orm:"column:name"`
+    Email   string `orm:"column:email"`
+    Role    string `orm:"column:role"`
+    IsAdmin bool   `orm:"column:is_admin"`
+}
+
+// Only these fields may be set from a map.
+func (User) AssignableFields() []string {
+    return []string{"name", "email"}
+}
+```
+
+Or a denylist with `ProtectedFields()`, which satisfies `orm.Protected`:
+
+```go
+func (User) ProtectedFields() []string {
+    return []string{"role", "is_admin"}
+}
+```
+
+Both key on the **snake_case Go field name**, not the `orm:"column:..."` tag value. That is the security invariant: a payload submitting the column alias resolves to the same policy entry, so the tag cannot be used to walk around the allowlist. Declaring both narrows twice: a field must be in the allowlist AND absent from the denylist.
+
+### Deny by default
+
+A model that declares neither, and does not opt out, resolves to an empty allowlist. Map-based writes against it fail with `*orm.MassAssignmentError` naming the model and the rejected keys, before any SQL is compiled:
+
+```go
+// Comment declares no policy, so every application column is denied.
+type Comment struct {
+    orm.Model[Comment]
+    Body     string `orm:"column:body"`
+    Approved bool   `orm:"column:approved"`
+}
+
+_, err := Comment{}.Create(ctx, map[string]any{"body": "hi", "approved": true})
+
+var massErr *orm.MassAssignmentError
+if errors.As(err, &massErr) {
+    log.Warn("mass assignment denied",
+        "model", massErr.Model, // e.g. "models.Comment"
+        "keys", massErr.Keys)   // the rejected map keys, in column order
+}
+```
+
+Once a policy IS declared, the established semantics resume: disallowed keys are silently skipped rather than erroring.
+
+{{< callout type="warning" title="Do not echo MassAssignmentError to clients" >}}
+The message names the model and the offending keys for developers and logs. The production error renderer already collapses 5xx errors to generic status text; custom handlers should do the same rather than reflecting the type name and column list back to the caller.
+{{< /callout >}}
+
+### What the policy covers
+
+| Path | Behaviour |
+|---|---|
+| `Create(map)` | Policed. No declared policy rejects the write with `*MassAssignmentError`. |
+| `FirstOrCreate`, `UpdateOrCreate` | Policed across conditions AND values merged, because a condition key becomes a written column on the insert branch. |
+| `Update(ctx, updates)`, static and chain form | Policed on the updates map, which is attacker-shaped exactly like a create map. |
+| `Create(*T)` | Deny-by-default does not apply, but a DECLARED policy still zeroes every non-assignable field before the insert. |
+| `orm.Save`, `CreateMany` | Not policed. You built the struct in code, so there is no map to police. |
+
+Framework-managed embedded columns (`id`, `created_at`, `updated_at`, `deleted_at`) bypass the policy by design and never appear in a `MassAssignmentError`. That is what lets the soft-delete restore below pass `deleted_at` through a mass `Update`.
+
+Key matching on the policed paths is case-insensitive against both the SQL column name and the snake-cased field name, so neither a casing variant like `IS_ADMIN` nor a column alias slips into the compiled statement.
+
+### Opting out
+
+Models that genuinely want every column writable from a map implement the explicit marker:
+
+```go
+func (ImportRow) AllowAllColumns() bool { return true }
+```
+
+Declaring `ProtectedFields()` with an empty slice is equivalent, since an empty denylist guards nothing. When the model also declares `AssignableFields()` or `ProtectedFields()`, the declared policy wins and `AllowAllColumns` has no effect.
+
+To inspect the resolved policy directly, `orm.AccessFor(&model)` returns the `orm.AssignmentAccess` the write paths use, and `AssignmentAccess.Allows(fieldNameKey)` answers for a single snake_case field name.
 
 ## Read
 
@@ -134,6 +219,8 @@ affected, err := User{}.
     Where("created_at < ?", cutoff).
     Update(ctx, map[string]any{"active": false})
 ```
+
+Both forms run the updates map through the same mass-assignment gate as `Create(map)`: a model with no declared policy rejects the write with `*orm.MassAssignmentError` before SQL compilation. See [Mass Assignment](#mass-assignment). Only the updates map is checked here; the conditions map compiles into the WHERE clause. `FirstOrCreate` and `UpdateOrCreate` check conditions and values together, since a condition key becomes a written column when the insert branch fires.
 
 `updated_at` is stamped automatically with the driver-appropriate `NOW()` / `CURRENT_TIMESTAMP` sentinel; pass `orm.NOW` (or any other `orm.RawSQL` value) explicitly when you need a column other than `updated_at` to take the server's clock.
 
@@ -559,7 +646,8 @@ These run inside the same connection / transaction as the write. For work that m
 3. **Use `AfterCommit` for side effects.** In-tx `AfterCreate` runs before the row is durable; webhooks and queue jobs belong on `AfterCommit`.
 4. **Check `OnCommitFailure` semantics.** Treat commit-failure as ambiguous; logging is safe, retrying is not.
 5. **Validate in `BeforeCreate` / `BeforeUpdate`.** Mass updates skip lifecycle hooks, so cross-check critical invariants in the request layer when going through the chain `Update`.
-6. **Index columns used in WHERE.** The ORM does not synthesize indexes; see [Migrations](/docs/database/migrations/).
+6. **Declare `AssignableFields()` on every model that takes map writes.** Deny-by-default means an undeclared model errors instead of silently persisting attacker keys; prefer the allowlist over `ProtectedFields()`, and treat `AllowAllColumns` as a last resort.
+7. **Index columns used in WHERE.** The ORM does not synthesize indexes; see [Migrations](/docs/database/migrations/).
 
 ## Related
 
