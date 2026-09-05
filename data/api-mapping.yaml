@@ -35,6 +35,7 @@ packages:
   httpclient:   advanced/httpclient.md
   log:          core/logging.md
   mail:         advanced/mail.md
+  markdown:     core/markdown.md
   notification: advanced/notifications.md
   orm:
     - database/getting-started.md

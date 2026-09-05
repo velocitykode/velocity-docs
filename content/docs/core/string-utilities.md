@@ -260,6 +260,24 @@ s.Limit(10)                   // Chain length limiting
 finalString := s.String()     // Convert back to string
 ```
 
+## Markdown
+
+`Markdown` renders CommonMark plus the GitHub extensions (tables, strikethrough, task lists, autolinks) to HTML, and `InlineMarkdown` renders inline syntax only with no block wrappers. Both strip raw HTML and drop unsafe link destinations unless `markdown.AllowHTML()` is passed, and both accept any `markdown.Option`. The fluent `Markdown()` and `InlineMarkdown()` methods do the same.
+
+```go
+str.Markdown("# Title\n\nSome **bold** text")
+// <h1>Title</h1>
+// <p>Some <strong>bold</strong> text</p>
+
+str.InlineMarkdown("**bold** text")
+// <strong>bold</strong> text
+
+str.Markdown("<script>x</script> [go](javascript:alert(1))")
+// <p>x <a>go</a></p>
+```
+
+See the [Markdown](/docs/core/markdown/) page for documents, directives, highlighting and site collections.
+
 ## Performance
 
 The string helpers are plain functions, so Go's linker strips any helper you
@@ -301,9 +319,10 @@ str.Slug("Third String")   // Even faster
 ```
 
 {{% callout type="note" %}}
-Only regex-backed helpers (such as `Slug`, `IsUrl`, `IsUuid`, `Match`, and
-`Markdown`) touch this cache. Case converters like `Snake` and `Kebab` use
-plain string scanning and never compile a regex.
+Only regex-backed helpers (such as `Slug`, `IsUrl`, `IsUuid`, and `Match`)
+touch this cache. Case converters like `Snake` and `Kebab` use plain string
+scanning and never compile a regex, and `Markdown` renders through the
+`markdown` package.
 {{% /callout %}}
 
 ## Testing String Functions
