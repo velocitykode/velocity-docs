@@ -524,6 +524,7 @@ The cookie-side `SessionStore` carries per-request state, but it cannot answer t
 type ServerSessionStore interface {
     Get(ctx context.Context, id string) (*StoredSession, error)
     Put(ctx context.Context, session *StoredSession) error
+    Touch(ctx context.Context, id string, lastSeen time.Time) error
     Delete(ctx context.Context, id string) error
     DeleteAllForUser(ctx context.Context, userID string) error
     ListForUser(ctx context.Context, userID string) ([]*SessionMeta, error)
@@ -531,6 +532,8 @@ type ServerSessionStore interface {
 ```
 
 `auth.StoredSession` is the full record (`ID`, `UserID`, `Data map[string]any`, `CreatedAt`, `LastSeenAt`, `ExpiresAt`, `IPAddress`, `UserAgent`). `auth.SessionMeta` is the listing-only projection: same fields minus `Data`, so administrative listings cannot leak per-session payloads. Sentinel errors are `auth.ErrSessionNotFound`, `auth.ErrSessionExpired` (returned by `Get` after evicting the expired record), and `auth.ErrNoServerSessionStore` (returned by the manager helpers below when no store is installed).
+
+`Put` is the login-time write only: it creates or replaces the record. The per-request activity refresh (the debounced `LastSeenAt` write the session scheme issues on every authenticated request) goes through `Touch`, which is update-if-present and returns `auth.ErrSessionNotFound` when the record is gone. That distinction is what makes revocation stick: if an administrator deletes the session between the scheme's read and its refresh write, `Touch` cannot recreate the row, and the scheme denies the request that lost the race. When you implement your own store, `Touch` must never insert, and your application code must not call `Put` to record activity.
 
 {{< callout type="info" title="Cookie store vs. server store" >}}
 You usually want both. The encrypted cookie store handles per-request reads and writes with no I/O. The server store underwrites administrative operations only, without it `RevokeSession` and `ListActiveSessions` return `ErrNoServerSessionStore`.
