@@ -418,6 +418,34 @@ if !inserted {
 }
 ```
 
+#### Replace and set operations (optional capabilities)
+
+Two capabilities sit next to `Store` as optional interfaces in `contract`. The memory and redis drivers implement both; the file driver implements neither. Check with a type assertion on the store returned by `DefaultStore()`.
+
+`contract.CacheReplacer` is the complement of `Add`: `ReplaceCtx` writes only when the key already exists (Redis `SET XX`) and returns `(false, nil)` when it does not, so it can never recreate a key that a concurrent `Forget` removed:
+
+```go
+store, _ := app.Cache.DefaultStore()
+if r, ok := store.(contract.CacheReplacer); ok {
+    replaced, err := r.ReplaceCtx(ctx, "session:meta:"+id, record, ttl)
+    if err == nil && !replaced {
+        // the record was deleted between your read and this write
+    }
+}
+```
+
+`contract.CacheSetStore` keeps an unordered set of strings under one key with atomic membership updates (Redis `SADD`/`SREM`/`SMEMBERS`). `SetAddCtx` adds members and guarantees the key lives at least `ttl` longer: a fresh key gets `ttl`, an existing key's expiry is extended when it is shorter and never shortened, and `ttl <= 0` removes the expiry for good. `SetRemoveCtx` removes members (the key goes when the last member does), and `SetMembersCtx` returns the members, nil for an absent key. The point is that concurrent adds and removes from different processes never lose updates, which a JSON array read-modify-written through `Put` cannot promise:
+
+```go
+if sets, ok := store.(contract.CacheSetStore); ok {
+    _ = sets.SetAddCtx(ctx, "session:user:"+userID, ttl, sessionID)
+    ids, _ := sets.SetMembersCtx(ctx, "session:user:"+userID)
+    _ = sets.SetRemoveCtx(ctx, "session:user:"+userID, ids...)
+}
+```
+
+Both are exercised by `cachetest.RunReplacerContractTests` and `cachetest.RunSetStoreContractTests`; a third-party driver that offers them should run those runners.
+
 #### Forever
 
 Store a value permanently (no expiration):

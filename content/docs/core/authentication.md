@@ -539,20 +539,32 @@ type ServerSessionStore interface {
 You usually want both. The encrypted cookie store handles per-request reads and writes with no I/O. The server store underwrites administrative operations only, without it `RevokeSession` and `ListActiveSessions` return `ErrNoServerSessionStore`.
 {{< /callout >}}
 
-The shipped driver is `auth/drivers/session.NewMemoryStore`, an in-process implementation suitable for development, tests, and single-process deployments. It is `sync.RWMutex`-protected, maintains a secondary `userID -> {sessionID}` index so `DeleteAllForUser` and `ListForUser` are O(sessions-for-user), and runs a background sweep goroutine (default cadence 1 minute, override with `session.WithSweepInterval(d)`) that reaps expired records. The sweep is started by `NewMemoryStore` via `async.Go`, so a panic inside the loop is reported through the framework panic handler rather than crashing the process. `Close(ctx)` stops the sweep and is idempotent (safe to call multiple times). Production multi-process deployments should provide a Redis- or DB-backed driver against the same interface.
+Two drivers ship in `auth/drivers/session`:
 
-Wire it once at bootstrap and the manager helpers light up:
+- **`session.NewCacheStore(backend)`** is the production driver. It keeps the records in a velocity cache store, so every app instance sharing the same Redis sees the same sessions and a revocation issued on one replica is enforced on all of them. Its writes are atomic on the backend: the per-user index is a backend set (`contract.CacheSetStore`, Redis `SADD`/`SREM`), `Touch` goes through `contract.CacheReplacer` (Redis `SET XX`) so a refresh can never recreate a deleted record, and `DeleteAllForUser` rotates a per-user generation token before it touches the index, with `Get` rejecting any record issued under an older token. That last part is what makes "sign out everywhere" authoritative even if the index is incomplete. Every record is stamped with a token from `Put` on, and a token the backend cannot serve fails closed: the session is rejected, never assumed pre-revocation. The index expiry is extend-only, so a short-lived login after a long-lived one never shortens the listing's life. The backend must implement both capabilities; the memory and redis cache drivers do, the file driver does not, and `NewCacheStore` returns `session.ErrCacheStoreUnsupported` at boot rather than failing at the first revocation.
+- **`session.NewMemoryStore()`** is an in-process implementation for development, tests, and single-process deployments. It is `sync.RWMutex`-protected, maintains a secondary `userID -> {sessionID}` index so `DeleteAllForUser` and `ListForUser` are O(sessions-for-user), and runs a background sweep goroutine (default cadence 1 minute, override with `session.WithSweepInterval(d)`) that reaps expired records. The sweep is started by `NewMemoryStore` via `async.Go`, so a panic inside the loop is reported through the framework panic handler rather than crashing the process. `Close(ctx)` stops the sweep and is idempotent.
+
+Wire one at bootstrap and the manager helpers light up:
 
 ```go
 import (
-    "context"
-
     "github.com/velocitykode/velocity/auth"
     "github.com/velocitykode/velocity/auth/drivers/session"
 )
 
-store := session.NewMemoryStore() // or session.NewMemoryStore(session.WithSweepInterval(30*time.Second))
+// Production: share the app's cache backend (CACHE_DRIVER=redis).
+backend, err := s.Cache.DefaultStore()
+if err != nil {
+    return err
+}
+store, err := session.NewCacheStore(backend)
+if err != nil {
+    return err
+}
 manager.SetServerSessionStore(store)
+
+// Development / tests:
+manager.SetServerSessionStore(session.NewMemoryStore())
 ```
 
 Once installed, three methods on `*auth.Manager` cover the administrative surface:
