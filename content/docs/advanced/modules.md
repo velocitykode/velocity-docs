@@ -1,3 +1,4 @@
+| `SeederModule`       | `Seeders(r *velocity.Seeders)`            | During database seeder registration   |
 ---
 title: Modules
 linkTitle: Modules
@@ -286,8 +287,9 @@ declarative chain:
 4. **Events** - module `Events` callbacks, then `v.Events(...)`
 5. **Schedule** - module `Schedule` callbacks, then `v.Schedule(...)`
 6. **Commands** - module `Commands` callbacks, then `v.Commands(...)`
-7. **Exceptions** - `v.Exceptions(...)`
-8. Serve / run
+7. **Seeders** - module `Seeders` callbacks, then `v.Seeders(...)`
+8. **Exceptions** - `v.Exceptions(...)`
+9. Serve / run
 
 `Bootstrap()` is safe to call more than once, but only the first call
 does the work: the result is sticky, so a later call returns the same

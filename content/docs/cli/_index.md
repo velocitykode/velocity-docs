@@ -1,3 +1,4 @@
+| `vel db seed` | Run the registered database seeders |
 ---
 title: CLI
 description: Velocity CLI reference. Create projects, run dev servers, generate code, and manage your Go web application from the command line.
@@ -27,6 +28,7 @@ velocity (global)          vel (per-project)
 └── self-update            ├── migrate
                            ├── migrate fresh / rollback / status
                            ├── db wipe
+                           ├── db seed
                            ├── cache clear
                            ├── queue work
                            ├── schedule work
@@ -34,7 +36,7 @@ velocity (global)          vel (per-project)
                            ├── routes
                            ├── key generate
                            ├── run <command>
-                           └── gen * (16 generators)
+                           └── gen * (17 generators)
 ```
 
 **Why two CLIs?**

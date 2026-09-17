@@ -125,8 +125,8 @@ listeners. `routes.Register(v)` registers your routes against
 {{< callout type="info" >}}
 `*velocity.App` also exposes a fluent bootstrap chain -
 `v.Modules(...)`, `v.Middleware(...)`, `v.Routes(...)`,
-`v.Events(...)`, `v.Schedule(...)`, `v.Commands(...)`, and
-`v.Exceptions(...)` - if you prefer to wire everything from `main.go`.
+`v.Events(...)`, `v.Schedule(...)`, `v.Commands(...)`, `v.Seeders(...)`,
+and `v.Exceptions(...)` - if you prefer to wire everything from `main.go`.
 Call `v.Run()` to dispatch a `vel ...` command from `os.Args`, or
 `v.Serve()` to start the server.
 {{< /callout >}}

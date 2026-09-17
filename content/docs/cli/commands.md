@@ -26,7 +26,7 @@ longest match first:
   command; it is never `migrate` with a `fresh` argument.
 - Token joining stops at the first flag-like argument, so
   `vel migrate --pretend` resolves to `migrate` with `--pretend` handed
-  through as an argument, and `vel run seed` resolves to `run` with
+  through as an argument, and `vel run report` resolves to `run` with
   `seed` (plus any trailing arguments) passed to your custom command.
 - An unknown command reports the full unmatched token sequence:
   `vel migrate frsh` fails with `vel: unknown command "migrate frsh"`,
@@ -137,7 +137,7 @@ and exits cleanly instead of failing.
 Drop all tables, then run every migration from scratch.
 
 ```bash
-vel migrate fresh [--force]
+vel migrate fresh [--seed] [--force]
 ```
 
 In a production-class environment this command refuses to run unless
@@ -146,7 +146,9 @@ In a production-class environment this command refuses to run unless
 typo'd `APP_ENV` cannot disable it. `development`, `dev`, `test`,
 `testing`, `local`, and an unset `APP_ENV` are non-production.
 
-`--force` / `-f` is the only argument this command accepts.
+`--seed` runs the registered [seeders](../../database/seeding/) after the
+rebuild, under the same guard: one `--force` decision covers both steps.
+Other than `--seed` and `--force` / `-f`, no argument is accepted.
 
 {{< callout type="warning" >}}
 Destructive - deletes all data. Development / testing only.
@@ -197,6 +199,36 @@ In a production-class environment this command refuses to run unless
 Destructive. Outside production there is no confirmation prompt. Use
 only when you know the database is disposable.
 {{< /callout >}}
+
+### vel db seed
+
+Run the seeders the application registered through `v.Seeders(...)`, in
+registration order, stopping at the first failure.
+
+```bash
+vel db seed [--only <name>] [--force]
+```
+
+| Flag      | Accepts           | Description                                        |
+| --------- | ----------------- | -------------------------------------------------- |
+| `--only`  | `=VALUE` or space | Run a single seeder by its `Name()`                |
+| `--force` | flag (`-f`)       | Proceed in a production-class environment          |
+
+A name given to `--only` that is not registered is an error listing the
+registered names (or `none`); an empty registry without `--only` prints a
+hint and exits 0. In a production-class environment the command refuses
+to run unless `--force` / `-f` is passed (same guard as `migrate fresh`,
+with its own wording: seeding writes rows rather than dropping them, but
+a fixture set landing in production is still an incident). Ctrl-C
+cancels the seeders' context and the run stops between seeders.
+
+```bash
+vel db seed
+vel db seed --only role
+```
+
+See [Seeding](../../database/seeding/) for writing and registering
+seeders.
 
 ## Queue and Scheduler
 
@@ -438,6 +470,7 @@ and takes no other flags.
 | `vel gen policy Post`                | `internal/policies/post.go`                 | `type PostPolicy`                                  |
 | `vel gen module Billing`             | `internal/modules/billing.go`               | `type BillingModule`                               |
 | `vel gen command SyncInventory`      | `internal/commands/sync_inventory.go`       | `type SyncInventoryCommand`                        |
+| `vel gen seeder Role`                | `database/seeders/role.go`                  | `type RoleSeeder`, `Name()` returns `role`         |
 
 `vel gen module` writes a `<Name>Module` type in package `modules` with
 the full module lifecycle already stubbed:
@@ -454,6 +487,13 @@ with the invocation name derived in kebab-case (`SyncInventory` becomes
 `sync-inventory`). The generated file carries its own registration hint
 (`r.Add(&SyncInventoryCommand{})`); once registered it runs through
 [`vel run`](#vel-run).
+
+`vel gen seeder` writes a database seeder implementing `Name()` and
+`Run(ctx context.Context, db *orm.Manager) error`, with the name derived
+in kebab-case (`UserProfile` becomes `user-profile`). The file carries its
+registration hint for `database/seeders/kernel.go`
+(`r.Add(&RoleSeeder{})`); once registered it runs through
+[`vel db seed`](#vel-db-seed). See [Seeding](../../database/seeding/).
 
 ### vel gen grpc service
 
@@ -583,12 +623,12 @@ vel run <command> [arguments]
 
 Everything after the command name is passed straight through to the
 command's `Handle(s *velocity.Services, args []string) error`, so
-`vel run seed --fresh` reaches your code with `["--fresh"]`.
+`vel run report --csv` reaches your code with `["--csv"]`.
 
 ```bash
 vel run              # list every registered command
-vel run seed
-vel run seed --fresh
+vel run report
+vel run report --csv
 ```
 
 `vel run` with no arguments prints the registered commands (or a hint to

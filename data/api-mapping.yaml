@@ -42,6 +42,7 @@ packages:
     - database/queries.md
     - database/relationships.md
     - database/crud.md
+    - database/seeding.md
     - database/migrations.md
     - database/transactions.md
   pipeline:     advanced/pipeline.md
