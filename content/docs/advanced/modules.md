@@ -1,4 +1,3 @@
-| `SeederModule`       | `Seeders(r *velocity.Seeders)`            | During database seeder registration   |
 ---
 title: Modules
 linkTitle: Modules
@@ -243,6 +242,7 @@ structural, so no explicit declaration is needed:
 | `EventModule`        | `Events(d events.Dispatcher)`             | During event listener registration    |
 | `ScheduleModule`     | `Schedule(s scheduler.TaskScheduler)`     | During scheduled job registration     |
 | `CommandModule`      | `Commands(r *velocity.Commands)`          | During custom CLI command registration |
+| `SeederModule`       | `Seeders(r *velocity.Seeders)`            | During database seeder registration   |
 
 Example - a module that adds its own routes and middleware:
 

@@ -1,4 +1,3 @@
-| `vel db seed` | Run the registered database seeders |
 ---
 title: CLI
 description: Velocity CLI reference. Create projects, run dev servers, generate code, and manage your Go web application from the command line.
@@ -65,6 +64,7 @@ Full reference: [Installer Commands](installer/).
 | `vel serve` | Dev server with live reload |
 | `vel build` | Production build |
 | `vel migrate` | Run database migrations |
+| `vel db seed` | Run the registered database seeders |
 | `vel routes` | List all registered routes |
 | `vel queue work` | Process queued jobs |
 | `vel gen handler` | Generate a handler |
