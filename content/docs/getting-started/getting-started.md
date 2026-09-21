@@ -25,7 +25,7 @@ brew install velocity
 
 {{< tab name="Go" >}}
 ```bash
-go install github.com/velocitykode/velocity-cli@latest
+go install github.com/velocitykode/velocity-installer@latest
 ```
 {{< /tab >}}
 
@@ -34,7 +34,7 @@ go install github.com/velocitykode/velocity-cli@latest
 Verify the installation:
 
 ```bash
-velocity --version
+velocity-installer --version
 ```
 
 ## Creating Your First Project
@@ -42,7 +42,7 @@ velocity --version
 Create a new Velocity application:
 
 ```bash
-velocity new myapp
+velocity-installer new myapp
 ```
 
 This creates a new project and automatically starts the development servers. Your application will be available at:
