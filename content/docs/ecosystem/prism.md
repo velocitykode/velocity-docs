@@ -4,7 +4,7 @@ description: A standalone Go component library for building styled command-line 
 weight: 30
 ---
 
-Prism is the component library behind Velocity's own `vel` tooling, extracted as its own module so you can build styled command-line programs with it. It covers the three things a CLI usually needs: consistent **output styling**, **status indicators** (spinners and progress bars), and **interactive prompts**.
+[Prism](https://github.com/velocitykode/prism) is the component library behind Velocity's own `vel` tooling, extracted as its own module so you can build styled command-line programs with it. It covers the three things a CLI usually needs: consistent **output styling**, **status indicators** (spinners and progress bars), and **interactive prompts**.
 
 {{% callout type="info" %}}
 Despite the name, this module has **zero framework dependency**. It imports it into any Go project, not just Velocity apps. It is built on the [Charm](https://charm.sh) stack (lipgloss, bubbletea, bubbles).

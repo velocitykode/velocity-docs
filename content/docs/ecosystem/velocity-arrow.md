@@ -4,7 +4,7 @@ description: A first-party MCP server that gives AI coding agents live, grounded
 weight: 20
 ---
 
-Velocity Arrow is a first-party, ready-to-run [MCP](https://modelcontextprotocol.io) server for
+[Velocity Arrow](https://github.com/velocitykode/velocity-arrow) is a first-party, ready-to-run [MCP](https://modelcontextprotocol.io) server for
 your Velocity application. It runs alongside your project and exposes a set of
 tools that an AI coding agent can call to read **live context** about the app it
 is helping you build: the registered routes, the resolved configuration, the
