@@ -272,7 +272,10 @@ didn't run `key generate` for you.
 
 ## Next Steps
 
-- [CLI Reference](/docs/cli/) - Full CLI command documentation
-- [Routing](/docs/core/routing/) - Learn about routing and middleware
-- [Database](/docs/database/) - Set up database connections and models
-- [Frontend](/docs/frontend/) - Configure Vite and Inertia.js
+- [Starter Kits]({{< relref "starter-kits" >}}) - What the React, Vue, and API kits ship and how to pick one
+- [CLI Reference]({{< relref "/docs/cli" >}}) - Full CLI command documentation
+- [Routing]({{< relref "/docs/core/routing" >}}) - Learn about routing and middleware
+- [Database]({{< relref "/docs/database" >}}) - Set up database connections and models
+- [Frontend]({{< relref "/docs/frontend" >}}) - Configure Vite and Inertia.js
+- [Testing]({{< relref "/docs/testing" >}}) - HTTP tests, factories, and database refresh
+- [Arrow]({{< relref "/docs/ai/arrow" >}}) - Give AI coding agents live context about your app
