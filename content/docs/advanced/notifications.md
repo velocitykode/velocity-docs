@@ -1,7 +1,7 @@
 ---
 title: Notifications
 description: Send notifications across mail, database, broadcast, and Slack from a single definition.
-weight: 55
+weight: 60
 ---
 
 The `notification` package lets you define a single notification and

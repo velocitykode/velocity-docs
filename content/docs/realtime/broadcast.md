@@ -1,7 +1,7 @@
 ---
 title: Broadcasting
 description: Broadcast events to multiple clients with public, private, and presence channels in Velocity.
-weight: 20
+weight: 10
 ---
 
 Velocity provides a powerful broadcasting system for real-time event communication built on top of WebSockets. It enables you to broadcast events to multiple connected clients with support for public, private, and presence channels.

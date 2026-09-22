@@ -1,7 +1,7 @@
 ---
 title: AI
 description: Velocity's AI surface - the MCP SDK for building Model Context Protocol servers, the Arrow context server for AI coding agents, and the velocity-ai vector store.
-weight: 76
+weight: 80
 sidebar:
   open: true
 ---

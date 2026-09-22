@@ -1,7 +1,7 @@
 ---
 title: WebSockets
 description: Real-time bidirectional communication - typed message handlers, groups, broadcasts, and per-client metadata.
-weight: 70
+weight: 20
 ---
 
 The `websocket` package provides a typed WebSocket server with

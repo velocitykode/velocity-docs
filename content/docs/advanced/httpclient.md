@@ -1,7 +1,7 @@
 ---
 title: HTTP Client
 description: Instrumented, secure-by-default outbound HTTP client with APM events and trace propagation.
-weight: 60
+weight: 80
 ---
 
 The `httpclient` package wraps `net/http` and dispatches APM events on

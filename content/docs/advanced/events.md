@@ -1,7 +1,7 @@
 ---
 title: Events
 description: Build event-driven applications with Velocity's observer pattern for decoupled, extensible architecture.
-weight: 80
+weight: 20
 ---
 
 Velocity provides a powerful event system that allows you to decouple various parts of your application using the observer pattern. Events enable clean, maintainable code by separating concerns and making your application more extensible.

@@ -1,7 +1,7 @@
 ---
 title: Arrow
 description: A first-party MCP server that gives AI coding agents live, grounded context about your Velocity application - routes, config, database schema, queries, recent logs, and documentation search.
-weight: 20
+weight: 30
 aliases: ["/docs/ecosystem/velocity-arrow/"]
 ---
 
@@ -57,7 +57,7 @@ go build -o arrow ./cmd/arrow
 Several tools shell out to the per-project `vel` CLI when it is available (for
 example, `velocity_routes` prefers `vel routes` for an accurate route table and
 falls back to static analysis otherwise). Installing `vel` in your project gives
-the most accurate results. See {{< relref "/docs/cli/commands" >}}.
+the most accurate results. See {{< relref "/docs/getting-started/commands" >}}.
 {{% /callout %}}
 
 ## Run as an MCP server
@@ -162,7 +162,7 @@ agent writes matches the app you actually have.
 
 ## See also
 
-- {{< relref "/docs/cli/commands" >}} - the per-project `vel` CLI that Arrow
+- {{< relref "/docs/getting-started/commands" >}} - the per-project `vel` CLI that Arrow
   shells out to for route listing.
 - {{< relref "/docs/advanced/events" >}} - Velocity's event system, one of the
   many features an agent can discover through `velocity_search_docs`.

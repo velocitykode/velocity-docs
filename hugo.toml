@@ -80,10 +80,6 @@ enableRobotsTXT = true
     url = "/docs/getting-started/"
     weight = 2
 
-  [[menu.main]]
-    name = "CLI"
-    url = "/docs/cli/"
-    weight = 3
 
   [[menu.main]]
     name = "GitHub"

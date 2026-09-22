@@ -1,7 +1,7 @@
 ---
 title: Transactions
 description: ctx-bound transactions, savepoints, and post-commit callbacks for the Velocity ORM.
-weight: 45
+weight: 80
 ---
 
 Velocity's ORM transactions are ctx-bound: `Manager.Transaction` opens a `*sql.Tx`, attaches it to the closure-supplied `ctx`, and every ORM terminal that observes that ctx (`Save`, `Create`, `Update`, `FirstOrCreate`, `UpdateOrCreate`, `CreateMany`, `Delete`, `Increment`, `Get`, `First`, `Count`, ...) auto-enrolls. There is no per-call `WithTx` decoration. Post-commit work registers via `orm.OnCommit` / `orm.OnRollback` / `orm.OnCommitFailure` (or the model-level `AfterCommit` / `AfterRollback` hooks) and runs only after the outer tx has settled.

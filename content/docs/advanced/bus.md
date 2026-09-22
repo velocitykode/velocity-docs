@@ -1,7 +1,7 @@
 ---
 title: Command Bus
 description: Type-safe command dispatch with middleware, self-handling commands, and async queue delivery.
-weight: 65
+weight: 30
 ---
 
 The `bus` package implements a typed command bus. Commands are plain

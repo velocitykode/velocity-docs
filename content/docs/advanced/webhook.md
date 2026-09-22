@@ -1,7 +1,7 @@
 ---
 title: Webhooks
 description: Primitives for signing, verifying, and retrying webhook deliveries.
-weight: 75
+weight: 90
 ---
 
 The `webhook` package ships three composable primitives for outbound and

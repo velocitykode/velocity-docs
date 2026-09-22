@@ -1,7 +1,7 @@
 ---
 title: Global Query Scopes
 description: Register named scopes that apply to every query for a model, with per-query opt-out for admin and cross-tenant work.
-weight: 35
+weight: 70
 ---
 
 Global query scopes are predicates registered once against a model type that automatically run on every read, count, update, and delete. They are how Velocity implements soft-delete (`WHERE deleted_at IS NULL`) under the hood, and the same primitive is exposed for application-level concerns like multi-tenancy, draft visibility, and feature-gated rows.

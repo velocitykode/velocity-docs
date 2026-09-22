@@ -1,7 +1,7 @@
 ---
 title: Resources
 description: Transform domain models into API responses with collections, pagination, and conditional fields.
-weight: 55
+weight: 90
 ---
 
 The `resource` package is a transformation layer that converts domain

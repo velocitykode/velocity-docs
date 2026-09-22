@@ -1,7 +1,7 @@
 ---
 title: Markdown
 description: Render Markdown safely with the str helpers, or build documentation sites from embedded Markdown with the markdown package.
-weight: 62
+weight: 170
 ---
 
 Velocity renders Markdown at two levels. The `str` package converts a string to HTML in one call, safe by default. The `markdown` package renders whole documents and hands back the structure a docs site needs: front matter, title, table of contents, plain text for search, and a collection helper that turns an embedded directory of Markdown files into pages, navigation, search index and llms.txt output.

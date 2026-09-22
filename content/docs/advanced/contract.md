@@ -1,7 +1,7 @@
 ---
 title: Contracts
 description: Minimal, stdlib-only interfaces that break circular dependencies between Velocity subsystems.
-weight: 95
+weight: 140
 ---
 
 The `contract` package defines the narrow interfaces that let Velocity

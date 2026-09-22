@@ -1,7 +1,7 @@
 ---
 title: React Components
 description: Build type-safe React components that receive props directly from Velocity Go handlers.
-weight: 30
+weight: 40
 ---
 
 Build type-safe React components that receive props directly from Go handlers.

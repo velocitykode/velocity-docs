@@ -1,7 +1,7 @@
 ---
 title: Testing
 description: Test Velocity applications with an in-memory app harness, a fluent HTTP test client with expressive response assertions, fakes for events and the command bus, model factories, and database refresh.
-weight: 75
+weight: 70
 sidebar:
   open: true
 ---

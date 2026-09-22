@@ -1,7 +1,7 @@
 ---
 title: Local Development
 description: What Velocity does for you during local development - one command runs Go and Vite, Go changes rebuild and restart the server, frontend edits hot-reload, and new migrations compile straight into the app with no registration step.
-weight: 13
+weight: 40
 ---
 
 Local development is one command. `./vel serve` starts everything, watches
@@ -98,7 +98,7 @@ conventional directory, ready to compile on the next save:
 ```
 
 Each generator is documented on its feature's page; the
-[vel Commands]({{< relref "/docs/cli/commands" >}}) index links them all.
+[vel Commands]({{< relref "commands" >}}) index links them all.
 
 ## Give your AI agent the same view
 

@@ -1,7 +1,7 @@
 ---
 title: Routing
 description: Define web and API routes, groups, parameters, and named routes, wire them into the app, and use the router standalone.
-weight: 50
+weight: 10
 ---
 
 Velocity organizes routing around a single `Register` function in your

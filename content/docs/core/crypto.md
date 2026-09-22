@@ -1,7 +1,7 @@
 ---
 title: Cryptography
 description: Encrypt and decrypt data with AES cipher modes, AAD binding, and key rotation in Velocity.
-weight: 50
+weight: 140
 ---
 
 Velocity provides robust encryption utilities for securing sensitive data with support for multiple AES cipher modes, additional-authenticated-data (AAD) binding, and seamless key rotation.

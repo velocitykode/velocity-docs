@@ -1,7 +1,7 @@
 ---
 title: CSRF Protection
 description: Protect your Velocity application against cross-site request forgery attacks with built-in CSRF middleware.
-weight: 60
+weight: 70
 ---
 
 Velocity provides comprehensive CSRF (Cross-Site Request Forgery) protection to secure your application against unauthorized form submissions and state-changing requests.

@@ -1,7 +1,7 @@
 ---
 title: Collections
 description: Generic, type-safe collection helpers for slices - filter, map, reduce, group, and more.
-weight: 70
+weight: 170
 ---
 
 The `collect` package is a library of generic slice helpers. Every

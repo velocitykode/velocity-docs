@@ -1,7 +1,7 @@
 ---
 title: Migrations
 description: Version control your database schema with Velocity migrations for creating tables and modifying columns.
-weight: 50
+weight: 20
 ---
 
 Migrations provide version control for your database schema. Velocity migrations live in the `github.com/velocitykode/velocity/orm/migrate` package: each migration is a registered value with `Up`/`Down` functions that receive a `*migrate.Migrator`, and a `Migrator` applies them against a database connection.

@@ -1,7 +1,7 @@
 ---
 title: gRPC
 description: gRPC server and HTTP gateway with context helpers, structured errors, and interceptor-friendly APIs.
-weight: 90
+weight: 190
 ---
 
 The `grpc` package wraps `google.golang.org/grpc` with Velocity

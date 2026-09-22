@@ -1,7 +1,7 @@
 ---
 title: "Feature Flags"
 description: Minimal Driver interface, request-scoped overrides, and an in-memory driver for tests.
-weight: 78
+weight: 100
 ---
 
 The `flags` package is the framework's feature-flag adapter surface.

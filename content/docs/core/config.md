@@ -1,7 +1,8 @@
 ---
 title: Configuration
 description: Manage application configuration with environment variables and the structured velocity.Config struct in Velocity.
-weight: 5
+weight: 110
+aliases: ["/docs/cli/configuration/"]
 ---
 
 Velocity provides a simple yet powerful configuration system that reads from environment variables and a `.env` file, then exposes a single strongly-typed `velocity.Config` struct that every framework package consumes.

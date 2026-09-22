@@ -1,7 +1,7 @@
 ---
 title: Database & Models
 description: Work with databases in Velocity using its hand-rolled ctx-first ORM, migrations, query builder, and model relationships.
-weight: 50
+weight: 30
 sidebar:
   open: true
 ---

@@ -1,7 +1,7 @@
 ---
 title: Tracing
 description: Distributed tracing primitives - trace IDs, span IDs, and parent relationships propagated through context.
-weight: 80
+weight: 180
 ---
 
 The `trace` package is Velocity's distributed tracing primitive. It

@@ -1,7 +1,7 @@
 ---
 title: Transactional Outbox
 description: Atomically commit side effects (queue jobs, events) alongside database writes using the outbox pattern, with a built-in relay for delivery, retries, and DLQ.
-weight: 60
+weight: 90
 ---
 
 The outbox pattern lets you commit a side effect (a queue job, a domain event) in the *same SQL transaction* as the database row that triggered it. If the transaction commits, the side effect is guaranteed to be delivered eventually. If it rolls back, the side effect disappears with it. No more "we charged the card but the email never went out because the request died between commit and queue.Push."

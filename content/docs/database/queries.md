@@ -1,7 +1,7 @@
 ---
 title: Query Builder
 description: Build complex database queries with Velocity's fluent query builder for filtering, sorting, and pagination.
-weight: 20
+weight: 40
 ---
 
 Velocity provides a fluent, generic query builder over `Model[T]`. Every read and write terminal takes `context.Context` as its first positional argument so cancellation, tracing, and transaction enrollment flow through naturally.

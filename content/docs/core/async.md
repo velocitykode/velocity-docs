@@ -1,7 +1,7 @@
 ---
 title: "Async"
 description: Run concurrent operations with Velocity's Go-idiomatic async wrappers for goroutines and channels.
-weight: 40
+weight: 160
 ---
 
 Velocity's async package provides simple, Go-idiomatic wrappers around goroutines and channels for concurrent programming without traditional async/await complexity.

@@ -1,7 +1,7 @@
 ---
 title: Ecosystem
 description: First-party companion modules for Velocity, each shipped as its own Go module and added with go get.
-weight: 80
+weight: 90
 sidebar:
   open: true
 ---

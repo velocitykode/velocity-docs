@@ -1,7 +1,7 @@
 ---
 title: "Validation"
 description: Validate HTTP requests and form data with Velocity's typed, rule-based validation system.
-weight: 50
+weight: 60
 ---
 
 Velocity provides a flexible, extensible validation system for validating HTTP requests, form data, and general data structures. Rules are **typed values** built by constructors in the `validation` package and collected in a `validation.Rules` set keyed by field name.

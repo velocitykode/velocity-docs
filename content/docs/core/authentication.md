@@ -1,7 +1,7 @@
 ---
 title: Authentication
 description: Implement user login, registration, password hashing, and session management with Velocity's auth system.
-weight: 10
+weight: 80
 ---
 
 Velocity provides a powerful authentication system that handles user login, registration, password hashing, and session management out of the box.

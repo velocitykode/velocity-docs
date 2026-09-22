@@ -1,7 +1,7 @@
 ---
 title: Handlers
 description: Organize HTTP request handling with Velocity handlers and Context-based handlers.
-weight: 20
+weight: 30
 ---
 
 Handlers in Velocity handle HTTP requests and responses, providing a clean way to organize your application logic following the MVC pattern. Handlers use Context-based functions that receive a `*router.Context` and return an `error`.

@@ -1,7 +1,7 @@
 ---
 title: "Task Scheduler"
 description: Schedule recurring tasks with Velocity's fluent scheduler for cron jobs, daily tasks, and periodic work.
-weight: 50
+weight: 40
 ---
 
 Velocity provides a task scheduler for running recurring jobs with an expressive, fluent API.

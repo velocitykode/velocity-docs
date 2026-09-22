@@ -1,7 +1,7 @@
 ---
 title: Request & Response
 description: The *router.Context API - route parameters, query strings, headers, cookies, JSON and form binding, responses, files, streaming, redirects, errors, and service accessors.
-weight: 51
+weight: 20
 aliases: ["/docs/core/http-router/"]
 keywords: [router.Context, request, response, JSON binding, redirects, server-sent events]
 ---

@@ -15,44 +15,7 @@
 
     {{ .Content }}
 
-    <!-- Pagination - mirrors sidebar order: section index ("overview") first, then child pages by weight -->
-    {{ $section := .CurrentSection }}
-    {{ $ordered := slice }}
-    {{ if $section }}
-      {{ $ordered = $ordered | append $section }}
-      {{ range $section.Pages.ByWeight }}
-        {{ $ordered = $ordered | append . }}
-      {{ end }}
-    {{ end }}
-    {{ $current := . }}
-    {{ $prev := false }}
-    {{ $next := false }}
-    {{ range $i, $p := $ordered }}
-      {{ if eq $p.Permalink $current.Permalink }}
-        {{ if gt $i 0 }}{{ $prev = index $ordered (sub $i 1) }}{{ end }}
-        {{ if lt (add $i 1) (len $ordered) }}{{ $next = index $ordered (add $i 1) }}{{ end }}
-      {{ end }}
-    {{ end }}
-    <nav class="docs-pager" aria-label="Page navigation">
-      {{ with $prev }}
-      <a href="{{ .Permalink }}" class="docs-pager-link docs-pager-prev">
-        <span class="docs-pager-meta">
-          <span class="docs-pager-label">Previous</span>
-          <span class="docs-pager-title">{{ if eq .Permalink $section.Permalink }}overview{{ else }}{{ .Title }}{{ end }}</span>
-        </span>
-      </a>
-      {{ else }}
-      <span></span>
-      {{ end }}
-      {{ with $next }}
-      <a href="{{ .Permalink }}" class="docs-pager-link docs-pager-next">
-        <span class="docs-pager-meta">
-          <span class="docs-pager-label">Next</span>
-          <span class="docs-pager-title">{{ if eq .Permalink $section.Permalink }}overview{{ else }}{{ .Title }}{{ end }}</span>
-        </span>
-      </a>
-      {{ end }}
-    </nav>
+    {{ partial "pager.html" . }}
   </article>
 
   <!-- Table of Contents -->

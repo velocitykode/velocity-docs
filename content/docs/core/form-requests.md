@@ -1,7 +1,7 @@
 ---
 title: Form Requests
 description: Self-validating request types with automatic binding, flashing, and redirect-on-failure.
-weight: 46
+weight: 50
 ---
 
 Form requests bundle binding, validation, and error handling into one

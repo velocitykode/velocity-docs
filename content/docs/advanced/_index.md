@@ -1,7 +1,7 @@
 ---
 title: Advanced Topics
 description: Advanced Velocity features including queues, events, mail, notifications, file storage, task scheduling, gRPC, and more.
-weight: 70
+weight: 60
 sidebar:
   open: true
 ---

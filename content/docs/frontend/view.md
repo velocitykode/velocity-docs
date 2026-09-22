@@ -1,7 +1,7 @@
 ---
 title: View Engine
 description: Server-side view engine for Inertia-style rendering with shared props, lazy/deferred props, and optional SSR.
-weight: 20
+weight: 30
 ---
 
 The `view` package is Velocity's server-side rendering layer. It wraps

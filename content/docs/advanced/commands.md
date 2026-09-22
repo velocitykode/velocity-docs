@@ -1,7 +1,7 @@
 ---
 title: Console Commands
 description: Add your own commands to the per-project vel binary - scaffold them with vel gen command, register them with v.Commands, and run them with vel run.
-weight: 62
+weight: 120
 keywords: [custom commands, vel run, gen command, console]
 ---
 

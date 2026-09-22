@@ -1,7 +1,7 @@
 ---
 title: Starter Kits
 description: The three first-party starter kits the installer scaffolds from - React, Vue, and API-only - what each ships, how to pick one, and how to create a project from it.
-weight: 12
+weight: 30
 ---
 
 Every `velocity new` project starts from a first-party starter kit. A kit is a

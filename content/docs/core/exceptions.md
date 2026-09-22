@@ -1,7 +1,7 @@
 ---
 title: Exceptions
 description: Structured error handling with rich dev pages, safe production responses, content negotiation, and pluggable reporters.
-weight: 65
+weight: 100
 ---
 
 The `exceptions` package turns errors returned from handlers into

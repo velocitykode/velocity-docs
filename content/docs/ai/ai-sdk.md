@@ -1,7 +1,7 @@
 ---
 title: AI SDK
 description: The velocity-ai module - a first-party SDK for calling LLM providers, generating embeddings, and running vector search from a Velocity application. Documentation coming soon.
-weight: 5
+weight: 10
 ---
 
 {{% callout type="info" %}}

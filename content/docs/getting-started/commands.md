@@ -1,8 +1,9 @@
 ---
 title: vel Commands
 description: How the per-project `vel` CLI parses commands, and where each command is documented.
-weight: 2
+weight: 50
 keywords: [vel commands, velocity cli, migrations, code generation, hot reload]
+aliases: ["/docs/cli/commands/", "/docs/cli/"]
 ---
 
 `vel` is the per-project binary. It's created in your project root when
@@ -10,7 +11,7 @@ you scaffold an app with `velocity new`. Run `./vel <command>` - or
 alias `vel` to `./vel` in your shell - from the project directory.
 
 For the installer CLI (`velocity new`, `velocity self-update`, etc.),
-see [Velocity Installer]({{< relref "/docs/getting-started/installer" >}}).
+see [Velocity Installer]({{< relref "installer" >}}).
 
 ## Command grammar
 

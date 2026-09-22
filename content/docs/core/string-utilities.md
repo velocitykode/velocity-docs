@@ -1,7 +1,7 @@
 ---
 title: String Utilities
 description: Manipulate strings with Velocity's fluent string utilities for slugs, cases, truncation, and more.
-weight: 60
+weight: 150
 ---
 
 Velocity provides a comprehensive string utilities package with powerful text manipulation functions inspired by popular web frameworks, offering fluent interfaces and lazy loading for optimal performance.

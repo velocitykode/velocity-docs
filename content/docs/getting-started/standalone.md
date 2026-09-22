@@ -1,7 +1,7 @@
 ---
 title: Standalone Packages
 description: Cherry-pick individual Velocity components. Import a single subsystem, construct its Manager directly, and own the lifecycle without velocity.New().
-weight: 15
+weight: 60
 ---
 
 Velocity is a single Go module, but its subsystems are designed as

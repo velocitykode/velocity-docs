@@ -1,7 +1,7 @@
 ---
 title: "Storage"
 description: Store and retrieve files with Velocity's unified storage manager for local filesystem and Amazon S3.
-weight: 25
+weight: 70
 ---
 
 Velocity provides a unified storage interface for file operations across different backends including local filesystem and Amazon S3. The storage system uses a driver-based architecture that allows you to switch storage backends through configuration without changing your code.

@@ -2,7 +2,7 @@
 title: Modules
 linkTitle: Modules
 description: Modular registration of services, routes, middleware, events, and scheduled jobs with lifecycle hooks.
-weight: 85
+weight: 130
 aliases: ["/docs/advanced/service-providers/"]
 ---
 

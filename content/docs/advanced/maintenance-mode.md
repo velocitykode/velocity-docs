@@ -1,7 +1,7 @@
 ---
 title: Maintenance Mode
 description: Take an application offline for deploys and migrations with vel down and vel up, keep health probes and webhooks reachable, and let operators bypass the 503 with a secret.
-weight: 58
+weight: 110
 keywords: [maintenance mode, vel down, vel up, 503, bypass secret]
 ---
 

@@ -1,7 +1,7 @@
 ---
 title: Driver Registry
 description: Pluggable driver registration across cache, queue, storage, mail, notification, log, and orm subsystems.
-weight: 92
+weight: 150
 ---
 
 `driverregistry` is the single pattern every Velocity subsystem with

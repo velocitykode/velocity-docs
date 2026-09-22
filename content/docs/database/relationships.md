@@ -1,7 +1,7 @@
 ---
 title: Relationships
 description: Define hasOne, hasMany, belongsTo, manyToMany, and polymorphic relationships with eager loading in Velocity ORM.
-weight: 30
+weight: 60
 ---
 
 Velocity ORM supports five relation types: `hasOne`, `hasMany`, `belongsTo`, `manyToMany`, and `polymorphic`. Relations are declared via a struct tag and eager-loaded by chaining `.With(...)` onto a query whose terminal takes `ctx` as the first argument (`Get(ctx)`, `First(ctx, &dest)`, ...).

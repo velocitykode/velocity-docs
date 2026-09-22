@@ -1,7 +1,7 @@
 ---
 title: "Logging"
 description: Log messages with Velocity's driver-based logging system supporting console, file, daily rotation, stack fan-out, and secret redaction.
-weight: 30
+weight: 120
 ---
 
 Velocity provides a driver-based logging system that the framework wires up for you

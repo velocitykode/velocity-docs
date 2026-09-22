@@ -1,17 +1,42 @@
 ---
 title: Velocity Installer
 description: Reference for the global `velocity` installer - scaffold new projects, manage CLI defaults, and keep the installer up to date.
-weight: 11
-aliases: ["/docs/cli/installer/"]
+weight: 20
+aliases: ["/docs/cli/installer/", "/docs/cli/installation/"]
 keywords: [velocity new, velocity config, velocity self-update, installer]
 ---
 
-`velocity` is the global installer CLI. You install it once
-([installation](/docs/cli/installation)) and use it to create new
-projects, configure defaults, and update itself.
+`velocity` is the global installer CLI. You install it once and use it
+to create new projects, configure defaults, and update itself.
+Per-project commands (`serve`, `build`, `migrate`, `gen *`) live on the
+`vel` binary inside each project; see
+[vel Commands]({{< relref "commands" >}}).
 
-Per-project commands (`serve`, `build`, `migrate`, `gen *`) live on
-the `vel` binary inside each project - see [vel commands](/docs/cli/commands).
+## Installing
+
+- **Go 1.26 or higher**. The installer checks `go version` on startup and refuses to run on an older toolchain.
+- **Node.js 20+** for frontend asset compilation on full-stack projects (Vite 7).
+- **Git**. Each new project is initialised as a repository, and `git clone` is the fallback when the template tarball is unavailable.
+
+Full-stack projects install JavaScript dependencies with [bun](https://bun.sh) when it is available, falling back to `npm`. Installing bun is optional but much faster.
+
+{{< tabs items="Homebrew,Go" >}}
+
+{{< tab name="Homebrew" >}}
+```bash
+brew install --cask velocitykode/tap/velocity
+```
+{{< /tab >}}
+
+{{< tab name="Go" >}}
+```bash
+go install github.com/velocitykode/velocity-installer@latest
+```
+{{< /tab >}}
+
+{{< /tabs >}}
+
+Verify with `velocity --version` (output described [below](#velocity---version)).
 
 ## velocity new
 
@@ -198,3 +223,32 @@ Or download from: https://go.dev/dl/
 ```
 
 Install or upgrade Go and run the command again.
+
+## Updating
+
+Homebrew installs upgrade through the cask; `self-update` detects a
+Homebrew install and points you here rather than replacing the binary
+itself:
+
+```bash
+brew upgrade --cask velocity
+```
+
+Manual installs use `velocity self-update` as described above.
+
+The per-project `vel` binary is rebuilt automatically by `vel serve` and
+`velocity new`. To rebuild it by hand from the project root:
+
+```bash
+go build -o vel .
+```
+
+## Uninstalling
+
+```bash
+brew uninstall --cask velocity
+brew untap velocitykode/tap
+```
+
+The `vel` binary is project-local and gitignored; deleting the project
+directory removes it.

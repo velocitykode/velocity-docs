@@ -1,7 +1,7 @@
 ---
 title: Cache
 description: Store and retrieve data with Velocity's multi-driver cache system supporting Redis and in-memory storage.
-weight: 40
+weight: 130
 ---
 
 Velocity provides a unified caching interface supporting multiple drivers. The framework reads `CACHE_DRIVER` and the related env vars at boot and constructs a `*cache.Manager` for you, exposed as `app.Cache` (and `ctx.Cache()` from any handler).

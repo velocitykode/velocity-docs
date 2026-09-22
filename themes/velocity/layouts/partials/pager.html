@@ -1,0 +1,39 @@
+<!-- Pagination - mirrors sidebar order across every section: section overview, then its pages by weight -->
+{{ $ordered := slice }}
+{{ with site.GetPage "docs" }}
+  {{ range .Sections.ByWeight }}
+    {{ $ordered = $ordered | append . }}
+    {{ range .Pages.ByWeight }}
+      {{ $ordered = $ordered | append . }}
+    {{ end }}
+  {{ end }}
+{{ end }}
+{{ $current := . }}
+{{ $prev := false }}
+{{ $next := false }}
+{{ range $i, $p := $ordered }}
+  {{ if eq $p.Permalink $current.Permalink }}
+    {{ if gt $i 0 }}{{ $prev = index $ordered (sub $i 1) }}{{ end }}
+    {{ if lt (add $i 1) (len $ordered) }}{{ $next = index $ordered (add $i 1) }}{{ end }}
+  {{ end }}
+{{ end }}
+<nav class="docs-pager" aria-label="Page navigation">
+  {{ with $prev }}
+  <a href="{{ .Permalink }}" class="docs-pager-link docs-pager-prev">
+    <span class="docs-pager-meta">
+      <span class="docs-pager-label">Previous</span>
+      <span class="docs-pager-title">{{ if .IsSection }}{{ .Title }} overview{{ else }}{{ .Title }}{{ end }}</span>
+    </span>
+  </a>
+  {{ else }}
+  <span></span>
+  {{ end }}
+  {{ with $next }}
+  <a href="{{ .Permalink }}" class="docs-pager-link docs-pager-next">
+    <span class="docs-pager-meta">
+      <span class="docs-pager-label">Next</span>
+      <span class="docs-pager-title">{{ if .IsSection }}{{ .Title }} overview{{ else }}{{ .Title }}{{ end }}</span>
+    </span>
+  </a>
+  {{ end }}
+</nav>

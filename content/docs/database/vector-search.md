@@ -1,7 +1,7 @@
 ---
 title: Vector Search
 description: Run pgvector similarity search through Velocity's ORM, and use the velocity-ai document store for a batteries-included embed-and-search pipeline.
-weight: 55
+weight: 100
 ---
 
 Velocity's ORM has first-class [pgvector](https://github.com/pgvector/pgvector) support: a dedicated `orm.Vector` column type and nearest-neighbour query methods that compile to native pgvector distance operators. On top of those primitives, the separate `velocity-ai` module ships a document store that pairs the search query with an embedding provider.

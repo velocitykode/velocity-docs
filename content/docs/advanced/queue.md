@@ -1,7 +1,7 @@
 ---
 title: Queue System
 description: Background job processing with Velocity's queue system
-weight: 30
+weight: 10
 ---
 
 Velocity provides a unified queue interface for background job processing, supporting Redis, database, and in-memory drivers.

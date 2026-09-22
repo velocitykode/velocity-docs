@@ -1,7 +1,7 @@
 ---
 title: Seeding
 description: Populate a database with reference data and development fixtures through explicit, ordered seeders run by vel db seed.
-weight: 52
+weight: 30
 ---
 
 Seeders insert the rows an application needs before it is useful: roles, regions, default settings, or a set of development fixtures. They live in the `github.com/velocitykode/velocity/orm/seed` package and are plain values: the application lists them once, in dependency order, and `vel db seed` runs that list.

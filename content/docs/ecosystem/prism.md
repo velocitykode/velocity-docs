@@ -1,7 +1,7 @@
 ---
 title: Prism
 description: A standalone Go component library for building styled command-line tools - colored output, tables, spinners, progress bars, and interactive prompts. Zero framework dependency.
-weight: 30
+weight: 10
 ---
 
 [Prism](https://github.com/velocitykode/prism) is the component library behind Velocity's own `vel` tooling, extracted as its own module so you can build styled command-line programs with it. It covers the three things a CLI usually needs: consistent **output styling**, **status indicators** (spinners and progress bars), and **interactive prompts**.

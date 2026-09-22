@@ -9,7 +9,7 @@ weight: 10
 ### Prerequisites
 
 - Go 1.26 or higher
-- Node.js 18+ (for frontend assets)
+- Node.js 20+ (for frontend assets)
 - Git
 
 ### Install the Velocity CLI
@@ -296,7 +296,7 @@ rotate the key or when the installer did not run it for you.
 ## Next Steps
 
 - [Starter Kits]({{< relref "starter-kits" >}}) - What the React, Vue, and API kits ship and how to pick one
-- [CLI Reference]({{< relref "/docs/cli" >}}) - Full CLI command documentation
+- [vel Commands]({{< relref "commands" >}}) - Every `vel` command and where it is documented
 - [Routing]({{< relref "/docs/core/routing" >}}) - Learn about routing and middleware
 - [Database]({{< relref "/docs/database" >}}) - Set up database connections and models
 - [Frontend]({{< relref "/docs/frontend" >}}) - Configure Vite and Inertia.js

@@ -1,7 +1,7 @@
 ---
 title: Pipeline
 description: Generic, type-safe middleware-style pipeline for threading values through sequential stages.
-weight: 75
+weight: 160
 ---
 
 The `pipeline` package is a generic "chain of responsibility". A value

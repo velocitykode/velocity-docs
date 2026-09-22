@@ -1,7 +1,7 @@
 ---
 title: CRUD Operations
 description: Create, read, update, and delete database records with Velocity ORM's ctx-first API.
-weight: 40
+weight: 50
 ---
 
 Every state-changing entry point on the ORM (and every read terminal) takes `context.Context` as its first positional argument. There is no implicit auto-commit and no chain-level `WithContext` decoration: pass the ctx your handler already holds, and a tx slot in that ctx (set by `Manager.Transaction` or `WithTxContext`) automatically enrolls the call in the surrounding transaction. A bare `context.Background()` routes through the pool driver.

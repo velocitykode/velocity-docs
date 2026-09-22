@@ -1,7 +1,7 @@
 ---
 title: "Mail"
 description: Send emails with Velocity's driver-based mail system supporting SMTP/sendmail, Mailgun, Postmark, and a development log driver.
-weight: 40
+weight: 50
 ---
 
 Velocity provides a driver-based email system that supports multiple mail services through a unified, fluent message builder. Messages are built with `mail.NewMessage()` and delivered through a `Mailer` (the `app.Mail` configured at boot) or a `Manager` that routes to named channels.
