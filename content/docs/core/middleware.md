@@ -209,7 +209,7 @@ func Dashboard(c *router.Context) error {
 
 For request-scoped values that don't need to flow into downstream
 handlers, `c.Set(key, value)` / `c.Get(key)` is the lighter option -
-see [HTTP Router > Per-request storage](/docs/core/http-router#per-request-storage).
+see [Request & Response > Per-request storage]({{< relref "context#per-request-storage" >}}).
 
 ## Common patterns
 

@@ -1,6 +1,6 @@
 ---
 title: Routing
-description: Define routes in Velocity using the declarative Routing API.
+description: Define web and API routes, groups, parameters, and named routes, wire them into the app, and use the router standalone.
 weight: 50
 ---
 
@@ -17,8 +17,8 @@ This page covers:
 - Applying middleware to groups and individual routes
 - The reference for `*velocity.Routing` and `router.Router`
 
-For low-level details - the `Context` API, JSON binding, named-route
-URL generation - see [HTTP Router](/docs/core/http-router).
+For everything a handler does with the request and response - params,
+binding, JSON, redirects - see [Request & Response]({{< relref "context" >}}).
 
 ## Defining routes
 
@@ -169,9 +169,31 @@ web.Options("/users", handlers.UsersOptions)   // /users
 web.Head("/users/{id}", handlers.HeadUser)     // /users/{id}
 ```
 
-Path parameters use `{name}`. Read them in the handler with
-`c.Param("name")` - see the [HTTP Router page](/docs/core/http-router#reading-parameters)
-for the full Context API.
+`Any` matches every method and `Match` a custom set. Both live on the
+concrete router rather than the `router.Router` interface, so reach
+them through `r.Router()` (they sit outside the web and API stacks):
+
+```go
+r.Router().Any("/ping", handlers.Ping)
+r.Router().Match([]string{http.MethodGet, http.MethodPost}, "/webhook", handlers.Webhook)
+```
+
+### Route parameters
+
+`{name}` segments capture path values. Read them with `c.Param("name")`;
+typed accessors return `(value, error)`:
+
+```go
+web.Get("/users/{id}", func(c *router.Context) error {
+    id := c.Param("id")
+    n, err := c.ParamInt("id")
+    big, err := c.ParamInt64("id")
+    // ...
+})
+```
+
+The rest of the Context API is on
+[Request & Response]({{< relref "context" >}}).
 
 Each verb method returns a `RouteConfig` for chaining `.Name(...)`
 and `.Use(...)`:
@@ -232,6 +254,25 @@ r.API("/api", func(api router.Router) {
 
 Each level inherits the parent's prefix and middleware.
 
+## Named routes and URL generation
+
+```go
+r.Get("/posts/{id}", showPost).Name("posts.show")
+```
+
+After all routes are registered, generate URLs from the name:
+
+```go
+url, err := r.Router().RouteURL("posts.show", map[string]string{"id": "42"})
+// url == "/posts/42"
+```
+
+`RouteURL` returns `*RouteNotFoundError` if the name is unknown or if
+called before the route table is committed. Velocity commits the table
+on first request; call `r.Router().Freeze()` to commit eagerly (e.g. in tests, or
+to move the commit cost off the first request) before calling
+`RouteURL`.
+
 ## Listing routes
 
 ```bash
@@ -242,6 +283,117 @@ Prints every registered route with method, path, and name. Takes no
 arguments. It runs the bootstrap lifecycle first, so the output always
 reflects the current `v.Routes(...)` definition and every module's
 `Routes` method.
+
+## Using the router standalone
+
+Everything above runs through `v.Routes(...)`. The `router` package also
+works on its own, in tests or when embedding Velocity into a bare
+`net/http` server:
+
+```go
+package main
+
+import (
+    "net/http"
+
+    "github.com/velocitykode/velocity/router"
+)
+
+func main() {
+    r := router.New()
+
+    r.Get("/users/{id}", func(c *router.Context) error {
+        return c.JSON(http.StatusOK, map[string]any{
+            "id": c.Param("id"),
+        })
+    })
+
+    http.ListenAndServe(":4000", r)
+}
+```
+
+`router.New()` returns a `*router.VelocityRouterV2` that satisfies
+`http.Handler`.
+
+### Embedding into net/http
+
+The router is an `http.Handler` directly:
+
+```go
+http.ListenAndServe(":4000", r)
+```
+
+To use it inside a larger mux, mount it under a path prefix:
+
+```go
+mux := http.NewServeMux()
+mux.Handle("/api/", http.StripPrefix("/api", r))
+http.ListenAndServe(":4000", mux)
+```
+
+### Adapting standard handlers
+
+Wrap a `router.HandlerFunc` to use it with stdlib mux:
+
+```go
+http.Handle("/health", router.Wrap(myHandler))
+```
+
+If the inner handler returns a `*HTTPError`, the wrapper responds with
+its code - echoing the message for 4xx, but a generic body for 5xx so
+server detail never leaks. Any other error becomes a generic 500. For
+richer error handling, attach the route to a router so the exception
+handler runs.
+
+## Testing routes
+
+Use `httptest`:
+
+```go
+func TestShowPost(t *testing.T) {
+    r := router.New()
+    r.Get("/posts/{id}", func(c *router.Context) error {
+        return c.JSON(http.StatusOK, map[string]string{"id": c.Param("id")})
+    })
+
+    req := httptest.NewRequest(http.MethodGet, "/posts/42", nil)
+    rec := httptest.NewRecorder()
+    r.ServeHTTP(rec, req)
+
+    if rec.Code != http.StatusOK {
+        t.Fatalf("status = %d, want 200", rec.Code)
+    }
+
+    if !strings.Contains(rec.Body.String(), `"id":"42"`) {
+        t.Fatalf("body = %q, want id=42", rec.Body.String())
+    }
+}
+```
+
+For full app-level tests that exercise middleware, providers, and
+services, use the `github.com/velocitykode/velocity/testing/http`
+package - `NewTestClient(t, r)` returns a `*TestClient` whose requests
+yield assertable `*TestResponse` values.
+
+## Tracing
+
+The router does not magically populate `TraceID` / `RequestID` fields
+on the context. Use the `trace` package to read trace state from the
+request context:
+
+```go
+import "github.com/velocitykode/velocity/trace"
+
+r.Get("/api/log", func(c *router.Context) error {
+    traceID, spanID, parent := trace.GetTraceContext(c.Request.Context())
+
+    c.Log().Info("processing", "trace_id", traceID, "span_id", spanID, "parent", parent)
+    return c.NoContent()
+})
+```
+
+Velocity's middleware injects fresh trace IDs per request - see
+[Tracing](/docs/advanced/trace) for end-to-end propagation.
 
 ## Reference: `*velocity.Routing`
 

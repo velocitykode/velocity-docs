@@ -1,126 +1,23 @@
 ---
-title: HTTP Router
-description: Low-level router reference - Context API, route definition, parameters, JSON binding, and named routes.
+title: Request & Response
+description: The *router.Context API - route parameters, query strings, headers, cookies, JSON and form binding, responses, files, streaming, redirects, errors, and service accessors.
 weight: 51
+aliases: ["/docs/core/http-router/"]
+keywords: [router.Context, request, response, JSON binding, redirects, server-sent events]
 ---
 
-This page documents the underlying `router` package - the
-`*router.Context` API, route definition primitives, and helpers for
-working with requests and responses.
-
-For app-level routing (web/API stacks, declarative `v.Routes(...)`),
-see [Routing](/docs/core/routing).
+Every handler has the signature `func(*router.Context) error`. The
+`*router.Context` wraps the request and response and carries the
+helpers below. Route definition, groups, and named routes are on
+[Routing]({{< relref "routing" >}}); handler organisation is on
+[Handlers]({{< relref "handlers" >}}).
 
 Import path: `github.com/velocitykode/velocity/router`
-
-## Quick start
-
-Most apps register routes through `v.Routes(...)`. To use the router
-directly - typically in tests or when embedding Velocity into a bare
-`net/http` server:
-
-```go
-package main
-
-import (
-    "net/http"
-
-    "github.com/velocitykode/velocity/router"
-)
-
-func main() {
-    r := router.New()
-
-    r.Get("/users/{id}", func(c *router.Context) error {
-        return c.JSON(http.StatusOK, map[string]any{
-            "id": c.Param("id"),
-        })
-    })
-
-    http.ListenAndServe(":4000", r)
-}
-```
-
-`router.New()` returns a `*router.VelocityRouterV2` that satisfies
-`http.Handler`.
-
-## Defining routes
-
-### HTTP methods
-
-```go
-r.Get("/users", listUsers)
-r.Post("/users", createUser)
-r.Put("/users/{id}", replaceUser)
-r.Patch("/users/{id}", updateUser)
-r.Delete("/users/{id}", deleteUser)
-r.Options("/users", listOptions)
-r.Head("/users/{id}", headUser)
-
-// Match every method:
-r.Any("/health", healthCheck)
-
-// Match a custom set:
-r.Match([]string{http.MethodGet, http.MethodPost}, "/webhook", handleWebhook)
-```
-
-Each verb returns a `RouteConfig` for chaining `.Name(...)` and
-`.Use(...)`.
-
-### Route parameters
-
-`{name}` segments capture path values:
-
-```go
-r.Get("/users/{id}", func(c *router.Context) error {
-    id := c.Param("id")
-    return c.String(http.StatusOK, "user "+id)
-})
-```
-
-Typed accessors return `(value, error)`:
-
-```go
-id, err := c.ParamInt("id")
-big, err := c.ParamInt64("id")
-```
-
-### Groups and middleware
-
-Sub-groups inherit middleware from their parent and add their own:
-
-```go
-api := r.Group("/api/v1")
-api.Use(authMiddleware)
-
-api.Get("/me", showProfile)
-api.Get("/posts", listPosts)
-```
-
-Or pass a closure to scope the group:
-
-```go
-r.Group("/admin", func(admin router.Router) {
-    admin.Use(adminAuth)
-    admin.Get("/dashboard", dashboard)
-    admin.Post("/users", createUser)
-})
-```
-
-### Static files
-
-Serve a directory of static assets:
-
-```go
-r.Static("public")  // serves ./public at /
-```
-
-## The Context
 
 `*router.Context` wraps the request, response, and helpers. Every
 handler has signature `func(*router.Context) error`.
 
-### Reading parameters
+## Reading parameters
 
 ```go
 id := c.Param("id")              // string
@@ -128,7 +25,7 @@ n, err := c.ParamInt("page")     // int
 big, err := c.ParamInt64("id")   // int64
 ```
 
-### Query strings
+## Query strings
 
 ```go
 q       := c.Query("q")                       // string
@@ -139,7 +36,7 @@ amount  := c.QueryFloat64("amount", 0.0)      // float64 with default
 verbose := c.QueryBool("verbose")             // accepts 1/0, true/false, t/f, etc.
 ```
 
-### Headers
+## Headers
 
 ```go
 ua    := c.Header("User-Agent")               // read
@@ -152,7 +49,7 @@ c.AddHeader("Vary", "Accept")                 // append (list-valued)
 `SetHeader` and `AddHeader` reject names or values containing CR/LF to
 prevent header injection.
 
-### Cookies
+## Cookies
 
 ```go
 sess, err := c.Cookie("session_id")
@@ -166,7 +63,7 @@ c.SetCookie(&http.Cookie{
 })
 ```
 
-### JSON binding
+## JSON binding
 
 `c.Bind` decodes the request body as JSON:
 
@@ -192,7 +89,7 @@ should install the `router.BodyLimit(N)` middleware for their chain;
 when present it sets the cap for `Bind`, `BindForm`, `BindXML`,
 `FormValue`, and `FormFile` instead of the default.
 
-### Form data
+## Form data
 
 `c.FormValue` reads a single URL-encoded or multipart value (capping the
 body at `DefaultMaxBodySize` unless `BodyLimit` is installed), and
@@ -226,7 +123,7 @@ if err := c.BindForm(&f); err != nil {
 `c.BindValid` binds JSON and then runs the struct's own
 `ValidationRules()` if it implements `Validatable`.
 
-### Responses
+## Responses
 
 ```go
 c.JSON(http.StatusOK, payload)
@@ -244,7 +141,7 @@ c.Response.Write(data)
 
 `c.JSON` also sets `X-Content-Type-Options: nosniff`.
 
-### Serving files
+## Serving files
 
 `File` and `Download` serve a path resolved relative to the router's
 configured `FileRoot` (set via `SetFileRoot`, defaulting to the process
@@ -260,7 +157,7 @@ c.Attachment("reports/q3.pdf", "Q3.pdf") // alias for Download
 Both default to `Cache-Control: private, no-store` (a caller-set header
 is preserved).
 
-### Streaming and Server-Sent Events
+## Streaming and Server-Sent Events
 
 `c.SSE` writes one `event:`/`data:` frame (JSON-encoded) and flushes,
 setting the streaming headers and clearing the write deadline on the
@@ -280,7 +177,7 @@ r.Get("/stream", func(c *router.Context) error {
 For hand-rolled streams (NDJSON, custom frames), call `c.PrepareStream()`
 once and then write to `c.Response` directly.
 
-### Redirects
+## Redirects
 
 ```go
 c.Redirect(http.StatusSeeOther, "/dashboard")
@@ -300,7 +197,7 @@ redirecting. Never feed a raw `?redirect=` query value to `c.Redirect`
 directly - route it through these helpers so the open-redirect sanitizer
 runs.
 
-### Errors
+## Errors
 
 Convenience constructors return JSON-shaped errors with the standard
 status text or your message:
@@ -316,7 +213,7 @@ return c.Error(http.StatusConflict, "duplicate email")
 For richer error handling - typed exceptions, custom renderers, dev
 pages - see [Exceptions](/docs/core/exceptions).
 
-### Request inspection
+## Request inspection
 
 ```go
 method := c.Method()      // GET, POST, ...
@@ -327,7 +224,7 @@ if c.IsAjax() { /* X-Requested-With: XMLHttpRequest */ }
 if c.WantsJSON() { /* Accept == application/json, or X-Inertia set */ }
 ```
 
-### Per-request storage
+## Per-request storage
 
 Pass values from middleware to handlers using `Set`/`Get`:
 
@@ -352,7 +249,7 @@ r.Get("/me", func(c *router.Context) error {
 `GetString(key)` is a typed shortcut. For complex types, type-assert
 the result of `Get`.
 
-### Service accessors
+## Service accessors
 
 When the router is attached to a Velocity app (the usual case), the
 context exposes the service container:
@@ -382,102 +279,3 @@ when the corresponding service is not configured (e.g. a raw
 `router.New()` with no Velocity app wired in). To probe the container
 without panicking, use `c.ServicesIfSet()`, which returns `nil` when
 services have not been wired.
-
-## Named routes and URL generation
-
-```go
-r.Get("/posts/{id}", showPost).Name("posts.show")
-```
-
-After all routes are registered, generate URLs from the name:
-
-```go
-url, err := r.RouteURL("posts.show", map[string]string{"id": "42"})
-// url == "/posts/42"
-```
-
-`RouteURL` returns `*RouteNotFoundError` if the name is unknown or if
-called before the route table is committed. Velocity commits the table
-on first request; call `r.Freeze()` to commit eagerly (e.g. in tests, or
-to move the commit cost off the first request) before calling
-`RouteURL`.
-
-## Tracing
-
-The router does not magically populate `TraceID` / `RequestID` fields
-on the context. Use the `trace` package to read trace state from the
-request context:
-
-```go
-import "github.com/velocitykode/velocity/trace"
-
-r.Get("/api/log", func(c *router.Context) error {
-    traceID, spanID, parent := trace.GetTraceContext(c.Request.Context())
-
-    c.Log().Info("processing", "trace_id", traceID, "span_id", spanID, "parent", parent)
-    return c.NoContent()
-})
-```
-
-Velocity's middleware injects fresh trace IDs per request - see
-[Tracing](/docs/advanced/trace) for end-to-end propagation.
-
-## Embedding into net/http
-
-The router is an `http.Handler` directly:
-
-```go
-http.ListenAndServe(":4000", r)
-```
-
-To use it inside a larger mux, mount it under a path prefix:
-
-```go
-mux := http.NewServeMux()
-mux.Handle("/api/", http.StripPrefix("/api", r))
-http.ListenAndServe(":4000", mux)
-```
-
-## Testing routes
-
-Use `httptest`:
-
-```go
-func TestShowPost(t *testing.T) {
-    r := router.New()
-    r.Get("/posts/{id}", func(c *router.Context) error {
-        return c.JSON(http.StatusOK, map[string]string{"id": c.Param("id")})
-    })
-
-    req := httptest.NewRequest(http.MethodGet, "/posts/42", nil)
-    rec := httptest.NewRecorder()
-    r.ServeHTTP(rec, req)
-
-    if rec.Code != http.StatusOK {
-        t.Fatalf("status = %d, want 200", rec.Code)
-    }
-
-    if !strings.Contains(rec.Body.String(), `"id":"42"`) {
-        t.Fatalf("body = %q, want id=42", rec.Body.String())
-    }
-}
-```
-
-For full app-level tests that exercise middleware, providers, and
-services, use the `github.com/velocitykode/velocity/testing/http`
-package - `NewTestClient(t, r)` returns a `*TestClient` whose requests
-yield assertable `*TestResponse` values.
-
-## Adapting standard handlers
-
-Wrap a `router.HandlerFunc` to use it with stdlib mux:
-
-```go
-http.Handle("/health", router.Wrap(myHandler))
-```
-
-If the inner handler returns a `*HTTPError`, the wrapper responds with
-its code - echoing the message for 4xx, but a generic body for 5xx so
-server detail never leaks. Any other error becomes a generic 500. For
-richer error handling, attach the route to a router so the exception
-handler runs.
