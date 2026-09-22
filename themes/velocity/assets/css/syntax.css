@@ -155,10 +155,22 @@
 .highlight .gt { color: #ff7b72; }
 .highlight .gr { color: #ffa198; }
 
-/* Errors */
+/* "Errors" - chroma tags anything its guessed lexer cannot parse (tree
+   glyphs, slashes in path listings) as .err. Nothing in the docs is a real
+   error, so render these in the brand accent with no alarm background. */
 .highlight .err {
-  color: #f85149;
-  background: rgba(248, 81, 73, 0.1);
+  color: var(--term-accent);
+  background: none;
+}
+
+/* Fences with no language (directory trees, terminal output) still get a
+   guessed lexer. Their "operators" are path slashes and dots, not code, so
+   paint them in the brand accent instead of the operator red. */
+.code-plain .highlight .o,
+.code-plain .highlight .p,
+.code-plain .highlight .err {
+  color: var(--term-accent);
+  background: none;
 }
 
 /* Highlighted line */
@@ -235,7 +247,6 @@
 [data-theme="light"] .highlight .gu { color: #0550ae; font-weight: 600; }
 [data-theme="light"] .highlight .gt { color: #82071e; }
 [data-theme="light"] .highlight .gr { color: #82071e; }
-[data-theme="light"] .highlight .err { color: #82071e; background: rgba(130, 7, 30, 0.06); }
 [data-theme="light"] .highlight .hl { background: rgba(255, 223, 93, 0.4); }
 
 /* Generic copy button (mirror of .code-copy-btn for older highlight markup) */

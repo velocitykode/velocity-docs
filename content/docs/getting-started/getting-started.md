@@ -59,12 +59,15 @@ Building an API without a frontend? Use `velocity new myapi --api` to create an 
 myapp/
 ├── internal/
 │   ├── app/             # app.Bootstrap: middleware, modules, event listeners
+│   ├── commands/        # Custom vel commands
 │   ├── handlers/        # HTTP handlers
 │   ├── middleware/      # Custom middleware
 │   └── models/          # Database models
 ├── config/              # Configuration files
 ├── database/
-│   └── migrations/      # Database migrations
+│   ├── factories/       # Model factories for tests and seeding
+│   ├── migrations/      # Database migrations
+│   └── seeders/         # Database seeders
 ├── public/              # Static assets
 ├── resources/
 │   ├── js/              # JavaScript/React files
@@ -72,6 +75,7 @@ myapp/
 │   └── views/           # Root HTML template (Inertia)
 ├── routes/              # Route definitions
 ├── storage/
+│   ├── app/             # Local file storage
 │   └── logs/            # Application logs
 ├── .env                 # Environment variables
 ├── go.mod               # Go module file
