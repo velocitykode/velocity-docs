@@ -53,29 +53,29 @@ satisfies the `server.Tool` interface:
 package main
 
 import (
-	"context"
+    "context"
 
-	"github.com/velocitykode/velocity-mcp/schema"
-	"github.com/velocitykode/velocity-mcp/server"
+    "github.com/velocitykode/velocity-mcp/schema"
+    "github.com/velocitykode/velocity-mcp/server"
 )
 
 func WeatherTool() server.Tool {
-	return server.NewTool("current-weather", "Get the current weather for a city.").
-		WithSchema(func(s *schema.Object) {
-			s.String("city").Description("City name.").Required()
-			s.Enum("units", "metric", "imperial").
-				Description("Unit system.").
-				Default("metric")
-		}).
-		WithReadOnlyHint(true).
-		HandleFunc(func(ctx context.Context, req *server.Request) (*server.Response, error) {
-			city := req.String("city")
-			units := req.String("units")
-			if units == "" {
-				units = "metric"
-			}
-			return server.Text("It is sunny in " + city + " (" + units + ")."), nil
-		})
+    return server.NewTool("current-weather", "Get the current weather for a city.").
+        WithSchema(func(s *schema.Object) {
+            s.String("city").Description("City name.").Required()
+            s.Enum("units", "metric", "imperial").
+                Description("Unit system.").
+                Default("metric")
+        }).
+        WithReadOnlyHint(true).
+        HandleFunc(func(ctx context.Context, req *server.Request) (*server.Response, error) {
+            city := req.String("city")
+            units := req.String("units")
+            if units == "" {
+                units = "metric"
+            }
+            return server.Text("It is sunny in " + city + " (" + units + ")."), nil
+        })
 }
 ```
 
@@ -139,8 +139,8 @@ primitives and configure metadata through the `With*` options:
 
 ```go
 srv := server.New("weather-app", "1.0.0",
-	server.WithInstructions("Tools for querying live weather."),
-	server.WithTools(WeatherTool()),
+    server.WithInstructions("Tools for querying live weather."),
+    server.WithTools(WeatherTool()),
 )
 ```
 
@@ -161,21 +161,21 @@ until the context is cancelled or stdin reaches EOF:
 package main
 
 import (
-	"context"
-	"os"
+    "context"
+    "os"
 
-	"github.com/velocitykode/velocity-mcp/server"
-	"github.com/velocitykode/velocity-mcp/transport"
+    "github.com/velocitykode/velocity-mcp/server"
+    "github.com/velocitykode/velocity-mcp/transport"
 )
 
 func main() {
-	srv := server.New("weather-app", "1.0.0",
-		server.WithTools(WeatherTool()),
-	)
+    srv := server.New("weather-app", "1.0.0",
+        server.WithTools(WeatherTool()),
+    )
 
-	if err := transport.ServeStdio(context.Background(), srv); err != nil {
-		os.Exit(1)
-	}
+    if err := transport.ServeStdio(context.Background(), srv); err != nil {
+        os.Exit(1)
+    }
 }
 ```
 
@@ -234,29 +234,29 @@ event system:
 package main
 
 import (
-	"github.com/velocitykode/velocity"
+    "github.com/velocitykode/velocity"
 
-	"github.com/velocitykode/velocity-mcp/module"
-	"github.com/velocitykode/velocity-mcp/server"
+    "github.com/velocitykode/velocity-mcp/module"
+    "github.com/velocitykode/velocity-mcp/server"
 )
 
 func main() {
-	srv := server.New("weather-app", "1.0.0",
-		server.WithTools(WeatherTool()),
-	)
+    srv := server.New("weather-app", "1.0.0",
+        server.WithTools(WeatherTool()),
+    )
 
-	app, err := velocity.New()
-	if err != nil {
-		panic(err)
-	}
+    app, err := velocity.New()
+    if err != nil {
+        panic(err)
+    }
 
-	app.Modules(func(r *velocity.ModuleRegistry) {
-		r.Add(module.New(srv))
-	})
+    app.Modules(func(r *velocity.ModuleRegistry) {
+        r.Add(module.New(srv))
+    })
 
-	if err := app.Run(); err != nil {
-		panic(err)
-	}
+    if err := app.Run(); err != nil {
+        panic(err)
+    }
 }
 ```
 
