@@ -232,6 +232,17 @@ r.API("/api", func(api router.Router) {
 
 Each level inherits the parent's prefix and middleware.
 
+## Listing routes
+
+```bash
+vel routes
+```
+
+Prints every registered route with method, path, and name. Takes no
+arguments. It runs the bootstrap lifecycle first, so the output always
+reflects the current `v.Routes(...)` definition and every module's
+`Routes` method.
+
 ## Reference: `*velocity.Routing`
 
 The value `Register` receives. Use it to declare the top-level shape

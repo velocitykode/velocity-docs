@@ -55,6 +55,15 @@ func Show(ctx *router.Context) error {
 
 `ctx.Resource` calls `ToResource()` and writes it as a 200 JSON response.
 
+## Scaffolding a resource
+
+```bash
+vel gen resource Post [--dir PATH]
+```
+
+Writes `internal/resources/post.go` with a `PostResource` type and its
+`ToResource()` stub. `--dir` changes the output directory.
+
 ## Collections
 
 `NewCollection` transforms a typed slice into `[]map[string]any`:

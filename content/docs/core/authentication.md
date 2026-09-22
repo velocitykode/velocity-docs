@@ -452,6 +452,25 @@ r.Get("/dashboard", dashboardHandler.Index, auth.AuthMiddleware(manager))
 
 For role- or ability-based access checks, the package also exposes `auth.RequireRole`, `auth.RequireAnyRole`, `auth.RequireAllRoles`, and `auth.AuthorizeMiddleware`. All of them deny with 401 when the request is unauthenticated and 403 when the policy fails. They resolve through the manager's authorizer, `auth.Access`, reachable as `manager.Access()`; `manager.Allows(r, ability, args...)` and `manager.Authorize(r, ability, args...)` are the `contract.AuthManager` methods that wrap it for a request.
 
+### Scaffolding a policy
+
+```bash
+vel gen policy Post [--dir PATH]
+```
+
+Writes `internal/policies/post.go` with a `PostPolicy` implementing
+`auth.Policy`: an `Authorize(user, action, resource)` switch routing
+`view`, `create`, `update`, and `delete` to `View` / `Create` / `Update`
+/ `Delete` methods that you fill in. The file carries its registration
+hint for a module's `Start`:
+
+```go
+auth.FromServices(s).Access().RegisterPolicy("Post", PostPolicy{})
+```
+
+`vel gen policy PostPolicy` and `vel gen policy Post` produce the same
+file. `--dir` changes the output directory.
+
 ### Guest Middleware
 
 `auth.GuestMiddleware` blocks already-authenticated users from login/register pages. Pass a redirect path with `auth.GuestMiddlewareWithRedirect`.

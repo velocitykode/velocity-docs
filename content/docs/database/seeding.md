@@ -133,9 +133,18 @@ Model factories defined under `database/factories` (the `orm/testing` factories 
 ## Running Seeders
 
 ```bash
+vel db seed [--only <name>] [--force]
+vel migrate fresh --seed        # drop, migrate, then seed
+```
+
+| Flag      | Accepts           | Description                                        |
+| --------- | ----------------- | -------------------------------------------------- |
+| `--only`  | `=VALUE` or space | Run a single seeder by its `Name()`                |
+| `--force` | flag (`-f`)       | Proceed in a production-class environment          |
+
+```bash
 vel db seed                 # every registered seeder, in registration order
 vel db seed --only role     # one seeder
-vel migrate fresh --seed    # drop, migrate, then seed
 ```
 
 One line is printed per completed seeder, and the run stops at the first failure with the seeder named in the error:
@@ -148,9 +157,17 @@ One line is printed per completed seeder, and the run stops at the first failure
 velocity/console: seeding failed: seed: seeder user failed: UNIQUE constraint failed: users.email
 ```
 
-`--only` with a name that is not registered is an error that lists what is registered, including when nothing is registered at all, so a bootstrap script cannot continue believing it seeded something.
+`--only` with a name that is not registered is an error that lists what is registered, including when nothing is registered at all, so a bootstrap script cannot continue believing it seeded something. An empty registry without `--only` prints a hint and exits 0.
 
 Ctrl-C cancels the context the seeders received. The runner checks it between seeders, so an interrupted run finishes the seeder in flight and skips the rest.
+
+## Wiping the Database
+
+```bash
+vel db wipe [--force]
+```
+
+Drops every table in the current database without running migrations. `--force` / `-f` is the only argument it accepts. Outside production there is no confirmation prompt, so use it only when the database is disposable. To rebuild rather than empty, use `vel migrate fresh`.
 
 ## Production Guard
 

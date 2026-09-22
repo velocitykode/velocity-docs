@@ -165,6 +165,16 @@ The Mailgun endpoint must use `https`; an `http://` endpoint is rejected so cred
 You can also cap attachment sizes globally with `MAIL_MAX_ATTACHMENT_SIZE` (bytes). It defaults to 25 MiB (`mail.DefaultMaxAttachmentSize`).
 {{% /callout %}}
 
+## Scaffolding a mailable
+
+```bash
+vel gen mail OrderShipped [--dir PATH]
+```
+
+Writes `internal/mail/order_shipped.go` with an `OrderShipped` type
+carrying `Envelope` and `Content` stubs. `--dir` changes the output
+directory.
+
 ## Building Messages
 
 ### Fluent API

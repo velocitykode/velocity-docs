@@ -1,7 +1,8 @@
 ---
-title: velocity Commands
+title: Velocity Installer
 description: Reference for the global `velocity` installer - scaffold new projects, manage CLI defaults, and keep the installer up to date.
-weight: 3
+weight: 11
+aliases: ["/docs/cli/installer/"]
 keywords: [velocity new, velocity config, velocity self-update, installer]
 ---
 

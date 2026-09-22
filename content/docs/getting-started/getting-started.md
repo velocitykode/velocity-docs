@@ -47,7 +47,7 @@ velocity new myapp
 This creates a new project and automatically starts the development servers. Your application will be available at:
 
 {{< callout type="tip" >}}
-Building an API without a frontend? Use `velocity new myapi --api` to create an API-only project. See the [Installer Commands](/docs/cli/installer/) page for the full `velocity new` flag reference.
+Building an API without a frontend? Use `velocity new myapi --api` to create an API-only project. See the [Velocity Installer]({{< relref "installer" >}}) page for the full `velocity new` flag reference.
 {{< /callout >}}
 
 - **Go server**: http://localhost:4000
@@ -171,55 +171,76 @@ routes, and the full reference.
 
 ## Development Server
 
-Start the development server with hot reload:
+Start the development server with live reload:
+
+```bash
+vel serve [flags]
+```
+
+| Flag        | Short | Default       | Description                               |
+| ----------- | ----- | ------------- | ----------------------------------------- |
+| `--port`    | `-p`  | `4000`        | HTTP port (falls back to `APP_PORT`)      |
+| `--env`     | `-e`  | `development` | Environment name (sets `APP_ENV`)         |
+| `--no-watch`|       | off           | Disable file-watching / auto-rebuild      |
+| `--tags`    |       | (none)        | Build tags passed to `go build`           |
 
 ```bash
 vel serve
+vel serve --port 3000
+vel serve --env staging --no-watch
+vel serve --tags="integration"
 ```
 
-The development server includes:
-- **Hot Reload**: Automatically restarts when Go files change
-- **Error Pages**: Detailed error messages with stack traces
-- **Request Logging**: Logs all requests and responses
+On start:
 
-### Serve Options
+1. `.env` is loaded and `APP_PORT` / `APP_ENV` are read; flags override
+   both. With no environment resolved, `vel serve` defaults to
+   `development` and warns that `APP_ENV` was unset.
+2. When a `package.json` is present, the Vite dev server is started with
+   `npm run dev` (or `bun run dev` when `bun` is on `PATH` and a
+   `bun.lock` file exists).
+3. The Go app compiles to `.vel/tmp/server`, which is created
+   owner-only because the binary embeds build-time configuration.
+4. `.go` files are watched; a change debounces for 500ms, then rebuilds
+   and restarts the server. The rebuild also refreshes the project's
+   `./vel` binary, so one-shot commands in another terminal
+   (`vel routes`, `vel migrate`, `vel gen ...`) see current source.
 
-```bash
-# Custom port
-vel serve --port 8080
+See [Local Development]({{< relref "local-development" >}}) for what
+this feels like day to day.
 
-# Disable hot reload
-vel serve --no-watch
-
-# Specify environment
-vel serve --env production
-```
+{{< callout type="info" >}}
+`vel serve run` is the internal entry point the watcher uses to launch
+the compiled child process. It's dispatchable but not meant to be typed
+by hand, so it's omitted from `vel help`.
+{{< /callout >}}
 
 ## Building for Production
 
-Create an optimized production build:
+Compile a single production binary:
+
+```bash
+vel build [flags]
+```
+
+| Flag        | Short | Default          | Description                                          |
+| ----------- | ----- | ---------------- | ---------------------------------------------------- |
+| `--output`  | `-o`  | project dir name | Output path (`.exe` appended when `--os windows`)    |
+| `--os`      |       | (host)           | Target `GOOS`                                        |
+| `--arch`    |       | (host)           | Target `GOARCH`                                      |
+| `--tags`    |       | (none)           | Go build tags                                        |
 
 ```bash
 vel build
-```
-
-This produces a single binary with:
-- Stripped debug symbols for smaller size
-- Static linking for portability
-- Ready for deployment
-
-### Build Options
-
-```bash
-# Custom output path
 vel build --output ./bin/myapp
-
-# Cross-compile for Linux
 vel build --os linux --arch amd64
-
-# Build with Go build tags
-vel build --tags prod
 ```
+
+The build runs with `CGO_ENABLED=0` and stamps version metadata into
+`velocity.BuildInfo` via `-ldflags` (`Version`, `Commit`, `Date`).
+`Version` defaults to `devel` and `Commit` to the short SHA from
+`git rev-parse --short HEAD`, falling back to `devel` when git is
+unavailable.
 
 ## Configuration
 
@@ -265,10 +286,12 @@ if you want a dedicated encryption key separate from the app key.
 vel key generate
 ```
 
-This generates a fresh 32-byte key, base64-encodes it with a `base64:`
-prefix, and writes it to `APP_KEY` in `.env` (creating the file if it
-doesn't exist) - useful if you need to rotate the key or the installer
-didn't run `key generate` for you.
+Generates a fresh 32-byte encryption key and writes it to `.env` under
+`APP_KEY`, base64-encoded with a `base64:` prefix. If `.env` does not
+exist it is created; an existing `APP_KEY=` line is replaced in place,
+and a file without one gets the key prepended as its first line. The
+file is written owner-only (`0600`). Takes no arguments. Use it to
+rotate the key or when the installer did not run it for you.
 
 ## Next Steps
 

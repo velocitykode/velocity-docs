@@ -35,6 +35,16 @@ func Logging(next router.HandlerFunc) router.HandlerFunc {
 }
 ```
 
+## Scaffolding middleware
+
+```bash
+vel gen middleware RateLimit [--dir PATH]
+```
+
+Writes `internal/middleware/rate_limit.go` holding
+`func RateLimit(next router.HandlerFunc) router.HandlerFunc` with the
+signature above already in place. `--dir` changes the output directory.
+
 ## Stacks: global, web, API
 
 Applications typically split middleware into three scopes:

@@ -55,7 +55,7 @@ velocity (global)          vel (per-project)
 | `velocity config` | Manage CLI defaults |
 | `velocity self-update` | Update the installer |
 
-Full reference: [Installer Commands](installer/).
+Full reference: [Velocity Installer]({{< relref "/docs/getting-started/installer" >}}).
 
 ### Project Commands (vel)
 
@@ -63,17 +63,21 @@ Full reference: [Installer Commands](installer/).
 |---------|-------------|
 | `vel serve` | Dev server with live reload |
 | `vel build` | Production build |
-| `vel migrate` | Run database migrations |
-| `vel db seed` | Run the registered database seeders |
-| `vel routes` | List all registered routes |
+| `vel migrate` | Run database migrations (`fresh`, `rollback`, `status`) |
+| `vel db seed` / `vel db wipe` | Seed or wipe the database |
 | `vel queue work` | Process queued jobs |
-| `vel gen handler` | Generate a handler |
-| `vel key generate` | Generate encryption key |
+| `vel schedule work` | Run the scheduler |
+| `vel cache clear` | Flush the cache |
+| `vel routes` | List all registered routes |
+| `vel down` / `vel up` | Toggle maintenance mode |
+| `vel key generate` | Generate the encryption key |
+| `vel gen <artifact>` | Scaffold handlers, models, migrations, jobs, and more |
+| `vel run <command>` | Run a command your app registered |
 
 Command names are space-separated words (`migrate fresh`, `gen model`,
 `gen grpc service`), and a subcommand always beats its bare parent.
 
-Full reference: [vel Commands](commands/).
+Full index with links to each command's page: [vel Commands](commands/).
 
 ## Using vel
 

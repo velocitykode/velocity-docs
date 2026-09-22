@@ -532,13 +532,24 @@ Ordering: module `Events` methods run first, in registration order, then the
 so both are skipped and the app logs a warning rather than panicking on a nil
 dispatcher.
 
+### Scaffolding events and listeners
+
+```bash
+vel gen event OrderPlaced [--dir PATH]
+vel gen listener ChargeCard [--dir PATH]
+```
+
+`vel gen event OrderPlaced` writes `internal/events/order_placed.go` with
+a `OrderPlaced` type whose `Name()` returns `order.placed`.
+`vel gen listener ChargeCard` writes a starter file under
+`internal/listeners`; fill it out with the `Handle(ctx, event) error` plus
+`Async() bool` pair shown above so it satisfies `events.Listener`. `--dir`
+changes the output directory of either.
+
 `vel gen module Billing` scaffolds `internal/modules/billing.go` (package
 `modules`, type `BillingModule`) with the `Init` / `Start` / `Shutdown`
-skeleton; add the `Events` method yourself. `vel gen event OrderPlaced` writes
-`internal/events/order_placed.go` with the `Name()` method already implemented,
-and `vel gen listener ChargeCard` writes a starter file under
-`internal/listeners`; fill it out with the `Handle(ctx, event) error` plus
-`Async() bool` pair shown above so it satisfies `events.Listener`.
+skeleton; add the `Events` method yourself. See
+[Modules]({{< relref "modules#scaffolding-a-module" >}}).
 
 {{< callout type="info" title="Two interfaces named EventModule" >}}
 `velocity.EventModule` (`chain.EventModule`) is the bootstrap auto-wiring

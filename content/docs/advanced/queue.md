@@ -143,6 +143,16 @@ func (j *FetchJob) Failed(err error) {
 The handler goroutine is **not** forcibly terminated. If `HandleCtx` ignores `ctx` and blocks, the goroutine leaks until the process exits. Implementations MUST observe `ctx.Done()` (via ctx-aware I/O or an explicit `select`) and return promptly when the context cancels. The worker bounds its wait on a misbehaving handler (see [Shutdown semantics](#shutdown-semantics)) so `Stop()` cannot hang, but the leak counts as a bug in the handler.
 {{< /callout >}}
 
+### Scaffolding a job
+
+```bash
+vel gen job ProcessPayment [--dir PATH]
+```
+
+Writes `internal/jobs/process_payment.go` with a `ProcessPayment` type
+carrying `Handle`, `Failed`, and `MaxAttempts` stubs. `--dir` changes
+the output directory.
+
 ## Pushing Jobs
 
 ### Immediate dispatch
@@ -260,6 +270,31 @@ defer w.Stop()
 ```
 
 `Start` is idempotent: a second call while the worker is already running is a no-op. Pump goroutines exit when the parent context cancels or `Stop()` is invoked.
+
+### The worker CLI
+
+The per-project binary wraps the worker above:
+
+```bash
+vel queue work [--queue NAME] [--tries N] [--timeout S]
+```
+
+| Flag        | Short | Default      | Description                                |
+| ----------- | ----- | ------------ | ------------------------------------------ |
+| `--queue`   | `-q`  | `default`    | Queue to consume from                      |
+| `--tries`   |       | `3`          | Max attempts per job before marking failed |
+| `--timeout` |       | `30`         | Per-job timeout in seconds                 |
+
+`--tries` and `--timeout` require integer values; when omitted the
+worker's own defaults apply. The app bootstraps first, so every
+registered job type is known. Worker errors are routed through the
+application logger, and `SIGINT` / `SIGTERM` stops the worker
+gracefully.
+
+```bash
+vel queue work
+vel queue work --queue emails --tries 3 --timeout 60
+```
 
 ### Shutdown semantics
 

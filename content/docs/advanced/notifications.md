@@ -63,6 +63,16 @@ func (n *OrderShipped) ToDatabase(_ any) *notification.DatabaseMessage {
 }
 ```
 
+## Scaffolding a notification
+
+```bash
+vel gen notification InvoicePaid [--dir PATH]
+```
+
+Writes `internal/notifications/invoice_paid.go` with an `InvoicePaid`
+type carrying `Via` and `ToMail` stubs. `--dir` changes the output
+directory.
+
 ## Defining a notifiable
 
 A notifiable is anything that implements `Notifiable.NotificationRoute(channel string) string`. The channel driver calls this once per send to learn where to deliver. Each built-in channel interprets the returned string differently:

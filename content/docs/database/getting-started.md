@@ -178,6 +178,32 @@ type User struct {
 func (User) TableName() string { return "users" }
 ```
 
+### Scaffolding a model
+
+```bash
+vel gen model <name> [--uuid] [--soft-deletes] [--migration] [--dir PATH]
+```
+
+| Flag              | Short | Default | Description                          |
+| ----------------- | ----- | ------- | ------------------------------------ |
+| `--uuid`          |       | off     | Use UUID primary key                 |
+| `--soft-deletes`  |       | off     | Add deleted_at column and scope      |
+| `--migration`     | `-m`  | off     | Also scaffold the create migration   |
+| `--dir`           |       | `internal/models` | Output directory override  |
+
+Output: `internal/models/<name>.go`. The model embeds `orm.Model[T]`,
+`orm.UUIDModel[T]`, `orm.SoftDeleteModel[T]`, or
+`orm.SoftDeleteUUIDModel[T]` depending on the flags, declares
+`TableName()` (pluralised snake_case), and ships a commented-out
+`AssignableFields()` allowlist. Mass assignment is deny-by-default, so
+fill it in (or declare `ProtectedFields()`) before writing to the model
+from a map.
+
+With `--migration`, a `create_<table>` migration is generated with the
+same `--uuid` / `--soft-deletes` settings. That migration always lands
+in `database/migrations`; `--dir` applies to the model file only. See
+[Migrations]({{< relref "migrations" >}}).
+
 ### Custom shapes
 
 When the convenience compositions don't fit, embed traits directly. Anything missing simply doesn't exist on the row.

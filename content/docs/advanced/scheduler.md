@@ -680,9 +680,11 @@ scheduler in its own process:
 vel schedule work
 ```
 
-`vel schedule work` bootstraps the app (so every `v.Schedule` callback and
+Takes no arguments. `vel schedule work` bootstraps the app (so every `v.Schedule` callback and
 module `Schedule` method has run), then calls `Scheduler.Run(ctx)` and waits
-on SIGINT / SIGTERM before cancelling and draining.
+on SIGINT / SIGTERM before cancelling and draining. Run it under a
+process supervisor (systemd, a container restart policy) rather than by
+hand.
 
 Running the scheduler both in-process and via `vel schedule work` against
 the same app will fire each job twice. Pick one shape per deployment.

@@ -24,7 +24,7 @@ You cannot switch a project between full-stack and API after scaffolding;
 choose up front. `--stack` is ignored with `--api`. Database and cache
 drivers are independent of the kit: `--database postgres|mysql|sqlite` and
 `--cache redis|memory` apply to all three. See the
-[installer reference]({{< relref "/docs/cli/installer" >}}) for every flag.
+[installer reference]({{< relref "installer" >}}) for every flag.
 
 ## React
 

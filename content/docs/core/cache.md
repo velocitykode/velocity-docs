@@ -846,6 +846,15 @@ func getPopularPosts(ctx *router.Context) ([]Post, error) {
 }
 ```
 
+## Clearing from the CLI
+
+```bash
+vel cache clear
+```
+
+Flushes the configured default store. Takes no arguments. With no cache
+configured it warns and exits cleanly.
+
 ## Testing
 
 Use the memory driver for testing:

@@ -42,8 +42,7 @@ The first `gen grpc service` call also writes `api/proto/buf.yaml` and
 `internal/modules/grpc_module.go`. Subsequent calls inject at the
 `// vel:grpc:imports` and `// vel:grpc:services` markers in that module;
 `--no-module` skips the module scaffold and wiring entirely. See
-[CLI commands - vel gen grpc service](/docs/cli/commands/#vel-gen-grpc-service)
-for the full reference. The rest of this page documents the runtime API that
+[Generators](#generators) for the full reference. The rest of this page documents the runtime API that
 the generated files use.
 {{< /callout >}}
 
@@ -214,6 +213,126 @@ services to the underlying `*google.golang.org/grpc.Server`; `StartAsync`
 launches the listener in a background goroutine so the rest of the app boot
 continues. `Shutdown` runs in reverse registration order and drains in-flight
 RPCs with the supplied ctx deadline.
+
+## Generators
+
+Three generators produce the layout above in one call: proto, impl, module wiring, then `buf generate`.
+
+### vel gen grpc service
+
+```bash
+vel gen grpc service <Name> [flags]
+```
+
+Scaffolds a gRPC service end-to-end in one call:
+
+- `api/proto/<leaf>/v1/<name>.proto` - empty service block
+- `api/proto/buf.yaml` + `api/proto/buf.gen.yaml` (first run only)
+- `internal/grpc/services/<name>.go` - `<Name>Service` impl with a `New<Name>Service()` constructor and the `<alias>.Unimplemented<Name>ServiceServer` embed
+- `internal/modules/grpc_module.go` - created on first call (unless `--no-module`), then **injected at** `// vel:grpc:imports` and `// vel:grpc:services` markers on every subsequent call. The module wires the service via `velgrpc.NewServer(...)` and `Register<Name>ServiceServer(...)`.
+
+| Flag              | Default                     | Description                                                  |
+| ----------------- | --------------------------- | ------------------------------------------------------------ |
+| `--package`       | derived from `<Name>`       | Directory leaf under `api/proto/` and `api/gen/go/`          |
+| `--proto-package` | `<leaf>.v1`                 | Full wire package, e.g. `velship.admin.v1`                   |
+| `--dir`           | `internal/grpc/services`    | Go impl output directory                                     |
+| `--alias`         | `<leaf>pb`                  | Import alias for the generated proto package                 |
+| `--proto-name`    | lower-cased `<Name>` base   | Proto file base name (no extension)                          |
+| `--impl-name`     | snake_case `<Name>` base    | Go impl file base name (no extension)                        |
+| `--no-module`     | off                         | Skip module scaffolding / wiring (proto + impl only)         |
+
+Name normalisation: `vel gen grpc service Foo`, `FooService`, `foo`, and `fooService` all produce the Go type `FooService` with proto package `foo.v1` and default import alias `foopb`. The proto file uses `option go_package = "<module>/api/gen/go/<leaf>/v1;<leaf>v1"` derived from the host project's `go.mod` (so the generated package itself is named `<leaf>v1`, referenced through the `foopb` alias).
+
+`buf.yaml` / `buf.gen.yaml` are written **before** the proto file, so a config-write failure leaves no partial scaffold on disk. The generated `GRPCModule` does **not** hard-code `WithReflection(true)`; it reads `GRPC_PORT` (default `50051`) and otherwise takes the framework defaults, including reflection off unless `GRPC_REFLECTION=true`.
+
+Wiring guards:
+
+- If `internal/modules/grpc_module.go` already exists **without** the
+  marker comments (legacy hand-written module), the command prints a
+  manual wire snippet instead of mutating user code.
+- If the existing module imports a services package other than this
+  service's impl directory, the command stops **before** writing any
+  file and tells you to re-run with `--no-module` and wire it by hand.
+- When the module already imports the generated proto package under a
+  different alias, that alias is reused rather than emitting a duplicate
+  import.
+
+```bash
+vel gen grpc service Foo
+vel gen grpc service ChatService
+vel gen grpc service TemplateControl --package admin \
+  --proto-package velship.admin.v1 --dir internal/shared/grpc/services --no-module
+```
+
+After scaffolding, register `&modules.GRPCModule{}` in
+`internal/app/bootstrap.go` (printed as a hint on first run).
+
+### vel gen grpc rpc
+
+```bash
+vel gen grpc rpc <Service> <RPC> [--stream | --client-stream | --bidi]
+```
+
+Appends a new rpc to an existing service's `.proto` and a matching method stub on the Go impl. The service must already exist; run `vel gen grpc service <Name>` first.
+
+{{< callout type="warning" >}}
+Both paths are derived from the service name alone, matching what
+`vel gen grpc service` writes by default:
+`api/proto/<name>/v1/<name>.proto` (lower-cased, no underscores) and
+`internal/grpc/services/<name>.go` (snake_case). A service scaffolded
+with `--package`, `--dir`, `--proto-name`, or `--impl-name` is not found
+under those paths and has to be extended by hand; the error message
+prints the exact path that was expected.
+{{< /callout >}}
+
+| Flag              | Aliases             | RPC shape produced                                |
+| ----------------- | ------------------- | ------------------------------------------------- |
+| _(none)_          |                     | Unary: `rpc X(XRequest) returns (XResponse)`      |
+| `--stream`        | `--server-stream`   | Server-streaming: `returns (stream XResponse)`    |
+| `--client-stream` |                     | Client-streaming: `(stream XRequest) returns (X)` |
+| `--bidi`          | `--bidirectional`   | Bidi: `(stream XRequest) returns (stream X)`      |
+
+Only one streaming flag may be set per invocation; combining them errors out.
+
+The proto scanner walks the file with brace counting that respects `//` line comments, `/* block */` comments, and `"..."` string literals at every position (header keyword, between keyword and name, between name and `{`, and inside the body). That means rpc-with-options blocks (grpc-gateway HTTP annotations) and commented-out draft headers do not corrupt insertion.
+
+On the Go side, the generated method signature matches the RPC shape (for service `Foo`, impl type `FooService`, default proto alias `foopb`):
+
+| Shape         | Signature                                                                                       |
+| ------------- | ----------------------------------------------------------------------------------------------- |
+| Unary         | `func (s *FooService) X(ctx context.Context, req *foopb.XRequest) (*foopb.XResponse, error)`    |
+| Server stream | `func (s *FooService) X(req *foopb.XRequest, stream foopb.FooService_XServer) error`             |
+| Client stream | `func (s *FooService) X(stream foopb.FooService_XServer) error`                                  |
+| Bidi          | `func (s *FooService) X(stream foopb.FooService_XServer) error`                                  |
+
+`context` is added to the impl's imports for unary only; streaming variants pull ctx from `stream.Context()` and do not need the import.
+
+Idempotent: re-running with the same `<Service> <RPC>` pair detects the existing rpc and skips.
+
+```bash
+vel gen grpc rpc Foo Hello
+vel gen grpc rpc Foo Tail --stream
+vel gen grpc rpc Foo Upload --client-stream
+vel gen grpc rpc Foo Chat --bidi
+```
+
+### vel gen grpc gen
+
+```bash
+vel gen grpc gen
+```
+
+Runs `buf generate` inside `api/proto`. Streams buf's stdout and stderr to your terminal so plugin errors are visible in real time. Takes no arguments, and fails with a clear message when:
+
+- `api/proto/` does not exist (run `vel gen grpc service <Name>` first)
+- `buf` is not on `PATH` (links to install docs)
+- `buf generate` exits non-zero
+
+```bash
+vel gen grpc gen
+# cd api/proto && buf generate
+# Generated Go code in api/gen/go/
+```
 
 ## Server
 

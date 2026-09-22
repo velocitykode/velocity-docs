@@ -97,8 +97,8 @@ conventional directory, ready to compile on the next save:
 ./vel gen policy PostPolicy
 ```
 
-See the [CLI reference]({{< relref "/docs/cli/commands" >}}) for the full
-generator list and flags.
+Each generator is documented on its feature's page; the
+[vel Commands]({{< relref "/docs/cli/commands" >}}) index links them all.
 
 ## Give your AI agent the same view
 

@@ -52,6 +52,31 @@ func (c *UserHandler) Show(ctx *router.Context) error {
 }
 ```
 
+## Scaffolding a handler
+
+```bash
+vel gen handler <name> [--resource] [--api] [--dir PATH]
+```
+
+| Flag         | Short | Default | Description                                      |
+| ------------ | ----- | ------- | ------------------------------------------------ |
+| `--resource` | `-r`  | off     | Scaffold CRUD handlers (Index/Create/Store/Show/Edit/Update/Destroy) |
+| `--api`      |       | off     | JSON responses instead of string/view responses  |
+| `--dir`      |       | `internal/handlers` | Output root override                 |
+
+Output: `internal/handlers/<name>.go`, holding
+`func <Name>Index(ctx *router.Context) error`-style functions.
+Namespaced names like `Admin/Dashboard` nest under the output root, with
+the package taken from the parent segment.
+
+```bash
+vel gen handler User
+vel gen handler Post --resource
+vel gen handler Admin/Dashboard
+vel gen handler Product --api --resource
+vel gen handler User --dir internal/web/handlers
+```
+
 ## Handler Structure
 
 ### Basic Handler

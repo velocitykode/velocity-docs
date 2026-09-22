@@ -8,10 +8,67 @@ Migrations provide version control for your database schema. Velocity migrations
 
 ## Creating Migrations
 
-Register a migration in an `init()` function. The `Version` must be a 14-digit `YYYYMMDDHHmmss` timestamp, which determines ordering.
+Scaffold a migration with the `vel` CLI. It writes a timestamped Go file into
+`database/migrations`, the package the starter kits already blank-import
+from `main.go`, so the new migration is compiled into the binary on the next
+build with no list to edit.
+
+```bash
+./vel gen migration create_posts --create posts
+```
+
+This produces `database/migrations/20260922143000_create_posts.go`:
 
 ```go
-// migrations/20240101000001_create_users_table.go
+package migrations
+
+import "github.com/velocitykode/velocity/orm/migrate"
+
+func init() {
+    migrate.Register(&migrate.Migration{
+        Version:     "20260922143000",
+        Description: "Create posts",
+        Up: func(m *migrate.Migrator) error {
+            return m.CreateTable("posts", func(t *migrate.TableBuilder) {
+                t.ID()
+                t.Timestamps()
+            })
+        },
+        Down: func(m *migrate.Migrator) error {
+            return m.DropTable("posts")
+        },
+    })
+}
+```
+
+Fill in the columns and you are done. The flags shape the boilerplate:
+
+| Flag | Effect |
+| --- | --- |
+| `--create TABLE` | `Up` creates the table, `Down` drops it |
+| `--table TABLE` | `Up` opens the table for altering, `Down` is left for you to reverse |
+| `--uuid` | Use `t.UUIDPrimary()` instead of `t.ID()` (with `--create`) |
+| `--soft-deletes` | Add `t.SoftDeletes()` (with `--create`) |
+| `--dir PATH` | Write somewhere other than `database/migrations` |
+
+Table names given to `--create` / `--table` must match
+`[A-Za-z_][A-Za-z0-9_]*`. With neither flag you get empty `Up` and `Down`
+bodies.
+`vel gen model Post --migration` scaffolds the model and its create
+migration in one step.
+
+The `Version` is the generation time as a 14-digit `YYYYMMDDHHmmss`
+timestamp and determines run order. If two migrations are scaffolded in the
+same second the generator bumps the second one forward so versions never
+collide.
+
+### Writing one by hand
+
+A migration is a plain registered value, so you can also write the file
+yourself. It only needs to be in a package that your binary imports:
+
+```go
+// database/migrations/20240101000001_create_users_table.go
 package migrations
 
 import "github.com/velocitykode/velocity/orm/migrate"
@@ -40,18 +97,73 @@ func init() {
 ```
 
 {{% callout type="info" %}}
-`Register` validates the migration and panics if the `Version` is missing, malformed, `Up` is nil, or the version is a duplicate. Each version may be registered only once.
+`Register` validates the migration and panics at startup if the `Version` is missing, malformed, `Up` is nil, or the version is a duplicate. Each version may be registered only once.
 {{% /callout %}}
 
 ## Running Migrations
 
-Build a `Migrator` from the ORM `Manager`'s `*sql.DB` and driver name, then drive it. Import your migrations package (for its `init()` side effects) so they are registered.
+The `vel` binary is the migration runner. Every command boots the app first,
+so it uses the same `DB_CONNECTION` and credentials from `.env` as the
+server does.
+
+```bash
+./vel migrate
+```
+
+Runs every migration that has not been applied yet, oldest version first,
+and records them together as one batch. Already-applied migrations are
+skipped, so running it again prints `Nothing to migrate`. Migrations run
+under a database-level advisory lock, so two processes migrating at the same
+time cannot double-apply one.
+
+```bash
+./vel migrate --pretend
+```
+
+Prints the SQL each pending migration would execute, grouped by migration,
+without touching the database. Use it to review a migration before it runs.
+
+```bash
+./vel migrate status
+```
+
+Lists every registered migration with its status, `Ran` or `Pending`, and
+the batch number it ran in.
+
+```bash
+./vel migrate rollback
+./vel migrate rollback --step 2
+```
+
+Runs `Down` for every migration in the most recent batch, newest first.
+`--step N` rolls back the last `N` batches instead of one.
+
+```bash
+./vel migrate fresh
+./vel migrate fresh --seed
+```
+
+Drops every table in the database, then runs all migrations from scratch.
+`--seed` runs your registered seeders afterwards, which is the usual reset
+during development. See [Seeding]({{< relref "seeding" >}}).
+
+{{% callout type="warning" %}}
+`migrate rollback` and `migrate fresh` destroy data. When `APP_ENV` is
+`production`, `staging`, or any value Velocity does not recognise, both
+refuse to run unless you pass `--force`.
+{{% /callout %}}
+
+### Standalone use
+
+Outside a Velocity app, drive a `Migrator` yourself. Build it from the ORM
+`Manager`'s `*sql.DB` and driver name, and import your migrations package
+for its `init()` side effects so they are registered.
 
 ```go
 import (
     "github.com/velocitykode/velocity/orm"
     "github.com/velocitykode/velocity/orm/migrate"
-    _ "myapp/migrations" // import to register migrations
+    _ "myapp/database/migrations" // import to register migrations
 )
 
 manager, err := orm.NewManager(orm.ManagerConfig{
@@ -74,9 +186,8 @@ err = migrator.Down(1)
 err = migrator.Fresh()
 ```
 
-`Up`, `Down`, and `Fresh` run under a database-level advisory lock, so concurrent migrator processes cannot double-apply a migration. Applied migrations are grouped into batches; `Down(n)` rolls back the last `n` batches.
-
-### Migration Status
+`Up`, `Down`, and `Fresh` take the same advisory lock the CLI does. To
+inspect state:
 
 ```go
 statuses, err := migrator.Status()
