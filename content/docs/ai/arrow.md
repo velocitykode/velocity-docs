@@ -1,7 +1,8 @@
 ---
-title: Velocity Arrow
+title: Arrow
 description: A first-party MCP server that gives AI coding agents live, grounded context about your Velocity application - routes, config, database schema, queries, recent logs, and documentation search.
 weight: 20
+aliases: ["/docs/ecosystem/velocity-arrow/"]
 ---
 
 [Velocity Arrow](https://github.com/velocitykode/velocity-arrow) is a first-party, ready-to-run [MCP](https://modelcontextprotocol.io) server for

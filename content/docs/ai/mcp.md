@@ -1,7 +1,8 @@
 ---
-title: Velocity MCP
+title: MCP
 description: A first-party, native Go SDK for building Model Context Protocol (MCP) servers on Velocity - tools, resources, and prompts served over stdio or HTTP.
 weight: 10
+aliases: ["/docs/ecosystem/velocity-mcp/"]
 ---
 
 [Velocity MCP](https://github.com/velocitykode/velocity-mcp) is a first-party SDK
