@@ -1261,16 +1261,26 @@ hr {
 /* ─────────────────────────────────────────────────────────────────────────────
    TABS (shortcode)
    ───────────────────────────────────────────────────────────────────────────── */
-.tabs { margin: var(--space-lg) 0; }
+/* One framed unit: the strip is the header of the panel, not a separate
+   bar floating above it. The container owns the border and the deep
+   background; code blocks inside drop their own frame. */
+.tabs {
+  margin: var(--space-lg) 0;
+  background: var(--term-deep);
+  border: 1px solid var(--term-border);
+  overflow: hidden;
+}
 
 /* Tab strip - horizontal scroll on overflow so long lists don't wrap or
    break the layout on narrow viewports. */
+.docs-content .tabs-list,
 .tabs-list {
   display: flex;
   gap: 0;
-  margin: 0 0 0 calc(var(--space-md) * -1);
-  padding: 0 var(--space-md);
+  margin: 0;
+  padding: 0 var(--space-xs);
   list-style: none;
+  background: var(--term-panel);
   border-bottom: 1px dashed var(--term-border);
   overflow-x: auto;
   scrollbar-width: none;
@@ -1280,8 +1290,8 @@ hr {
 
 /* Suppress the global `.docs-content ul li::before { content: '·' }` and
    item margin so the tab strip reads as a clean toolbar, not a bullet list. */
-.tabs-list li { margin: 0; padding: 0; }
-.tabs-list li::before { content: none; }
+.docs-content .tabs-list li { margin: 0; padding: 0; }
+.docs-content .tabs-list li::before { content: none; }
 
 .tab-trigger {
   display: inline-block;
@@ -1310,20 +1320,26 @@ hr {
 }
 .tab-trigger.active {
   color: var(--term-accent);
+  background: var(--term-elevated);
   border-bottom-color: var(--term-accent);
 }
 
 /* Panel sits close to the strip - kill the first child's top margin
    (browser default on <pre>, .code-block-simple, etc.) so the underline
    reads as the boundary rather than fighting a chunk of empty space. */
-.tab-panel { display: none; padding-top: var(--space-sm); }
+.tab-panel { display: none; }
 .tab-panel.active { display: block; }
 .tab-panel > :first-child { margin-top: 0; }
 .tab-panel > :last-child { margin-bottom: 0; }
-/* The wrapper provides its own frame; the inner chroma <pre> doesn't need
-   browser-default vertical margins fighting it. */
+/* Code inside a tab shares the container frame: no second border, no gap. */
+.tab-panel .code-block-simple,
+.tab-panel .highlight { margin: 0; border: none; }
 .code-block-simple > .highlight > pre,
 .code-block-simple > pre { margin: 0; }
+/* Prose inside a tab gets the same inset the code gets from its <pre>. */
+.tab-panel > p,
+.tab-panel > ul,
+.tab-panel > ol { padding: var(--space-md) var(--space-lg); margin: 0; }
 
 /* Phones - slightly larger tap targets, tighter gutter. */
 @media (max-width: 640px) {
@@ -1331,9 +1347,9 @@ hr {
     padding: 0.75rem var(--space-sm);
     font-size: 0.8125rem;
   }
+  .docs-content .tabs-list,
   .tabs-list {
-    margin-left: calc(var(--space-sm) * -1);
-    padding: 0 var(--space-sm);
+    padding: 0 var(--space-xs);
   }
 }
 

@@ -18,14 +18,13 @@ weight: 10
 
 {{< tab name="Homebrew" >}}
 ```bash
-brew tap velocitykode/tap
-brew install velocity
+brew install --cask velocitykode/tap/velocity
 ```
 {{< /tab >}}
 
 {{< tab name="Go" >}}
 ```bash
-go install github.com/velocitykode/velocity-cli@latest
+go install github.com/velocitykode/velocity-installer@latest
 ```
 {{< /tab >}}
 

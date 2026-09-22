@@ -20,8 +20,7 @@ Full-stack projects install JavaScript dependencies with [bun](https://bun.sh) w
 The recommended way to install Velocity on macOS is through the Homebrew cask:
 
 ```bash
-brew tap velocitykode/tap
-brew install velocity
+brew install --cask velocitykode/tap/velocity
 ```
 
 ## Verify Installation
