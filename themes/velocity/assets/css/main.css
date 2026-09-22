@@ -257,6 +257,7 @@ code, pre, kbd, samp {
 /* Inline code */
 :not(pre) > code {
   font-size: 0.875em;
+  font-weight: 600;
   color: var(--term-accent);
 }
 

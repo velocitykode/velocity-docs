@@ -16,8 +16,6 @@ dependency graph. Define primitives with familiar Velocity conventions, then
 serve them over stdio (for local clients) or HTTP (mounted on your application
 router).
 
-Module path: `github.com/velocitykode/velocity-mcp`
-
 {{% callout type="info" %}}
 Velocity MCP is a separate module from core Velocity, so you opt in by adding a
 single dependency. It is pre-1.0; the public API may change before a stable
