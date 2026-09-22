@@ -28,28 +28,34 @@ No REST API, no GraphQL, no separate frontend routing. Just handlers and compone
 ## Project Structure
 
 ```
-your-app/
-├── app/
-│   └── handlers/       # Go handlers
+myapp/
+├── internal/
+│   └── handlers/          # Go handlers
 ├── resources/
 │   ├── js/
 │   │   ├── app.tsx        # React entry point
 │   │   ├── pages/         # Page components (mapped to routes)
-│   │   ├── components/    # Reusable UI components
+│   │   ├── components/    # Reusable UI components (shadcn/ui under ui/)
 │   │   ├── layouts/       # Layout wrappers
-│   │   └── hooks/         # Custom React hooks
+│   │   ├── hooks/         # Custom React hooks
+│   │   ├── lib/           # Helpers (cn, utils)
+│   │   └── types/         # Shared TypeScript types
 │   ├── css/
-│   │   └── app.css        # Tailwind CSS
+│   │   └── app.css        # Tailwind CSS entry
 │   └── views/
-│       └── app.html       # HTML template
+│       └── app.go.html    # Root HTML template
 ├── public/
 │   └── build/             # Compiled assets (generated)
 ├── vite.config.ts         # Vite configuration
 ├── tsconfig.json          # TypeScript configuration
-└── package.json           # npm dependencies
+└── package.json           # JS dependencies
 ```
 
 ## Install Dependencies
+
+The installer runs this for you when it scaffolds the project (with `bun`
+when available, otherwise `npm`). Run it again after pulling a dependency
+change:
 
 ```bash
 npm install
@@ -60,50 +66,47 @@ Key packages included:
 | Package | Purpose |
 |---------|---------|
 | `@inertiajs/react` | Inertia.js React adapter |
+| `@inertiajs/vite` | Inertia Vite plugin: resolves page components from `resources/js/pages` |
+| [`@velocitykode/velocity-vite-plugin`](https://www.npmjs.com/package/@velocitykode/velocity-vite-plugin) | Velocity Vite plugin: hot file, build output, manifest, `@` alias |
 | `react` / `react-dom` | React 19 |
+| `@vitejs/plugin-react` | React Fast Refresh |
+| `vite` / `vite-plus` | Build tool; `vp` wraps Vite with lint, format, and check |
+| `tailwindcss` / `@tailwindcss/vite` | Tailwind CSS 4 |
+| `@radix-ui/*`, `@headlessui/react`, `lucide-react` | Primitives and icons behind the shadcn/ui components |
 | `typescript` | Type checking |
-| `vite` | Build tool |
-| `tailwindcss` | Utility-first CSS |
 
 ## Vite Configuration
 
 ```typescript
 // vite.config.ts
+import inertia from '@inertiajs/vite';
 import tailwindcss from '@tailwindcss/vite';
-import path from 'path';
-import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import { defineConfig, lazyPlugins } from 'vite-plus';
+import velocity from '@velocitykode/velocity-vite-plugin';
 
 export default defineConfig({
-    plugins: [tailwindcss()],
-    resolve: {
-        alias: {
-            '@': path.resolve(__dirname, './resources/js'),
-        },
-    },
-    build: {
-        outDir: 'public/build',
-        manifest: true,
-        rollupOptions: {
-            input: 'resources/js/app.tsx',
-        },
-    },
+    plugins: lazyPlugins(() => [
+        velocity('resources/js/app.tsx'),
+        inertia(),
+        react(),
+        tailwindcss(),
+    ]),
     server: {
         port: 5173,
         strictPort: true,
         host: 'localhost',
-    },
-    esbuild: {
-        jsx: 'automatic',
     },
 });
 ```
 
 Configuration breakdown:
 
-- **`@` alias** - Import from `@/components/Button` instead of `../../components/Button`
-- **`public/build`** - Compiled assets go here, served by Go
-- **`manifest: true`** - Generates manifest.json for production asset versioning
-- **Port 5173** - Vite dev server runs separately from Go server
+- **`velocity(entry)`** - the [Velocity Vite plugin](https://www.npmjs.com/package/@velocitykode/velocity-vite-plugin) owns the Vite side of the asset wiring. It sets `base: '/build/'`, `build.outDir: public/build`, the build manifest, and the entry input; registers the `@` alias to `resources/js`; writes `public/hot` with the dev-server origin while Vite runs and removes it on exit or production build. One call replaces all of that manual config.
+- **`inertia()`** - resolves `"Posts/Index"` to `resources/js/pages/Posts/Index.tsx`, so `app.tsx` needs no `resolve` callback. Pass `{ ssr: 'resources/js/ssr.tsx' }` to add an SSR build.
+- **`react()`** - React Fast Refresh in development.
+- **`lazyPlugins`** - from `vite-plus`, defers plugin loading so `vp check` and `vp fmt` start fast. The kit's `package.json` scripts use `vp` for `dev`, `build`, `check`, `lint`, and `fmt`.
+- **Port 5173** - Vite dev server, separate from the Go server on 4000. The kit also carries `fmt` and `check` blocks for `vite-plus`; they do not affect the build.
 
 ## TypeScript Configuration
 
@@ -131,57 +134,65 @@ Configuration breakdown:
 ```typescript
 // resources/js/app.tsx
 import '../css/app.css';
-import { createInertiaApp, router } from '@inertiajs/react';
-import { createRoot } from 'react-dom/client';
 
-// CSRF token handling
+import { createInertiaApp, http, router } from '@inertiajs/react';
+import { initializeTheme } from './hooks/use-appearance';
+
 let csrfToken: string | null = null;
 
+// Attach the CSRF token to every Inertia request.
+http.onRequest((config) => {
+    if (!csrfToken) {
+        csrfToken = readInitialCsrfToken();
+    }
+    if (csrfToken) {
+        config.headers = { ...config.headers, 'X-CSRF-Token': csrfToken };
+    }
+    return config;
+});
+
+// Pick up the rotated token the server ships with each page.
 router.on('navigate', (event) => {
     const pageProps = event.detail.page.props as { csrf_token?: string };
     if (pageProps.csrf_token) {
         csrfToken = pageProps.csrf_token;
+        document.querySelector('meta[name="csrf-token"]')?.setAttribute('content', csrfToken);
     }
 });
 
-createInertiaApp({
-    resolve: async (name) => {
-        const pages = import.meta.glob('./pages/**/*.tsx', { eager: true });
-        const page = pages[`./pages/${name}.tsx`];
-        return page.default;
-    },
-    setup({ el, App, props }) {
-        const root = createRoot(el);
-        root.render(<App {...props} />);
-    },
+void createInertiaApp({
     progress: {
         color: '#4B5563',
     },
 });
+
+initializeTheme();
 ```
 
 Key parts:
 
-- **`import.meta.glob`** - Vite's way to dynamically import all page components
-- **Page resolution** - `"Posts/Index"` maps to `./pages/Posts/Index.tsx`
-- **CSRF handling** - Token is passed from Go and updated on navigation
-- **Progress bar** - Shows loading indicator during page transitions
+- **No `resolve` or `setup`** - Inertia 3 with its Vite plugin supplies page resolution and the React mount, so the entry stays small. `"Posts/Index"` maps to `resources/js/pages/Posts/Index.tsx`.
+- **CSRF handling** - the token is read from the initial page payload, sent as `X-CSRF-Token` on every request, and refreshed from the `csrf_token` prop on each navigation.
+- **Progress bar** - loading indicator during page transitions.
+- **Theme** - `initializeTheme` applies the stored light/dark/system preference (the root template also sets it before first paint to avoid a flash).
 
 ## Development Workflow
 
 ### Start Development Servers
 
-Run both servers in separate terminals:
+One command runs both:
 
 ```bash
-# Terminal 1: Go server
-go run main.go
-
-# Terminal 2: Vite dev server
-npm run dev
+./vel serve
 ```
 
-Or use a process manager like `overmind` or `foreman`.
+It starts the Go server on port 4000 and the Vite dev server on 5173,
+rebuilds and restarts Go on every `.go` change, and stops both on `Ctrl-C`.
+See [Local Development]({{< relref "/docs/getting-started/local-development" >}})
+for what happens in the background.
+
+To run them separately, `./vel serve --no-watch` for Go in one terminal and
+`npm run dev` in another.
 
 ### Development vs Production
 
@@ -212,7 +223,7 @@ the build manifest and emits the hashed `<link>`/`<script>` tags. The
 nothing in production.
 
 ```html
-<!-- resources/views/app.html -->
+<!-- resources/views/app.go.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>

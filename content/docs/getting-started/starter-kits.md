@@ -40,7 +40,7 @@ velocity new myapp --stack react
 What ships:
 
 - **UI**: shadcn/ui components on Radix primitives, Headless UI, lucide-react icons, Tailwind CSS 4.
-- **Build**: Vite 7 with the Velocity Vite plugin; `./vel serve` runs Go and Vite together with live reload.
+- **Build**: Vite 7 with the [Velocity Vite plugin](https://www.npmjs.com/package/@velocitykode/velocity-vite-plugin); `./vel serve` runs Go and Vite together with live reload.
 - **Pages**: `Home`, `Dashboard`, and `Auth/Login`, `Auth/Register` under `resources/js/pages`, plus an auth layout.
 - **Routes**: `/`, `/login`, `/register`, `/logout`, `/dashboard` (guarded), and `/health`.
 - **Auth**: session scheme (`AUTH_SCHEME=web`), CSRF enabled, flash-based validation errors on the forms.
@@ -61,7 +61,7 @@ velocity new myapp --stack vue
 What ships:
 
 - **UI**: lucide-vue-next icons, Tailwind CSS 4.
-- **Build**: Vite 7 with the Velocity Vite plugin, plus an SSR build target (`public/build/ssr/ssr.js`) ready for the Inertia SSR runtime.
+- **Build**: Vite 7 with the [Velocity Vite plugin](https://www.npmjs.com/package/@velocitykode/velocity-vite-plugin), plus an SSR build target (`public/build/ssr/ssr.js`) ready for the Inertia SSR runtime.
 - **Pages**: `Home`, `Dashboard`, and `Auth/Login`, `Auth/Register` under `resources/js/pages`, plus an auth layout.
 - **Routes and auth**: identical to the React kit: session scheme, CSRF on, the same five routes and health check.
 

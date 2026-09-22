@@ -53,7 +53,7 @@ For the React and Vue kits, Vite serves your assets during development with
 hot module replacement. Editing a page, component, or stylesheet updates the
 browser in place without a full reload and without touching the Go process.
 
-The wiring is automatic. The Velocity Vite plugin writes a `public/hot`
+The wiring is automatic. The [Velocity Vite plugin](https://www.npmjs.com/package/@velocitykode/velocity-vite-plugin) writes a `public/hot`
 marker holding the dev-server origin while Vite runs, and the `vite` template
 helper in `resources/views/app.html` reads it: with the marker present it
 emits the `@vite/client` script and the dev entry; without it, in production,
