@@ -14,7 +14,7 @@ from `main.go`, so the new migration is compiled into the binary on the next
 build with no list to edit.
 
 ```bash
-./vel gen migration create_posts --create posts
+vel gen migration create_posts --create posts
 ```
 
 This produces `database/migrations/20260922143000_create_posts.go`:
@@ -107,7 +107,7 @@ so it uses the same `DB_CONNECTION` and credentials from `.env` as the
 server does.
 
 ```bash
-./vel migrate
+vel migrate
 ```
 
 Runs every migration that has not been applied yet, oldest version first,
@@ -117,30 +117,30 @@ under a database-level advisory lock, so two processes migrating at the same
 time cannot double-apply one.
 
 ```bash
-./vel migrate --pretend
+vel migrate --pretend
 ```
 
 Prints the SQL each pending migration would execute, grouped by migration,
 without touching the database. Use it to review a migration before it runs.
 
 ```bash
-./vel migrate status
+vel migrate status
 ```
 
 Lists every registered migration with its status, `Ran` or `Pending`, and
 the batch number it ran in.
 
 ```bash
-./vel migrate rollback
-./vel migrate rollback --step 2
+vel migrate rollback
+vel migrate rollback --step 2
 ```
 
 Runs `Down` for every migration in the most recent batch, newest first.
 `--step N` rolls back the last `N` batches instead of one.
 
 ```bash
-./vel migrate fresh
-./vel migrate fresh --seed
+vel migrate fresh
+vel migrate fresh --seed
 ```
 
 Drops every table in the database, then runs all migrations from scratch.

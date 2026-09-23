@@ -4,13 +4,13 @@ description: What Velocity does for you during local development - one command r
 weight: 40
 ---
 
-Local development is one command. `./vel serve` starts everything, watches
+Local development is one command. `vel serve` starts everything, watches
 your source, and keeps the running app current while you work. This page
 describes exactly what happens in the background so you know what you never
 have to do by hand.
 
 ```bash
-./vel serve
+vel serve
 ```
 
 ## One command runs the whole app
@@ -38,14 +38,14 @@ The watcher tracks every `.go` file under the project, skipping `vendor`,
   new binary starts on the same port.
 - The project's `./vel` binary is rebuilt too. Go's build cache makes this
   near-instant since the same source was just compiled. One-shot commands in
-  another terminal, such as `./vel routes`, `./vel migrate`, or
-  `./vel gen ...`, always see your current code.
+  another terminal, such as `vel routes`, `vel migrate`, or
+  `vel gen ...`, always see your current code.
 
 If the build fails, the compiler output is printed and the watcher waits for
 your next save; there is no stale server left running on old code.
 
 `.env` is read when the server process starts. It is not watched, so after
-editing it restart `./vel serve` or save any Go file to trigger a restart.
+editing it restart `vel serve` or save any Go file to trigger a restart.
 
 ## Frontend changes hot-reload
 
@@ -68,7 +68,7 @@ starter kits blank-import that package from `main.go`, so the package is
 always linked in.
 
 ```bash
-./vel gen migration create_posts_table --create posts
+vel gen migration create_posts_table --create posts
 ```
 
 That is the whole workflow. The generator writes the file, `vel serve`
@@ -76,7 +76,7 @@ notices the new `.go` file and rebuilds, and the refreshed `./vel` binary
 already knows the migration:
 
 ```bash
-./vel migrate
+vel migrate
 ```
 
 There is no manifest to edit, no list to append to, and nothing to cache or
@@ -90,11 +90,11 @@ Every other piece of an app scaffolds the same way and lands in the
 conventional directory, ready to compile on the next save:
 
 ```bash
-./vel gen handler PostHandler
-./vel gen model Post
-./vel gen middleware RateLimit
-./vel gen job SendDigest
-./vel gen policy PostPolicy
+vel gen handler PostHandler
+vel gen model Post
+vel gen middleware RateLimit
+vel gen job SendDigest
+vel gen policy PostPolicy
 ```
 
 Each generator is documented on its feature's page; the

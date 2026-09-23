@@ -1,15 +1,15 @@
 ---
 title: Velocity Installer
-description: Reference for the global `velocity` installer - scaffold new projects, manage CLI defaults, and keep the installer up to date.
+description: Reference for the global `velocity` installer and `vel` launcher - scaffold new projects, manage CLI defaults, and run project commands.
 weight: 20
 aliases: ["/docs/cli/installer/", "/docs/cli/installation/"]
-keywords: [velocity new, velocity config, velocity self-update, installer]
+keywords: [velocity new, velocity config, vel, installer]
 ---
 
 `velocity` is the global installer CLI. You install it once and use it
-to create new projects, configure defaults, and update itself.
-Per-project commands (`serve`, `build`, `migrate`, `gen *`) live on the
-`vel` binary inside each project; see
+to create new projects and configure defaults. It ships with `vel`, the
+launcher that runs per-project commands (`serve`, `build`, `migrate`,
+`gen *`) from anywhere inside a project; see
 [vel Commands]({{< relref "commands" >}}).
 
 ## Installing
@@ -31,12 +31,14 @@ brew install --cask velocitykode/tap/velocity
 {{< tab name="Go" >}}
 ```bash
 go install github.com/velocitykode/velocity-installer@latest
+go install github.com/velocitykode/velocity-installer/cmd/vel@latest
 ```
 {{< /tab >}}
 
 {{< /tabs >}}
 
-Verify with `velocity --version` (output described [below](#velocity---version)).
+Homebrew installs both `velocity` and `vel`; with Go, the second line
+installs `vel`. Verify with `velocity --version` (output described [below](#velocity---version)).
 
 ## velocity new
 
@@ -93,11 +95,11 @@ prompts entirely - useful for scripts and CI.
    projects - and builds the project's `vel` binary concurrently.
 8. Checks the database is reachable, then runs the initial migrations. If
    the database isn't ready, scaffolding still completes and the installer
-   prints the remaining steps (`./vel migrate`, `./vel serve`) instead of
+   prints the remaining steps (`vel migrate`, `vel serve`) instead of
    failing.
 
 When it finishes, the installer prints the next steps rather than starting
-a server. `cd` into the project and run `./vel serve` (Go on `:4000`, Vite
+a server. `cd` into the project and run `vel serve` (Go on `:4000`, Vite
 on `:5173` for full-stack).
 
 ### API vs full-stack
@@ -159,26 +161,6 @@ Configuration is stored at `~/.vel/config.yaml` (created with `0600`
 permissions, written under a file lock so concurrent runs don't clobber
 each other).
 
-## velocity self-update
-
-Fetch and install the latest installer release.
-
-```bash
-velocity self-update
-```
-
-It checks the latest GitHub release, and if you're already on it, reports
-"Already up to date" and stops. Otherwise it downloads the archive for your
-OS/architecture, verifies it against the release `checksums.txt`, extracts
-the binary, and atomically replaces the running executable in place. On
-macOS it also clears the download quarantine attribute.
-
-{{% callout type="info" %}}
-If the installer was installed via Homebrew, `self-update` detects this and
-declines, pointing you to `brew upgrade --cask velocity` instead - let the
-package manager own the binary it installed.
-{{% /callout %}}
-
 ## velocity --version
 
 Print the installer version followed by the template tags it would scaffold.
@@ -226,18 +208,17 @@ Install or upgrade Go and run the command again.
 
 ## Updating
 
-Homebrew installs upgrade through the cask; `self-update` detects a
-Homebrew install and points you here rather than replacing the binary
-itself:
+Homebrew upgrades `velocity` and `vel` together:
 
 ```bash
 brew upgrade --cask velocity
 ```
 
-Manual installs use `velocity self-update` as described above.
+Go installs update by re-running the two `go install` lines.
 
-The per-project `vel` binary is rebuilt automatically by `vel serve` and
-`velocity new`. To rebuild it by hand from the project root:
+The project's own `./vel` binary is rebuilt by the `vel` launcher on every
+call, by `vel serve` on every Go change, and by `velocity new`. To rebuild
+it by hand from the project root:
 
 ```bash
 go build -o vel .

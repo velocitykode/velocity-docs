@@ -183,7 +183,7 @@ Key parts:
 One command runs both:
 
 ```bash
-./vel serve
+vel serve
 ```
 
 It starts the Go server on port 4000 and the Vite dev server on 5173,
@@ -191,7 +191,7 @@ rebuilds and restarts Go on every `.go` change, and stops both on `Ctrl-C`.
 See [Local Development]({{< relref "/docs/getting-started/local-development" >}})
 for what happens in the background.
 
-To run them separately, `./vel serve --no-watch` for Go in one terminal and
+To run them separately, `vel serve --no-watch` for Go in one terminal and
 `npm run dev` in another.
 
 ### Development vs Production

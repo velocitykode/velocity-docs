@@ -6,11 +6,17 @@ keywords: [vel commands, velocity cli, migrations, code generation, hot reload]
 aliases: ["/docs/cli/commands/", "/docs/cli/"]
 ---
 
-`vel` is the per-project binary. It's created in your project root when
-you scaffold an app with `velocity new`. Run `./vel <command>` - or
-alias `vel` to `./vel` in your shell - from the project directory.
+`vel` runs your project's commands. Each project builds its own CLI
+binary, `./vel`, from its `main.go`, so every command comes from the
+framework version the project pins. The global `vel` launcher, installed
+with the [Velocity Installer]({{< relref "installer" >}}), finds the
+enclosing project from any subdirectory, rebuilds `./vel` when the source
+changed, and hands it the command line.
 
-For the installer CLI (`velocity new`, `velocity self-update`, etc.),
+Without the launcher, run `./vel <command>` (`.\vel.exe` on Windows) or
+`go run . <command>` from the project root. They behave the same.
+
+For the installer CLI (`velocity new`, `velocity config`, etc.),
 see [Velocity Installer]({{< relref "installer" >}}).
 
 ## Command grammar

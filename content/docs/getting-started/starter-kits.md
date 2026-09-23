@@ -40,7 +40,7 @@ velocity new myapp --stack react
 What ships:
 
 - **UI**: shadcn/ui components on Radix primitives, Headless UI, lucide-react icons, Tailwind CSS 4.
-- **Build**: Vite 7 with the [Velocity Vite plugin](https://www.npmjs.com/package/@velocitykode/velocity-vite-plugin); `./vel serve` runs Go and Vite together with live reload.
+- **Build**: Vite 7 with the [Velocity Vite plugin](https://www.npmjs.com/package/@velocitykode/velocity-vite-plugin); `vel serve` runs Go and Vite together with live reload.
 - **Pages**: `Home`, `Dashboard`, and `Auth/Login`, `Auth/Register` under `resources/js/pages`, plus an auth layout.
 - **Routes**: `/`, `/login`, `/register`, `/logout`, `/dashboard` (guarded), and `/health`.
 - **Auth**: session scheme (`AUTH_SCHEME=web`), CSRF enabled, flash-based validation errors on the forms.
@@ -88,11 +88,11 @@ What ships:
 
 All three kits leave you at the same place. The installer has already run
 the initial migrations when the database was reachable; if it was not, run
-`./vel migrate` first.
+`vel migrate` first.
 
 ```bash
 cd myapp
-./vel serve
+vel serve
 ```
 
 The Go server listens on `http://localhost:4000`; full-stack kits also start
