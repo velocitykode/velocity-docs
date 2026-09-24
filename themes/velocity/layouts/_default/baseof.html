@@ -49,6 +49,22 @@
   <meta name="twitter:title" content="{{ .Title }}">
   <meta name="twitter:description" content="{{ with .Description }}{{ . }}{{ else }}{{ .Site.Params.description }}{{ end }}">
 
+  <link rel="canonical" href="{{ .Permalink }}">
+
+  {{- /* Structured data: each docs page is a TechArticle with its breadcrumb trail. */}}
+  {{- if and .IsPage (eq .Section "docs") }}
+  {{- $crumbs := slice }}
+  {{- range .Ancestors.Reverse }}
+    {{- if not .IsHome }}
+    {{- $crumbs = $crumbs | append (dict "@type" "ListItem" "position" (add (len $crumbs) 1) "name" .Title "item" .Permalink) }}
+    {{- end }}
+  {{- end }}
+  {{- $crumbs = $crumbs | append (dict "@type" "ListItem" "position" (add (len $crumbs) 1) "name" .Title "item" .Permalink) }}
+  {{- $article := dict "@type" "TechArticle" "headline" .Title "description" (.Description | default .Site.Params.description) "url" .Permalink "inLanguage" "en" "isPartOf" (dict "@type" "WebSite" "name" "Velocity" "url" "https://vel.build/") "about" (dict "@type" "SoftwareApplication" "name" "Velocity" "applicationCategory" "DeveloperApplication" "operatingSystem" "Linux, macOS, Windows" "url" "https://vel.build/") }}
+  {{- if not .Lastmod.IsZero }}{{ $article = merge $article (dict "dateModified" (.Lastmod.Format "2006-01-02")) }}{{ end }}
+  <script type="application/ld+json">{{ dict "@context" "https://schema.org" "@graph" (slice $article (dict "@type" "BreadcrumbList" "itemListElement" $crumbs)) | jsonify | safeJS }}</script>
+  {{- end }}
+
   <link rel="alternate" type="text/plain" title="llms.txt" href="{{ "llms.txt" | absURL }}">
   <link rel="alternate" type="text/plain" title="llms-full.txt" href="{{ "llms-full.txt" | absURL }}">
 
