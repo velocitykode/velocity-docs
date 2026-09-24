@@ -1,0 +1,22 @@
+{{- /* Only /docs pages belong here: vel.build/ and the rest of the origin are
+       served by velocity-web. URLs drop the trailing slash because vel.build
+       redirects /docs/x/ to /docs/x, and a sitemap must list final URLs. */ -}}
+{{ printf "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>" | safeHTML }}
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  {{- range where .Pages "Section" "docs" }}
+  {{- if and .Permalink (ne .Sitemap.Disable true) }}
+  <url>
+    <loc>{{ strings.TrimSuffix "/" .Permalink }}</loc>
+    {{- if not .Lastmod.IsZero }}
+    <lastmod>{{ .Lastmod.Format "2006-01-02" }}</lastmod>
+    {{- end }}
+    {{- with .Sitemap.ChangeFreq }}
+    <changefreq>{{ . }}</changefreq>
+    {{- end }}
+    {{- if ge .Sitemap.Priority 0.0 }}
+    <priority>{{ .Sitemap.Priority }}</priority>
+    {{- end }}
+  </url>
+  {{- end }}
+  {{- end }}
+</urlset>
