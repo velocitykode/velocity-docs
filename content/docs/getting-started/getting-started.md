@@ -1,6 +1,6 @@
 ---
 title: Getting Started
-seo_title: "Install Velocity and Create Your First App"
+seo_title: Installation and First App
 description: Install Velocity CLI, create your first Go web application, and run the development server with hot reload.
 weight: 10
 ---
