@@ -38,7 +38,7 @@
   {{ end }}
 
   <!-- Open Graph -->
-  <meta property="og:title" content="{{ .Title }}">
+  <meta property="og:title" content="{{ .Params.seo_title | default .Title }}">
   <meta property="og:description" content="{{ with .Description }}{{ . }}{{ else }}{{ .Site.Params.description }}{{ end }}">
   <meta property="og:type" content="{{ if .IsPage }}article{{ else }}website{{ end }}">
   <meta property="og:url" content="{{ $url }}">
@@ -48,7 +48,7 @@
 
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="{{ .Title }}">
+  <meta name="twitter:title" content="{{ .Params.seo_title | default .Title }}">
   <meta name="twitter:description" content="{{ with .Description }}{{ . }}{{ else }}{{ .Site.Params.description }}{{ end }}">
 
   <link rel="canonical" href="{{ $url }}">
@@ -62,7 +62,7 @@
     {{- end }}
   {{- end }}
   {{- $crumbs = $crumbs | append (dict "@type" "ListItem" "position" (add (len $crumbs) 1) "name" .Title "item" (strings.TrimSuffix "/" .Permalink)) }}
-  {{- $article := dict "@type" "TechArticle" "headline" .Title "description" (.Description | default .Site.Params.description) "url" $url "inLanguage" "en" "isPartOf" (dict "@type" "WebSite" "name" "Velocity" "url" "https://vel.build/") "about" (dict "@type" "SoftwareApplication" "name" "Velocity" "applicationCategory" "DeveloperApplication" "operatingSystem" "Linux, macOS, Windows" "url" "https://vel.build/") }}
+  {{- $article := dict "@type" "TechArticle" "headline" (.Params.seo_title | default .Title) "description" (.Description | default .Site.Params.description) "url" $url "inLanguage" "en" "isPartOf" (dict "@type" "WebSite" "name" "Velocity" "url" "https://vel.build/") "about" (dict "@type" "SoftwareApplication" "name" "Velocity" "applicationCategory" "DeveloperApplication" "operatingSystem" "Linux, macOS, Windows" "url" "https://vel.build/") }}
   {{- if not .Lastmod.IsZero }}{{ $article = merge $article (dict "dateModified" (.Lastmod.Format "2006-01-02")) }}{{ end }}
   <script type="application/ld+json">{{ dict "@context" "https://schema.org" "@graph" (slice $article (dict "@type" "BreadcrumbList" "itemListElement" $crumbs)) | jsonify | safeJS }}</script>
   {{- end }}

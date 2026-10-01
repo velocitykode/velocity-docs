@@ -1,5 +1,6 @@
 ---
 title: Getting Started
+seo_title: "Database and ORM: Getting Started"
 description: Connect to PostgreSQL, MySQL, or SQLite and define models with Velocity's hand-rolled, ctx-first ORM.
 weight: 10
 ---
